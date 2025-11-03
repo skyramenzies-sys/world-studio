@@ -4,11 +4,15 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
     plugins: [react()],
     build: {
-        outDir: 'dist',
-        sourcemap: true
+        rollupOptions: {
+            onwarn(warning, warn) {
+                // Suppress warnings
+                if (warning.code === 'UNUSED_EXTERNAL_IMPORT') return;
+                warn(warning);
+            }
+        }
     },
     server: {
-        port: 3000,
-        open: true
+        port: 3000
     }
 })
