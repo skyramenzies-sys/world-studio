@@ -1,0 +1,5 @@
+[phases.setup]
+nixPkgs = ['nodejs', 'python310', 'python310Packages.pip']
+
+[phases.install]
+cmds = ['npm install', 'pip install yfinance scikit-learn pandas numpy --break-system-packages']

@@ -307,8 +307,8 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                         type="button"
                                         onClick={() => setUploadData({ ...uploadData, type: type.id })}
                                         className={`p-4 rounded-xl border-2 transition-all ${uploadData.type === type.id
-                                                ? 'border-cyan-500 bg-cyan-500/20'
-                                                : 'border-white/20 bg-white/5 hover:bg-white/10'
+                                            ? 'border-cyan-500 bg-cyan-500/20'
+                                            : 'border-white/20 bg-white/5 hover:bg-white/10'
                                             }`}
                                     >
                                         <Icon className="w-8 h-8 mx-auto mb-2 text-white" />
@@ -330,8 +330,8 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                 onDragOver={handleDrag}
                                 onDrop={handleDrop}
                                 className={`border-2 border-dashed rounded-xl p-12 text-center transition-all ${dragActive
-                                        ? 'border-cyan-500 bg-cyan-500/10'
-                                        : 'border-white/30 hover:border-white/50'
+                                    ? 'border-cyan-500 bg-cyan-500/10'
+                                    : 'border-white/30 hover:border-white/50'
                                     }`}
                             >
                                 <Upload className="w-16 h-16 mx-auto mb-4 text-white/40" />
@@ -346,7 +346,7 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                         className="hidden"
                                     />
                                 </label>
-                                <p className="text-white/40 text-xs mt-4">Maximum file size: 5MB</p>
+                                <p className="text-white/40 text-xs mt-4">Maximum file size: 10MB</p>
                             </div>
                         ) : (
                             <div className="relative">
@@ -444,8 +444,8 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                     type="button"
                                     onClick={() => setUploadData({ ...uploadData, category: cat.id })}
                                     className={`p-3 rounded-xl border transition-all ${uploadData.category === cat.id
-                                            ? 'border-cyan-500 bg-cyan-500/20'
-                                            : 'border-white/20 bg-white/5 hover:bg-white/10'
+                                        ? 'border-cyan-500 bg-cyan-500/20'
+                                        : 'border-white/20 bg-white/5 hover:bg-white/10'
                                         }`}
                                 >
                                     <span className="text-2xl block mb-1">{cat.icon}</span>
@@ -473,8 +473,8 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                 type="button"
                                 onClick={() => setUploadData({ ...uploadData, isFree: true, price: 0 })}
                                 className={`p-4 rounded-xl border-2 transition-all ${uploadData.isFree
-                                        ? 'border-green-500 bg-green-500/20'
-                                        : 'border-white/20 bg-white/5 hover:bg-white/10'
+                                    ? 'border-green-500 bg-green-500/20'
+                                    : 'border-white/20 bg-white/5 hover:bg-white/10'
                                     }`}
                             >
                                 <div className="text-3xl mb-2">🆓</div>
@@ -486,8 +486,8 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                 type="button"
                                 onClick={() => setUploadData({ ...uploadData, isFree: false, price: 5 })}
                                 className={`p-4 rounded-xl border-2 transition-all ${!uploadData.isFree
-                                        ? 'border-yellow-500 bg-yellow-500/20'
-                                        : 'border-white/20 bg-white/5 hover:bg-white/10'
+                                    ? 'border-yellow-500 bg-yellow-500/20'
+                                    : 'border-white/20 bg-white/5 hover:bg-white/10'
                                     }`}
                             >
                                 <div className="text-3xl mb-2">💰</div>
@@ -508,8 +508,8 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
                                                 type="button"
                                                 onClick={() => setUploadData({ ...uploadData, price })}
                                                 className={`flex-1 py-2 rounded-lg font-semibold transition-all ${uploadData.price === price
-                                                        ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
-                                                        : 'bg-white/10 text-white hover:bg-white/20'
+                                                    ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
+                                                    : 'bg-white/10 text-white hover:bg-white/20'
                                                     }`}
                                             >
                                                 ${price}
