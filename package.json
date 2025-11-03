@@ -21,6 +21,7 @@
     "web-vitals": "^5.1.0"
   },
   "scripts": {
+    "start": "node server.js",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint. --ext js,jsx --report-unused-disable-directives --max-warnings 999",
