@@ -15,7 +15,7 @@ const StockPredictor = () => {
 
     const fetchSupportedStocks = async () => {
         try {
-            const response = await fetch('http://localhost:5000/api/stocks/supported');
+            const response = await fetch('https://world-studio-production.up.railway.app/api/stocks/supported');
             const data = await response.json();
             setStocks(data);
         } catch (err) {
@@ -28,7 +28,7 @@ const StockPredictor = () => {
         setError(null);
 
         try {
-            const response = await fetch('http://localhost:5000/api/stocks/predict', {
+            const response = await fetch('https://world-studio-production.up.railway.app/api/stocks/predict', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
