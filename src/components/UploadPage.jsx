@@ -60,9 +60,9 @@ function UploadPage({ currentUser, currentPage, setCurrentPage, onUpload, onLogo
         }
 
         // Check file size - Maximum 10MB voor origineel bestand
-        const maxSize = 10 * 1024 * 1024; // 10MB
+        const maxSize = 1000 * 1024 * 1024; // 1000MB
         if (file.size > maxSize) {
-            alert('❌ Bestand is te groot! Maximum 10MB toegestaan.');
+            alert('❌ Bestand is te groot! Maximum 1000MB toegestaan.');
             return;
         }
 
