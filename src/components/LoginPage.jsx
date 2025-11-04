@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, Eye, EyeOff, Trash2 } from 'lucide-react';
 
-function LoginPage({ onLogin }) {
+function LoginPage({ onLogin, onRegister }) {
     const [isLogin, setIsLogin] = useState(true);
     const [showPassword, setShowPassword] = useState(false);
     const [formData, setFormData] = useState({
@@ -15,7 +15,7 @@ function LoginPage({ onLogin }) {
     const [success, setSuccess] = useState('');
 
     // LocalStorage key voor users
-    const USERS_KEY = 'world_studio_users';
+    const USERS_KEY = 'ws_users';
 
     // Haal alle users op uit localStorage
     const getUsers = () => {
@@ -23,15 +23,12 @@ function LoginPage({ onLogin }) {
         return users ? JSON.parse(users) : [];
     };
 
-    // Sla users op in localStorage
-    const saveUsers = (users) => {
-        localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    };
-
     // ✅ NIEUWE FUNCTIE: Clear alle users uit de database
     const clearDatabase = () => {
         if (window.confirm('⚠️ Weet je zeker dat je alle gebruikers wilt verwijderen? Dit kan niet ongedaan worden!')) {
             localStorage.removeItem(USERS_KEY);
+            localStorage.removeItem('ws_currentUser');
+            localStorage.removeItem('ws_posts');
             setError('');
             setSuccess('✅ Database cleared! You can now register again.');
             setFormData({
@@ -45,13 +42,6 @@ function LoginPage({ onLogin }) {
         }
     };
 
-    // ✅ NIEUWE FUNCTIE: Verwijder een specifieke user
-    const removeUserByEmail = (email) => {
-        const users = getUsers();
-        const filteredUsers = users.filter(user => user.email !== email);
-        saveUsers(filteredUsers);
-    };
-
     const handleInputChange = (e) => {
         setFormData({
             ...formData,
@@ -60,19 +50,22 @@ function LoginPage({ onLogin }) {
         setError('');
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
         setSuccess('');
 
         if (isLogin) {
             // ✅ LOGIN using App.jsx callback
-            const result = onLogin({ type: 'login', email: formData.email, password: formData.password });
-
-            if (result) {
-                setSuccess('✅ Login successful!');
-            } else {
-                setError('❌ Invalid email or password');
+            try {
+                const result = await onLogin(formData.email, formData.password);
+                if (result) {
+                    setSuccess('✅ Login successful!');
+                } else {
+                    setError('❌ Invalid email or password');
+                }
+            } catch (err) {
+                setError('❌ Login failed: ' + err.message);
             }
         } else {
             // ✅ REGISTER with validation
@@ -99,19 +92,15 @@ function LoginPage({ onLogin }) {
             }
 
             // ✅ REGISTER using App.jsx callback
-            const result = onLogin({
-                type: 'register',
-                username: formData.username,
-                email: formData.email,
-                password: formData.password,
-                age: age
-            });
-
-            if (result.success) {
-                setSuccess('✅ Account created! You are now logged in!');
-                // User is automatically logged in by App.jsx
-            } else {
-                setError(`❌ ${result.error}`);
+            try {
+                const result = await onRegister(formData.email, formData.username, formData.password);
+                if (result) {
+                    setSuccess('✅ Account created! You are now logged in!');
+                } else {
+                    setError('❌ Registration failed');
+                }
+            } catch (err) {
+                setError('❌ Registration failed: ' + err.message);
             }
         }
     };
@@ -130,7 +119,7 @@ function LoginPage({ onLogin }) {
                     <div className="bg-gradient-to-r from-cyan-500 to-purple-500 p-8 text-center">
                         <h1 className="text-4xl font-bold text-white mb-2">World-Studio</h1>
                         <p className="text-white/80">
-                            {isLogin ? 'Welkom terug! 👋' : 'Maak je account aan 🚀'}
+                            {isLogin ? 'Welcome back! 👋' : 'Create your account 🚀'}
                         </p>
                     </div>
 
@@ -162,7 +151,7 @@ function LoginPage({ onLogin }) {
                                             value={formData.username}
                                             onChange={handleInputChange}
                                             className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-transparent transition-all"
-                                            placeholder="Jouw username"
+                                            placeholder="Your username"
                                             required={!isLogin}
                                         />
                                     </div>
@@ -205,7 +194,7 @@ function LoginPage({ onLogin }) {
                                         value={formData.email}
                                         onChange={handleInputChange}
                                         className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-transparent transition-all"
-                                        placeholder="jouw@email.com"
+                                        placeholder="your@email.com"
                                         required
                                     />
                                 </div>
@@ -213,7 +202,7 @@ function LoginPage({ onLogin }) {
 
                             <div>
                                 <label className="block text-sm font-medium text-white/80 mb-2">
-                                    Wachtwoord
+                                    Password
                                 </label>
                                 <div className="relative">
                                     <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40" />
@@ -239,7 +228,7 @@ function LoginPage({ onLogin }) {
                             {!isLogin && (
                                 <div>
                                     <label className="block text-sm font-medium text-white/80 mb-2">
-                                        Bevestig Wachtwoord
+                                        Confirm Password
                                     </label>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-white/40" />
@@ -260,7 +249,7 @@ function LoginPage({ onLogin }) {
                                 type="submit"
                                 className="w-full py-3 bg-gradient-to-r from-cyan-500 to-purple-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/50 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
                             >
-                                {isLogin ? 'Inloggen 🚀' : 'Account Aanmaken 🎉'}
+                                {isLogin ? 'Login 🚀' : 'Create Account 🎉'}
                             </button>
                         </form>
 
@@ -274,21 +263,22 @@ function LoginPage({ onLogin }) {
                                         username: '',
                                         email: '',
                                         password: '',
-                                        confirmPassword: ''
+                                        confirmPassword: '',
+                                        age: ''
                                     });
                                 }}
                                 className="text-cyan-400 hover:text-cyan-300 text-sm transition-colors"
                             >
                                 {isLogin
-                                    ? "Nog geen account? Registreer hier"
-                                    : "Heb je al een account? Login hier"}
+                                    ? "Don't have an account? Register here"
+                                    : "Already have an account? Login here"}
                             </button>
                         </div>
 
-                        {/* ✅ NIEUWE SECTIE: Database Management */}
+                        {/* Database Management */}
                         <div className="mt-8 pt-6 border-t border-white/10">
                             <p className="text-white/60 text-xs text-center mb-3">
-                                Geregistreerde users: {currentUsers.length}
+                                Registered users: {currentUsers.length}
                             </p>
                             <button
                                 type="button"
@@ -296,31 +286,9 @@ function LoginPage({ onLogin }) {
                                 className="w-full py-2 bg-red-500/20 border border-red-500/50 text-red-300 rounded-xl text-sm font-medium hover:bg-red-500/30 transition-all flex items-center justify-center gap-2"
                             >
                                 <Trash2 className="w-4 h-4" />
-                                Clear Database (Reset Alles)
+                                Clear Database (Reset All)
                             </button>
                         </div>
-
-                        {/* Debug info */}
-                        {currentUsers.length > 0 && (
-                            <div className="mt-4 p-3 bg-white/5 rounded-xl">
-                                <p className="text-white/60 text-xs mb-2">Geregistreerde emails:</p>
-                                {currentUsers.map((user, index) => (
-                                    <div key={index} className="flex items-center justify-between text-xs text-white/40 mb-1">
-                                        <span>{user.email}</span>
-                                        <button
-                                            onClick={() => {
-                                                removeUserByEmail(user.email);
-                                                setSuccess(`✅ ${user.email} verwijderd`);
-                                                setTimeout(() => setSuccess(''), 2000);
-                                            }}
-                                            className="text-red-400 hover:text-red-300 text-xs"
-                                        >
-                                            Verwijder
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                     </div>
                 </div>
 
