@@ -33,6 +33,52 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
+// Create new post
+router.post('/', auth, async (req, res) => {
+    try {
+        const newPost = new Post({
+            userId: req.userId,
+            username: req.user.username,
+            avatar: req.user.avatar,
+            title: req.body.title,
+            description: req.body.description,
+            type: req.body.type,
+            category: req.body.category,
+            fileUrl: req.body.fileUrl,
+            fileName: req.body.fileName,
+            fileSize: req.body.fileSize,
+            isFree: req.body.isFree !== undefined ? req.body.isFree : true,
+            price: req.body.price || 0,
+            isPremium: req.body.isPremium || false,
+            thumbnail: req.body.thumbnail
+        });
+
+        await newPost.save();
+
+        res.status(201).json({
+            id: newPost._id,
+            userId: newPost.userId,
+            username: newPost.username,
+            avatar: newPost.avatar,
+            title: newPost.title,
+            description: newPost.description,
+            type: newPost.type,
+            category: newPost.category,
+            fileUrl: newPost.fileUrl,
+            isFree: newPost.isFree,
+            price: newPost.price,
+            isPremium: newPost.isPremium,
+            likes: newPost.likes,
+            views: newPost.views,
+            comments: newPost.comments,
+            likedBy: newPost.likedBy,
+            timestamp: newPost.createdAt
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Like post
 router.post('/:id/like', auth, async (req, res) => {
     try {
