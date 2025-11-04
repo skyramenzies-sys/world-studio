@@ -1,6 +1,6 @@
 import StockPredictor from './components/StockPredictor';
 import React, { useState, useEffect } from 'react';
-import { postsAPI } from './services/api';
+import { postsAPI, authAPI, usersAPI } from './services/api';
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
 import UploadPage from './components/UploadPage';
@@ -89,10 +89,8 @@ function App() {
             localStorage.setItem('ws_posts', JSON.stringify(apiPosts));
         } catch (error) {
             console.error('Failed to load posts from API:', error);
-            // Fallback to localStorage if API fails
         }
     };
-
     useEffect(() => {
         try {
             const success = safeLocalStorageSet('ws_posts', JSON.stringify(posts));
@@ -124,16 +122,48 @@ function App() {
     // ... (keep ALL your existing handler functions - not changing those either)
     // I'll skip pasting them all here to save space, but KEEP THEM ALL!
 
-    const handleLogin = (email, password) => {
-        const user = users.find(u => u.email === email && u.password === password);
-        if (user) {
-            setCurrentUser(user);
-            localStorage.setItem('ws_currentUser', JSON.stringify(user));
-            setCurrentPage(user.role === 'admin' ? 'admin' : 'home');
-            console.log(`✅ User logged in: ${user.username}`);
+    const handleLogin = async (email, password) => {
+        try {
+            const response = await authAPI.login(email, password);
+
+            const loggedInUser = {
+                id: response.userId,
+                username: response.username,
+                email: response.email,
+                role: response.role || 'user',
+                avatar: response.avatar || '👤',
+                token: response.token,
+                followers: response.followers || [],
+                following: response.following || [],
+                totalViews: response.totalViews || 0,
+                totalLikes: response.totalLikes || 0,
+                earnings: response.earnings || 0,
+                bio: response.bio || '',
+                notifications: response.notifications || []
+            };
+
+            setCurrentUser(loggedInUser);
+            localStorage.setItem('ws_currentUser', JSON.stringify(loggedInUser));
+
+            await loadPostsFromAPI();
+
+            setCurrentPage('home');
             return true;
+        } catch (error) {
+            console.error('❌ Login failed:', error);
+
+            // Fallback to local login for existing users
+            const user = users.find(u => u.email === email && u.password === password);
+            if (user) {
+                setCurrentUser(user);
+                localStorage.setItem('ws_currentUser', JSON.stringify(user));
+                setCurrentPage('home');
+                return true;
+            }
+
+            alert(error.message || 'Invalid credentials');
+            return false;
         }
-        return false;
     };
 
     const handleRegister = (registerData) => {
