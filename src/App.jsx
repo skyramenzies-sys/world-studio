@@ -1,5 +1,6 @@
 import StockPredictor from './components/StockPredictor';
 import React, { useState, useEffect } from 'react';
+import { postsAPI } from './services/api';
 import LoginPage from './components/LoginPage';
 import AdminDashboard from './components/AdminDashboard';
 import UploadPage from './components/UploadPage';
@@ -32,8 +33,8 @@ function App() {
     });
 
     // ... (keep all your existing useEffect hooks - I'm not changing those)
+
     useEffect(() => {
-        const savedPosts = JSON.parse(localStorage.getItem('ws_posts') || '[]');
         const savedUsers = JSON.parse(localStorage.getItem('ws_users') || '[]');
         const savedCurrentUser = JSON.parse(localStorage.getItem('ws_currentUser') || 'null');
         const savedTransactions = JSON.parse(localStorage.getItem('ws_transactions') || '[]');
@@ -41,7 +42,10 @@ function App() {
         const savedMessages = JSON.parse(localStorage.getItem('ws_messages') || '[]');
         const savedStories = JSON.parse(localStorage.getItem('ws_stories') || '[]');
 
+        // Load posts from localStorage as fallback
+        const savedPosts = JSON.parse(localStorage.getItem('ws_posts') || '[]');
         setPosts(savedPosts);
+
         setUsers(savedUsers);
         setCurrentUser(savedCurrentUser);
         setTransactions(savedTransactions);
@@ -49,8 +53,10 @@ function App() {
         setMessages(savedMessages);
         setStories(savedStories);
 
+        // If user is logged in, fetch posts from API
         if (savedCurrentUser) {
             setCurrentPage('home');
+            loadPostsFromAPI();
         }
 
         if (savedUsers.length === 0) {
@@ -74,6 +80,19 @@ function App() {
             localStorage.setItem('ws_users', JSON.stringify(newUsers));
         }
     }, []);
+
+    // Function to load posts from API
+    const loadPostsFromAPI = async () => {
+        try {
+            const response = await fetch(world - studio - production.up.railway.app / api / posts);
+            const apiPosts = await postsAPI.getAll();
+            setPosts(apiPosts);
+            localStorage.setItem('ws_posts', JSON.stringify(apiPosts));
+        } catch (error) {
+            console.error('Failed to load posts from API:', error);
+            // Fallback to localStorage if API fails
+        }
+    };
 
     useEffect(() => {
         try {
@@ -165,8 +184,8 @@ function App() {
     };
 
     // ✅ VERBETERDE UPLOAD FUNCTIE - Slaat nu echte fileUrl op!
-    const handleUpload = (uploadData) => {
-        // ✅ NULL CHECK - Voorkom error als currentUser null is
+    const handleUpload = async (uploadData) => {
+        // ✅ NULL CHECK
         if (!currentUser) {
             console.error('❌ No user logged in!');
             alert('Please login first!');
@@ -174,45 +193,42 @@ function App() {
             return;
         }
 
-        const newPost = {
-            id: `post-${Date.now()}`,
-            userId: currentUser.id,
-            username: currentUser.username,
-            avatar: currentUser.avatar,
-            title: uploadData.title,
-            description: uploadData.description,
-            type: uploadData.type,
-            category: uploadData.category,
-            fileUrl: uploadData.fileUrl, // ✅ ECHTE AFBEELDING URL!
-            fileName: uploadData.fileName,
-            fileSize: uploadData.fileSize,
-            // 💰 MONETIZATION DATA
-            isFree: uploadData.isFree !== undefined ? uploadData.isFree : true,
-            price: uploadData.price || 0,
-            isPremium: uploadData.isPremium || false,
-            purchasedBy: uploadData.purchasedBy || [], // Users who bought this
-            sales: 0, // Track number of sales
-            revenue: 0, // Track total revenue
-            likes: 0,
-            views: 0,
-            comments: [],
-            likedBy: [],
-            timestamp: new Date().toISOString(),
-            thumbnail: uploadData.type === 'image' ? '🖼️' : uploadData.type === 'video' ? '🎬' : '🎵'
-        };
+        try {
+            // Create post via API
+            const newPost = await postsAPI.create({
+                title: uploadData.title,
+                description: uploadData.description,
+                type: uploadData.type,
+                category: uploadData.category,
+                fileUrl: uploadData.fileUrl,
+                fileName: uploadData.fileName,
+                fileSize: uploadData.fileSize,
+                isFree: uploadData.isFree !== undefined ? uploadData.isFree : true,
+                price: uploadData.price || 0,
+                isPremium: uploadData.isPremium || false,
+                thumbnail: uploadData.type === 'image' ? '🖼️' : uploadData.type === 'video' ? '🎬' : '🎵'
+            });
 
-        console.log('📤 Uploading post with fileUrl:', newPost.fileUrl ? 'YES' : 'NO');
-        console.log('💰 Pricing:', newPost.isFree ? 'FREE' : `$${newPost.price}`);
+            console.log('✅ Post created via API:', newPost);
 
-        setPosts([newPost, ...posts]);
+            // Update local state
+            setPosts([newPost, ...posts]);
 
-        // Update user's total revenue if paid content
-        if (!newPost.isFree && newPost.price > 0) {
-            console.log(`💰 Created paid content for $${newPost.price}`);
+            // Also save to localStorage as backup
+            const updatedPosts = [newPost, ...posts];
+            localStorage.setItem('ws_posts', JSON.stringify(updatedPosts));
+
+            if (!newPost.isFree && newPost.price > 0) {
+                console.log(`💰 Created paid content for $${newPost.price}`);
+            }
+
+            setCurrentPage('home');
+        } catch (error) {
+            console.error('❌ Failed to create post:', error);
+            alert('Failed to create post. Please try again.');
         }
-
-        setCurrentPage('home');
     };
+
 
     const handleLike = (postId) => {
         if (!currentUser) {
