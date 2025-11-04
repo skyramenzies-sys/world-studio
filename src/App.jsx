@@ -84,7 +84,6 @@ function App() {
     // Function to load posts from API
     const loadPostsFromAPI = async () => {
         try {
-            const response = await fetch(world - studio - production.up.railway.app / api / posts);
             const apiPosts = await postsAPI.getAll();
             setPosts(apiPosts);
             localStorage.setItem('ws_posts', JSON.stringify(apiPosts));
