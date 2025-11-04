@@ -166,50 +166,53 @@ function App() {
         }
     };
 
-    const handleRegister = (registerData) => {
-        // Check if email already exists
-        if (users.some(u => u.email === registerData.email)) {
-            return { success: false, error: 'Email already in use' };
+    const handleRegister = async (email, username, password) => {
+        try {
+            // Register via backend API
+            const response = await authAPI.register({
+                email,
+                username,
+                password,
+                avatar: '👤',
+                bio: ''
+            });
+
+            // Create user object with token
+            const newUser = {
+                id: response.userId,
+                username: response.username,
+                email: response.email,
+                role: response.role || 'user',
+                avatar: response.avatar || '👤',
+                token: response.token,
+                followers: [],
+                following: [],
+                totalViews: 0,
+                totalLikes: 0,
+                earnings: 0,
+                bio: response.bio || '',
+                notifications: []
+            };
+
+            // Update local state
+            const updatedUsers = [...users, newUser];
+            setUsers(updatedUsers);
+            localStorage.setItem('ws_users', JSON.stringify(updatedUsers));
+
+            // Auto-login after registration
+            setCurrentUser(newUser);
+            localStorage.setItem('ws_currentUser', JSON.stringify(newUser));
+
+            // Load posts
+            await loadPostsFromAPI();
+
+            setCurrentPage('home');
+            return true;
+        } catch (error) {
+            console.error('❌ Registration failed:', error);
+            alert(error.message || 'Registration failed. Please try again.');
+            return false;
         }
-
-        // ✅ 18+ AGE CHECK
-        if (registerData.age && parseInt(registerData.age) < 18) {
-            return { success: false, error: 'You must be 18 or older to register' };
-        }
-
-        const newUser = {
-            id: `user-${Date.now()}`,
-            username: registerData.username,
-            email: registerData.email,
-            password: registerData.password,
-            age: registerData.age || null,
-            role: 'creator',
-            avatar: ['🎨', '🎬', '🎵', '📸', '✨'][Math.floor(Math.random() * 5)],
-            followers: [],          // Array of user IDs
-            following: [],          // Array of user IDs
-            subscriptions: [],      // 💎 Array of subscriptions (user subscribes TO creators)
-            subscribers: [],        // 💎 Array of subscribers (creators have subscribers)
-            totalViews: 0,
-            totalLikes: 0,
-            earnings: 0,
-            bio: 'New creator on World-Studio',
-            notifications: [],      // Array of notifications
-            createdAt: new Date().toISOString()
-        };
-
-        const updatedUsers = [...users, newUser];
-        setUsers(updatedUsers);
-        setCurrentUser(newUser);
-
-        // ✅ SAVE TO LOCALSTORAGE IMMEDIATELY
-        localStorage.setItem('ws_users', JSON.stringify(updatedUsers));
-        localStorage.setItem('ws_currentUser', JSON.stringify(newUser));
-
-        // ✅ AUTO-LOGIN: Go to home page
-        setCurrentPage('home');
-
-        console.log(`✅ User registered and logged in: ${newUser.username}`);
-        return { success: true };
     };
 
     // ✅ VERBETERDE UPLOAD FUNCTIE - Slaat nu echte fileUrl op!
