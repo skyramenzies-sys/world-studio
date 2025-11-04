@@ -960,6 +960,7 @@ function App() {
                 onFollow={handleFollow}
                 onUnfollow={handleUnfollow}
                 onLogout={handleLogout}
+                incrementViews={incrementViews}
             />
         );
     }
@@ -995,6 +996,7 @@ function App() {
     }
 
     return (
+        // 🏠 HOMEPAGE - shows all posts from all users
         <HomePage
             currentUser={currentUser}
             currentPage={currentPage}
@@ -1003,6 +1005,7 @@ function App() {
             users={users}
             onLike={handleLike}
             onComment={handleComment}
+            incrementViews={incrementViews}
             onView={incrementViews}
             onSupport={handleSupport}
             onPurchase={handlePurchase}

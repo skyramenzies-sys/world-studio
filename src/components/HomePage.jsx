@@ -4,8 +4,10 @@ import NavigationBar from './NavigationBar';
 import ShareModal from './ShareModal';
 import Stories from './Stories';
 import { SubscriberBadge } from './SubscriptionTiers';
+import PostCard from "./PostCard";
 
-function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLike, onComment, onView, onSupport, onPurchase, onFollow, onUnfollow, onLogout, messages, stories, onAddStory, onViewStory, onReplyToStory }) {
+function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLike, onComment, incrementViews,
+    onView, onSupport, onPurchase, onFollow, onUnfollow, onLogout, messages, stories, onAddStory, onViewStory, onReplyToStory }) {
     const [commentInputs, setCommentInputs] = useState({});
     const [expandedComments, setExpandedComments] = useState({});
     const [supportModal, setSupportModal] = useState({ show: false, postId: null, creatorId: null });
@@ -125,8 +127,8 @@ function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLi
                     <button
                         onClick={() => setFeedFilter('all')}
                         className={`px-6 py-3 rounded-xl font-semibold transition-all ${feedFilter === 'all'
-                                ? 'bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-lg'
-                                : 'bg-white/10 text-white/60 hover:bg-white/20'
+                            ? 'bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-lg'
+                            : 'bg-white/10 text-white/60 hover:bg-white/20'
                             }`}
                     >
                         🌍 All Posts
@@ -134,8 +136,8 @@ function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLi
                     <button
                         onClick={() => setFeedFilter('following')}
                         className={`px-6 py-3 rounded-xl font-semibold transition-all ${feedFilter === 'following'
-                                ? 'bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-lg'
-                                : 'bg-white/10 text-white/60 hover:bg-white/20'
+                            ? 'bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-lg'
+                            : 'bg-white/10 text-white/60 hover:bg-white/20'
                             }`}
                     >
                         👥 Following ({(currentUser?.following || []).length})
@@ -190,6 +192,17 @@ function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLi
                             return (
                                 <div
                                     key={post.id}
+                                    post={post}
+                                    currentUser={currentUser}
+                                    users={users}
+                                    onLike={onLike}
+                                    onComment={onComment}
+                                    onSupport={onSupport}
+                                    onPurchase={onPurchase}
+                                    onFollow={onFollow}
+                                    onUnfollow={onUnfollow}
+                                    incrementViews={incrementViews} // 👈 hier wordt het meegegeven
+
                                     className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden hover:border-white/30 transition-all"
                                 >
                                     {/* Post Header */}
@@ -398,8 +411,8 @@ function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLi
                                             <button
                                                 onClick={() => onLike(post.id)}
                                                 className={`flex items-center gap-2 transition-all ${post.likedBy?.includes(currentUser?.id)
-                                                        ? 'text-red-500'
-                                                        : 'text-white/60 hover:text-red-500'
+                                                    ? 'text-red-500'
+                                                    : 'text-white/60 hover:text-red-500'
                                                     }`}
                                             >
                                                 <Heart
@@ -574,8 +587,8 @@ function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLi
                                         key={amount}
                                         onClick={() => setSupportAmount(amount)}
                                         className={`flex-1 py-3 rounded-xl font-semibold transition-all ${supportAmount === amount
-                                                ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
-                                                : 'bg-white/10 text-white hover:bg-white/20'
+                                            ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
+                                            : 'bg-white/10 text-white hover:bg-white/20'
                                             }`}
                                     >
                                         ${amount}
