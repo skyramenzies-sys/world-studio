@@ -865,14 +865,12 @@ function App() {
     // ===== PAGE ROUTING =====
 
     if (currentPage === 'login') {
-        return <LoginPage onLogin={(data) => {
-            if (data.type === 'login') {
-                return handleLogin(data.email, data.password);
-            } else if (data.type === 'register') {
-                return handleRegister(data);
-            }
-        }} />;
+        return <LoginPage
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+        />;
     }
+
 
     // 📈 NEW: STOCK PREDICTOR PAGE
     if (currentPage === 'stocks') {
