@@ -1,45 +1,69 @@
+// routes/upload.js
 const express = require('express');
 const router = express.Router();
-const { upload } = require('../config/cloudinary');
 const auth = require('../middleware/auth');
 const Post = require('../models/Post');
+const { cloudinary } = require('../config/cloudinary');
+const multer = require('multer');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// Upload file and create post
+// 🔧 Cloudinary opslag configuratie
+const storage = new CloudinaryStorage({
+    cloudinary,
+    params: async (req, file) => {
+        let folder = 'world-studio/uploads';
+        let resource_type = 'auto'; // werkt voor images, videos, pdf, enz.
+
+        return {
+            folder,
+            resource_type,
+            public_id: `${Date.now()}-${file.originalname.split('.')[0]}`
+        };
+    },
+});
+
+const upload = multer({ storage });
+
+// 📤 Upload + maak nieuwe post
 router.post('/', auth, upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const { title, description, type } = req.body;
+        const { title, description, type, category, isFree, price } = req.body;
 
-        // Determine thumbnail based on type
+        // Automatische thumbnail emoji op basis van type
         const thumbnails = {
             image: '🖼️',
             video: '🎬',
-            audio: '🎵'
+            audio: '🎵',
+            document: '📄',
+            other: '📁'
         };
 
-        // Create post
+        // Maak nieuwe post aan
         const post = new Post({
             userId: req.userId,
             username: req.user.username,
             avatar: req.user.avatar,
-            title,
-            description,
-            type,
+            title: title || 'Untitled Post',
+            description: description || '',
+            type: type || 'image',
+            category: category || 'general',
             fileUrl: req.file.path,
             filePublicId: req.file.filename,
-            thumbnail: thumbnails[type] || '🖼️'
+            thumbnail: thumbnails[type] || '🖼️',
+            isFree: isFree !== undefined ? isFree : true,
+            price: price || 0
         });
 
         await post.save();
 
         res.status(201).json({
-            message: 'File uploaded successfully',
+            message: '✅ File uploaded & post created successfully!',
             post: {
                 id: post._id,
-                userId: post.userId,
                 username: post.username,
                 avatar: post.avatar,
                 title: post.title,
@@ -50,16 +74,16 @@ router.post('/', auth, upload.single('file'), async (req, res) => {
                 likes: post.likes,
                 views: post.views,
                 comments: post.comments,
-                likedBy: post.likedBy,
                 timestamp: post.createdAt
             }
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Server error: ' + error.message });
     }
 });
 
-// Get file URL (for displaying in gallery)
+// 📄 Haal een bestand op bij ID
 router.get('/file/:postId', auth, async (req, res) => {
     try {
         const post = await Post.findById(req.params.postId);
@@ -70,10 +94,12 @@ router.get('/file/:postId', auth, async (req, res) => {
 
         res.json({
             fileUrl: post.fileUrl,
-            type: post.type
+            type: post.type,
+            title: post.title
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Fetch error:', error);
+        res.status(500).json({ error: 'Server error: ' + error.message });
     }
 });
 

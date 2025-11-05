@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Heart, MessageCircle, Eye, DollarSign, Share2, MoreVertical, Send, Lock, ShoppingCart } from 'lucide-react';
 import NavigationBar from './NavigationBar';
+import axios from "axios";
 import ShareModal from './ShareModal';
 import Stories from './Stories';
 import { SubscriberBadge } from './SubscriptionTiers';
@@ -90,6 +91,11 @@ function HomePage({ currentUser, currentPage, setCurrentPage, posts, users, onLi
         };
         return emojis[category] || '📦';
     };
+
+    const HomePage = () => {
+        const [posts, setPosts] = useState([]);
+        const [loading, setLoading] = useState(true);
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">

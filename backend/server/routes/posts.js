@@ -3,8 +3,8 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const Post = require('../models/Post');
 
-// Get all posts
-router.get('/', auth, async (req, res) => {
+// ✅ Get all posts (public, geen login nodig)
+router.get('/', async (req, res) => {
     try {
         const posts = await Post.find()
             .sort({ createdAt: -1 })
@@ -12,12 +12,13 @@ router.get('/', auth, async (req, res) => {
 
         const formattedPosts = posts.map(post => ({
             id: post._id,
-            userId: post.userId._id,
-            username: post.username,
-            avatar: post.avatar,
+            userId: post.userId?._id,
+            username: post.userId?.username || 'Unknown',
+            avatar: post.userId?.avatar || '🎨',
             title: post.title,
             description: post.description,
             type: post.type,
+            category: post.category,
             fileUrl: post.fileUrl,
             thumbnail: post.thumbnail,
             likes: post.likes,
@@ -33,7 +34,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
-// Create new post
+// ✅ Create new post
 router.post('/', auth, async (req, res) => {
     try {
         const newPost = new Post({
@@ -47,7 +48,7 @@ router.post('/', auth, async (req, res) => {
             fileUrl: req.body.fileUrl,
             fileName: req.body.fileName,
             fileSize: req.body.fileSize,
-            isFree: req.body.isFree !== undefined ? req.body.isFree : true,
+            isFree: req.body.isFree ?? true,
             price: req.body.price || 0,
             isPremium: req.body.isPremium || false,
             thumbnail: req.body.thumbnail
@@ -79,14 +80,11 @@ router.post('/', auth, async (req, res) => {
     }
 });
 
-// Like post
+// ✅ Like/unlike post
 router.post('/:id/like', auth, async (req, res) => {
     try {
         const post = await Post.findById(req.params.id);
-
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
+        if (!post) return res.status(404).json({ error: 'Post not found' });
 
         const alreadyLiked = post.likedBy.includes(req.userId);
 
@@ -99,24 +97,17 @@ router.post('/:id/like', auth, async (req, res) => {
         }
 
         await post.save();
-
-        res.json({
-            likes: post.likes,
-            likedBy: post.likedBy
-        });
+        res.json({ likes: post.likes, likedBy: post.likedBy });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Add comment
+// ✅ Add comment
 router.post('/:id/comment', auth, async (req, res) => {
     try {
         const post = await Post.findById(req.params.id);
-
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
+        if (!post) return res.status(404).json({ error: 'Post not found' });
 
         const comment = {
             userId: req.userId,
@@ -128,53 +119,41 @@ router.post('/:id/comment', auth, async (req, res) => {
         post.comments.push(comment);
         await post.save();
 
-        res.json({
-            comments: post.comments
-        });
+        res.json({ comments: post.comments });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Increment views
-router.post('/:id/view', auth, async (req, res) => {
+// ✅ Increment views
+router.post('/:id/view', async (req, res) => {
     try {
         const post = await Post.findByIdAndUpdate(
             req.params.id,
             { $inc: { views: 1 } },
             { new: true }
         );
-
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
-
+        if (!post) return res.status(404).json({ error: 'Post not found' });
         res.json({ views: post.views });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Delete post
+// ✅ Delete post
 router.delete('/:id', auth, async (req, res) => {
     try {
         const post = await Post.findById(req.params.id);
+        if (!post) return res.status(404).json({ error: 'Post not found' });
 
-        if (!post) {
-            return res.status(404).json({ error: 'Post not found' });
-        }
-
-        // Check if user owns the post or is admin
         if (!post.userId.equals(req.userId) && req.user.role !== 'admin') {
             return res.status(403).json({ error: 'Unauthorized' });
         }
 
-        // Delete from Cloudinary
         const { cloudinary } = require('../config/cloudinary');
-        await cloudinary.uploader.destroy(post.filePublicId);
+        if (post.filePublicId) await cloudinary.uploader.destroy(post.filePublicId);
 
         await post.deleteOne();
-
         res.json({ message: 'Post deleted successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });

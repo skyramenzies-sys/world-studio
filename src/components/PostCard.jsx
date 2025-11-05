@@ -39,20 +39,20 @@ function PostCard({
                 <p className="text-white/80 mb-4">{post.description}</p>
             </div>
 
-            {post.fileUrl && (
+            <div className="bg-gray-900 rounded-2xl shadow-xl overflow-hidden hover:shadow-sky-500/30 transition">
                 <img
-                    src={post.fileUrl}
+                    src={imageUrl}
                     alt={post.title}
                     className="w-full max-h-[600px] object-cover"
                 />
-            )}
+            </div>
 
             <div className="p-6 flex items-center gap-6">
                 <button
                     onClick={() => onLike(post.id)}
                     className={`flex items-center gap-2 transition-all ${post.likedBy?.includes(currentUser?.id)
-                            ? "text-red-500"
-                            : "text-white/60 hover:text-red-500"
+                        ? "text-red-500"
+                        : "text-white/60 hover:text-red-500"
                         }`}
                 >
                     <Heart
