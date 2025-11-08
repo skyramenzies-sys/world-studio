@@ -1,73 +1,72 @@
-// routes/upload.js
-const express = require('express');
+// backend/routes/upload.js
+const express = require("express");
 const router = express.Router();
-const multer = require('multer');
-const { storage, cloudinary } = require('../config/cloudinary');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const auth = require('../middleware/auth');
-const Post = require('../models/Post');
-const User = require('../models/User');
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const cloudinary = require("cloudinary").v2;
+const Post = require("../models/Post");
+const auth = require("../middleware/auth");
 
-const multerStorage = storage; // from config
-const upload = multer({ storage: multerStorage });
-
-// Upload a file and create a post
-router.post('/', auth, upload.single('file'), async (req, res) => {
-    try {
-        if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
-        if (!req.file || !req.file.path) return res.status(400).json({ error: 'No file uploaded' });
-
-        const { title, description, type, category, isFree, price, isPremium } = req.body;
-
-        const post = new Post({
-            userId: req.userId,
-            username: req.user.username,
-            avatar: req.user.avatar,
-            title: title || 'Untitled',
-            description: description || '',
-            type: type || req.file.mimetype?.startsWith('video') ? 'video' : 'image',
-            category: category || 'general',
-            fileUrl: req.file.path,
-            filePublicId: req.file.filename,
-            fileName: req.file.originalname || '',
-            fileSize: req.file.size || 0,
-            thumbnail: (type === 'video') ? '🎬' : '🖼️',
-            isFree: isFree !== undefined ? isFree : true,
-            price: price || 0,
-            isPremium: isPremium === 'true' || isPremium === true
-        });
-
-        await post.save();
-
-        // emit new post
-        const io = req.app.get('io');
-        if (io) io.emit('new_post', { postId: post._id });
-
-        res.status(201).json({ message: 'Uploaded & post created', post });
-    } catch (err) {
-        console.error('Upload route error:', err);
-        res.status(500).json({ error: err.message });
-    }
+// ✅ Configureer Cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Upload avatar and update user profile
-router.post('/avatar', auth, upload.single('avatar'), async (req, res) => {
+// ✅ Configureer Multer Storage
+const storage = new CloudinaryStorage({
+    cloudinary,
+    params: async (req, file) => {
+        let folder = "world-studio/uploads";
+        let resource_type = "image";
+
+        if (file.mimetype.startsWith("video")) resource_type = "video";
+        if (file.mimetype.startsWith("audio")) resource_type = "auto";
+
+        return {
+            folder,
+            resource_type,
+            public_id: `${Date.now()}-${file.originalname}`,
+        };
+    },
+});
+
+const upload = multer({ storage });
+
+// ✅ Upload route
+router.post("/", auth, upload.single("file"), async (req, res) => {
     try {
-        if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
-        if (!req.file || !req.file.path) return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-        const user = await User.findById(req.userId);
-        if (!user) return res.status(404).json({ error: 'User not found' });
+        const { title, description, type } = req.body;
 
-        // delete previous avatar if it's a cloudinary public id? we stored URL only; optional.
+        // Maak de nieuwe post
+        const newPost = new Post({
+            authorId: req.userId,
+            author: req.user?.username || "Unknown",
+            authorPhoto: req.user?.avatar || "",
+            content: description || "",
+            mediaUrl: req.file.path,
+            mediaType: type || "image",
+            likes: [],
+            comments: [],
+        });
 
-        user.avatar = req.file.path;
-        await user.save();
+        const savedPost = await newPost.save();
 
-        res.json({ message: 'Avatar updated', avatar: user.avatar });
+        // ✅ Socket.IO broadcast (via global io instance)
+        if (req.app.get("io")) {
+            req.app.get("io").emit("post_created", savedPost);
+        }
+
+        res.status(201).json({
+            message: "Upload successful",
+            post: savedPost,
+        });
     } catch (err) {
-        console.error('Avatar upload error:', err);
-        res.status(500).json({ error: err.message });
+        console.error("Upload error:", err);
+        res.status(500).json({ error: "Upload failed", details: err.message });
     }
 });
 
