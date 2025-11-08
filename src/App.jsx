@@ -1,115 +1,250 @@
-import React, { useState, useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { socket } from "./api/socket";
+// src/App.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import "./App.css";
+import socket from "./api/socket";
+import { postsAPI, authAPI, adminAPI } from "./api/api";
+
 import HomePage from "./components/HomePage";
 import UploadPage from "./components/UploadPage";
-import LoginPage from "./components/LoginPage";
 import ProfilePage from "./components/ProfilePage";
 import AdminDashboard from "./components/AdminDashboard";
+import LivePage from "./components/LivePage";
 import StockPredictor from "./components/StockPredictor";
-import NotificationCenter from "./components/NotificationCenter";
-import { postsAPI, authAPI } from "./api/api";
+import NotificationsCenter from "./components/NotificationsCenter";
 
-export default function App() {
+function App() {
+    // ======= STATE =======
+    const [currentPage, setCurrentPage] = useState("home"); // 'home' | 'upload' | 'profile' | 'admin' | 'live' | 'stocks' | 'notifications'
     const [currentUser, setCurrentUser] = useState(null);
+
     const [posts, setPosts] = useState([]);
+    const [users, setUsers] = useState([]); // optioneel, als je backend users endpoint gebruikt
+    const [messages, setMessages] = useState([]);
+    const [stories, setStories] = useState([]);
 
-    // 🔐 Auto-login
+    // ======= INIT USER + POSTS =======
     useEffect(() => {
-        const saved = localStorage.getItem("ws_user");
-        if (saved) setCurrentUser(JSON.parse(saved));
+        // user laden
+        try {
+            const saved = JSON.parse(localStorage.getItem("ws_currentUser") || "null");
+            if (saved) setCurrentUser(saved);
+        } catch { }
+
+        // posts laden
+        (async () => {
+            try {
+                const data = await postsAPI.getAll();
+                setPosts(data);
+            } catch (e) {
+                console.error("Failed to load posts:", e);
+            }
+        })();
     }, []);
 
-    // 📡 Load posts
+    // ======= SOCKET REALTIME FEED =======
     useEffect(() => {
-        const load = async () => {
-            const data = await postsAPI.getAll();
-            setPosts(data);
-        };
-        load();
-    }, []);
+        // Nieuwe post binnen
+        socket.on("post_created", (post) => {
+            setPosts((prev) => [post, ...prev]);
+        });
 
-    // 🔔 Realtime updates
-    useEffect(() => {
-        socket.on("postLiked", (data) =>
-            setPosts((prev) =>
-                prev.map((p) => (p._id === data.postId ? { ...p, likes: data.likes } : p))
-            )
-        );
-        socket.on("commentAdded", (data) =>
+        // Likes live bijwerken
+        socket.on("post_liked", ({ postId, likes, likedBy }) => {
             setPosts((prev) =>
                 prev.map((p) =>
-                    p._id === data.postId
-                        ? { ...p, comments: [...p.comments, data.comment] }
-                        : p
+                    (p._id || p.id) === postId ? { ...p, likes, likedBy } : p
                 )
-            )
-        );
-        socket.on("viewIncremented", (data) =>
+            );
+        });
+
+        // Nieuwe comment live bijwerken
+        socket.on("post_commented", ({ postId, comments }) => {
             setPosts((prev) =>
-                prev.map((p) => (p._id === data.postId ? { ...p, views: data.views } : p))
-            )
-        );
+                prev.map((p) =>
+                    (p._id || p.id) === postId ? { ...p, comments } : p
+                )
+            );
+        });
+
         return () => {
-            socket.off("postLiked");
-            socket.off("commentAdded");
-            socket.off("viewIncremented");
+            socket.off("post_created");
+            socket.off("post_liked");
+            socket.off("post_commented");
         };
     }, []);
 
-    // 🔑 Auth handlers
+    // ======= AUTH (simpele handlers; jij hebt al LoginPage/etc) =======
     const handleLogin = async (email, password) => {
         const res = await authAPI.login(email, password);
-        setCurrentUser(res);
-        localStorage.setItem("ws_user", JSON.stringify(res));
+        const user = {
+            id: res.userId,
+            username: res.username,
+            email: res.email,
+            role: res.role || "user",
+            avatar: res.avatar || "/default-avatar.png",
+            token: res.token,
+        };
+        setCurrentUser(user);
+        localStorage.setItem("ws_currentUser", JSON.stringify(user));
+        setCurrentPage("home");
+        return true;
+    };
+
+    const handleRegister = async (payload) => {
+        const res = await authAPI.register(payload);
+        const user = {
+            id: res.userId,
+            username: res.username,
+            email: res.email,
+            role: res.role || "user",
+            avatar: res.avatar || "/default-avatar.png",
+            token: res.token,
+        };
+        setCurrentUser(user);
+        localStorage.setItem("ws_currentUser", JSON.stringify(user));
+        setCurrentPage("home");
+        return true;
     };
 
     const handleLogout = () => {
-        localStorage.removeItem("ws_user");
         setCurrentUser(null);
+        localStorage.removeItem("ws_currentUser");
+        setCurrentPage("home");
     };
 
-    return (
-        <BrowserRouter>
-            <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black text-white">
-                <nav className="flex justify-between items-center p-4 bg-black/40 backdrop-blur-md border-b border-white/10">
-                    <h1 className="text-xl font-bold">🌐 World-Studio</h1>
-                    <div className="flex items-center gap-4">
-                        <NotificationCenter />
-                        {currentUser && (
-                            <button
-                                onClick={handleLogout}
-                                className="bg-red-500/30 px-3 py-1 rounded-md hover:bg-red-500/40"
-                            >
-                                Logout
-                            </button>
-                        )}
-                    </div>
-                </nav>
+    // ======= POSTS ACTIONS (API + realtime socket fallback) =======
+    const handleUpload = async (formData) => {
+        // formData is een FormData (title, description, type, file)
+        const newPost = await postsAPI.create(formData);
+        // server emit al 'post_created'; maar lokaal updaten voor snappy UX:
+        setPosts((prev) => [newPost, ...prev]);
+        setCurrentPage("home");
+    };
 
-                <Routes>
-                    <Route
-                        path="/"
-                        element={
-                            currentUser ? (
-                                <HomePage currentUser={currentUser} posts={posts} />
-                            ) : (
-                                <LoginPage onLogin={handleLogin} />
-                            )
-                        }
-                    />
-                    <Route
-                        path="/upload"
-                        element={<UploadPage currentUser={currentUser} />}
-                    />
-                    <Route
-                        path="/profile"
-                        element={<ProfilePage currentUser={currentUser} />}
-                    />
-                    <Route path="/admin" element={<AdminDashboard />} />
-                    <Route path="/stocks" element={<StockPredictor />} />
-                </Routes>
+    const handleLike = async (postId) => {
+        try {
+            const data = await postsAPI.like(postId);
+            setPosts((prev) =>
+                prev.map((p) =>
+                    (p._id || p.id) === postId ? { ...p, likes: data.likes, likedBy: data.likedBy } : p
+                )
+            );
+        } catch (e) {
+            console.error("like failed", e);
+        }
+    };
+
+    const handleComment = async (postId, text) => {
+        if (!text?.trim()) return;
+        try {
+            const data = await postsAPI.comment(postId, text);
+            setPosts((prev) =>
+                prev.map((p) =>
+                    (p._id || p.id) === postId ? { ...p, comments: data.comments } : p
+                )
+            );
+        } catch (e) {
+            console.error("comment failed", e);
+        }
+    };
+
+    const incrementViews = async (postId) => {
+        try {
+            const d = await postsAPI.view(postId);
+            setPosts((prev) =>
+                prev.map((p) =>
+                    (p._id || p.id) === postId ? { ...p, views: d.views } : p
+                )
+            );
+        } catch (e) {
+            // non-blocking
+        }
+    };
+
+    // ======= PAGE ROUTING (zonder NavBar) =======
+    if (!currentUser && currentPage !== "home") {
+        // je kunt hier een eigen LoginPage renderen; ik houd het simpel:
+        // return <LoginPage onLogin={handleLogin} onRegister={handleRegister} />
+    }
+
+    if (currentPage === "upload") {
+        return (
+            <UploadPage
+                currentUser={currentUser}
+                setCurrentPage={setCurrentPage}
+                onUpload={handleUpload}
+                onLogout={handleLogout}
+            />
+        );
+    }
+
+    if (currentPage === "profile") {
+        return (
+            <ProfilePage
+                currentUser={currentUser}
+                setCurrentPage={setCurrentPage}
+                posts={posts.filter((p) => (p.userId?._id || p.userId || p.authorId) === currentUser?.id)}
+                onLogout={handleLogout}
+            />
+        );
+    }
+
+    if (currentPage === "admin") {
+        return (
+            <AdminDashboard
+                onLogout={handleLogout}
+                users={users}
+                posts={posts}
+            />
+        );
+    }
+
+    if (currentPage === "live") {
+        return <LivePage currentUser={currentUser} setCurrentPage={setCurrentPage} />;
+    }
+
+    if (currentPage === "stocks") {
+        return (
+            <div className="min-h-screen bg-slate-900 text-white">
+                <div className="p-4">
+                    <button
+                        onClick={() => setCurrentPage("home")}
+                        className="px-4 py-2 rounded-lg bg-white/10 border border-white/20"
+                    >
+                        ← Back
+                    </button>
+                </div>
+                <StockPredictor />
             </div>
-        </BrowserRouter>
+        );
+    }
+
+    if (currentPage === "notifications") {
+        return (
+            <NotificationsCenter
+                currentUser={currentUser}
+                setCurrentPage={setCurrentPage}
+            />
+        );
+    }
+
+    // HOME
+    return (
+        <HomePage
+            currentUser={currentUser}
+            currentPage={currentPage}
+            setCurrentPage={setCurrentPage}
+            posts={posts}
+            users={users}
+            onLike={handleLike}
+            onComment={handleComment}
+            onView={incrementViews}
+            onLogout={handleLogout}
+            // optioneel kun je props voor stories/messages blijven doorgeven:
+            messages={messages}
+            stories={stories}
+        />
     );
 }
+
+export default App;
