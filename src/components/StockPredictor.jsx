@@ -1,133 +1,85 @@
-import React, { useState, useEffect } from 'react';
-import './StockPredictor.css';
+import React, { useState, useEffect } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import "./StockPredictor.css";
 
-const StockPredictor = () => {
+export default function StockPredictor() {
     const [stocks, setStocks] = useState([]);
-    const [selectedStock, setSelectedStock] = useState('AAPL');
-    const [prediction, setPrediction] = useState(null);
+    const [selected, setSelected] = useState("AAPL");
+    const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
 
-    // Fetch supported stocks on mount
     useEffect(() => {
-        fetchSupportedStocks();
+        fetch("https://world-studio-production.up.railway.app/api/stocks/supported")
+            .then(r => r.json())
+            .then(setStocks)
+            .catch(console.error);
     }, []);
 
-    const fetchSupportedStocks = async () => {
-        try {
-            const response = await fetch('https://world-studio-production.up.railway.app/api/stocks/supported');
-            const data = await response.json();
-            setStocks(data);
-        } catch (err) {
-            console.error('Error fetching stocks:', err);
-        }
-    };
-
-    const getPrediction = async () => {
+    const predict = async () => {
         setLoading(true);
-        setError(null);
-
-        try {
-            const response = await fetch('https://world-studio-production.up.railway.app/api/stocks/predict', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ symbol: selectedStock })
-            });
-
-            if (!response.ok) {
-                throw new Error('Prediction failed');
+        const res = await fetch(
+            "https://world-studio-production.up.railway.app/api/stocks/predict",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ symbol: selected }),
             }
-
-            const data = await response.json();
-            setPrediction(data);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+        );
+        const json = await res.json();
+        setData(json);
+        setLoading(false);
     };
 
     return (
-        <div className="stock-predictor">
-            <h1>World-Studio Stock Price Predictor 📈</h1>
-            <p className="subtitle">Powered by World-Studio!</p>
+        <div className="p-8 text-white min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-black">
+            <h1 className="text-3xl font-bold mb-2">World-Studio Prediction 📈</h1>
+            <p className="mb-6 text-white/70">Live AI-powered market forecasting</p>
 
-            <div className="predictor-card">
-                <div className="input-section">
-                    <label>Select Asset:</label>
-                    <select
-                        value={selectedStock}
-                        onChange={(e) => setSelectedStock(e.target.value)}
-                        className="stock-select"
-                    >
-                        {stocks.map((stock) => (
-                            <option key={stock.symbol} value={stock.symbol}>
-                                {stock.name} ({stock.symbol}) - {stock.type}
-                            </option>
-                        ))}
-                    </select>
-
-                    <button
-                        onClick={getPrediction}
-                        disabled={loading}
-                        className="predict-button"
-                    >
-                        {loading ? '🔄 Analyzing...' : '🚀 Get Prediction'}
-                    </button>
-                </div>
-
-                {error && (
-                    <div className="error-message">
-                        ❌ {error}
-                    </div>
-                )}
-
-                {prediction && (
-                    <div className="prediction-result">
-                        <h2>{prediction.symbol} Prediction</h2>
-
-                        <div className="price-section">
-                            <div className="price-box">
-                                <span className="label">Current Price</span>
-                                <span className="price">${prediction.currentPrice.toFixed(2)}</span>
-                            </div>
-
-                            <div className="arrow">→</div>
-
-                            <div className="price-box">
-                                <span className="label">Predicted Tomorrow</span>
-                                <span className="price predicted">${prediction.predictedPrice.toFixed(2)}</span>
-                            </div>
-                        </div>
-
-                        <div className="change-section">
-                            <div className={`change ${prediction.change > 0 ? 'positive' : 'negative'}`}>
-                                {prediction.change > 0 ? '📈' : '📉'}
-                                {prediction.change > 0 ? '+' : ''}${prediction.change.toFixed(2)}
-                                ({prediction.changePercent > 0 ? '+' : ''}{prediction.changePercent.toFixed(2)}%)
-                            </div>
-                        </div>
-
-                        <div className="confidence-section">
-                            <span>World-Studio Confidence: {prediction.confidence}%</span>
-                            <div className="confidence-bar">
-                                <div
-                                    className="confidence-fill"
-                                    style={{ width: `${prediction.confidence}%` }}
-                                ></div>
-                            </div>
-                        </div>
-
-                        <div className="disclaimer">
-                            This is World-Studio prediction, can be financial advice. Past performance may guarantee future results if you learn about it.
-                        </div>
-                    </div>
-                )}
+            <div className="flex gap-4 mb-8">
+                <select
+                    value={selected}
+                    onChange={(e) => setSelected(e.target.value)}
+                    className="bg-white/10 p-2 rounded border border-white/20"
+                >
+                    {stocks.map((s) => (
+                        <option key={s.symbol} value={s.symbol}>
+                            {s.name} ({s.symbol})
+                        </option>
+                    ))}
+                </select>
+                <button
+                    onClick={predict}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2 rounded font-semibold"
+                >
+                    {loading ? "Analyzing …" : "🚀 Predict"}
+                </button>
             </div>
+
+            {data && (
+                <div className="bg-white/10 rounded-2xl p-6 border border-white/10">
+                    <h2 className="text-xl font-bold mb-2">{data.symbol}</h2>
+                    <p>
+                        Current ${data.currentPrice.toFixed(2)} → Predicted
+                        <span className="text-cyan-400 font-semibold">
+                            ${data.predictedPrice.toFixed(2)}
+                        </span>
+                    </p>
+                    <p className="text-white/70 mb-6">
+                        Change {data.change > 0 ? "📈" : "📉"}
+                        {data.change.toFixed(2)} ({data.changePercent.toFixed(2)} %) — Confidence {data.confidence} %
+                    </p>
+
+                    <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={data.trend}>
+                            <XAxis dataKey="time" stroke="#ccc" />
+                            <YAxis stroke="#ccc" />
+                            <Tooltip />
+                            <Line type="monotone" dataKey="price" stroke="#00e0ff" strokeWidth={2} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
         </div>
     );
-};
-
-export default StockPredictor;
+}

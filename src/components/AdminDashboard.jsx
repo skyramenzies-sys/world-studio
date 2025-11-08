@@ -1,132 +1,72 @@
-import React from 'react';
-import { Settings, LogOut, Users, TrendingUp, Eye, Heart, MessageCircle } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import { Settings, Users, Eye, Heart, TrendingUp } from "lucide-react";
+import axios from "axios";
 
-function AdminDashboard({ users, posts, onLogout, onDeleteUser, onDeletePost }) {
-    const totalUsers = users.length;
-    const totalPosts = posts.length;
-    const totalViews = posts.reduce((sum, p) => sum + p.views, 0);
-    const totalLikes = posts.reduce((sum, p) => sum + p.likes, 0);
+export default function AdminDashboard() {
+    const [stats, setStats] = useState(null);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await axios.get(
+                    "https://world-studio-production.up.railway.app/api/admin/stats"
+                );
+                setStats(res.data);
+            } catch (err) {
+                console.error("Failed to load admin stats", err);
+            }
+        })();
+    }, []);
+
+    if (!stats) return <p className="text-center mt-20">Loading Command Center ...</p>;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black text-white">
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItaDJ2LTJoLTJ6bTAgNHYyaDJ2LTJoLTJ6bTAtOHYyaDJ2LTJoLTJ6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
+        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black text-white p-8">
+            <header className="flex items-center gap-3 mb-8">
+                <Settings className="w-8 h-8 text-cyan-400" />
+                <h1 className="text-3xl font-bold">World-Studio Command Center</h1>
+            </header>
 
-            <div className="relative z-10">
-                {/* Header */}
-                <div className="bg-white/10 backdrop-blur-lg border-b border-white/20 px-6 py-4">
-                    <div className="max-w-7xl mx-auto flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <Settings className="w-8 h-8 text-cyan-400" />
-                            <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-                        </div>
-                        <button
-                            onClick={onLogout}
-                            className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-xl hover:bg-red-500/30 transition-colors"
-                        >
-                            <LogOut className="w-4 h-4" />
-                            Logout
-                        </button>
-                    </div>
-                </div>
-
-                <div className="max-w-7xl mx-auto p-6 space-y-6">
-                    {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div className="bg-gradient-to-br from-cyan-500/20 to-blue-500/20 backdrop-blur-lg rounded-2xl p-6 border border-cyan-500/30">
-                            <Users className="w-8 h-8 text-cyan-400 mb-2" />
-                            <div className="text-3xl font-bold">{totalUsers}</div>
-                            <div className="text-sm text-gray-300">Total Users</div>
-                        </div>
-
-                        <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-lg rounded-2xl p-6 border border-purple-500/30">
-                            <TrendingUp className="w-8 h-8 text-purple-400 mb-2" />
-                            <div className="text-3xl font-bold">{totalPosts}</div>
-                            <div className="text-sm text-gray-300">Total Posts</div>
-                        </div>
-
-                        <div className="bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-lg rounded-2xl p-6 border border-green-500/30">
-                            <Eye className="w-8 h-8 text-green-400 mb-2" />
-                            <div className="text-3xl font-bold">{totalViews}</div>
-                            <div className="text-sm text-gray-300">Total Views</div>
-                        </div>
-
-                        <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 backdrop-blur-lg rounded-2xl p-6 border border-orange-500/30">
-                            <Heart className="w-8 h-8 text-orange-400 mb-2" />
-                            <div className="text-3xl font-bold">{totalLikes}</div>
-                            <div className="text-sm text-gray-300">Total Likes</div>
-                        </div>
-                    </div>
-
-                    {/* Users Management */}
-                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
-                        <h2 className="text-xl font-bold mb-4">Users Management</h2>
-                        <div className="space-y-3">
-                            {users.map(user => (
-                                <div key={user.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10">
-                                    <div className="flex items-center gap-3">
-                                        <div className="text-3xl">{user.avatar}</div>
-                                        <div>
-                                            <div className="font-semibold">{user.username}</div>
-                                            <div className="text-sm text-gray-400">{user.email}</div>
-                                        </div>
-                                        <span className="px-3 py-1 bg-purple-500/20 border border-purple-500/50 rounded-full text-xs">
-                                            {user.role}
-                                        </span>
-                                    </div>
-                                    {user.role !== 'admin' && (
-                                        <button
-                                            onClick={() => onDeleteUser(user.id)}
-                                            className="px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-lg hover:bg-red-500/30 transition-colors text-sm"
-                                        >
-                                            Delete
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Posts Management */}
-                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
-                        <h2 className="text-xl font-bold mb-4">Posts Management</h2>
-                        <div className="space-y-3">
-                            {posts.map(post => (
-                                <div key={post.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10">
-                                    <div className="flex items-center gap-3 flex-1">
-                                        <div className="text-3xl">{post.thumbnail}</div>
-                                        <div className="flex-1">
-                                            <div className="font-semibold">{post.title}</div>
-                                            <div className="text-sm text-gray-400">by {post.username}</div>
-                                        </div>
-                                        <div className="flex gap-4 text-sm">
-                                            <span className="flex items-center gap-1">
-                                                <Eye className="w-4 h-4" /> {post.views}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <Heart className="w-4 h-4" /> {post.likes}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                <MessageCircle className="w-4 h-4" /> {post.comments.length}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => onDeletePost(post.id)}
-                                        className="px-4 py-2 bg-red-500/20 border border-red-500/50 rounded-lg hover:bg-red-500/30 transition-colors text-sm ml-4"
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            ))}
-                            {posts.length === 0 && (
-                                <div className="text-center text-gray-400 py-8">No posts yet</div>
-                            )}
-                        </div>
-                    </div>
-                </div>
+            <div className="grid md:grid-cols-4 gap-6 mb-10">
+                <Stat icon={<Users />} label="Users" value={stats.totalUsers} />
+                <Stat icon={<TrendingUp />} label="Posts" value={stats.totalPosts} />
+                <Stat icon={<Heart />} label="Likes" value={stats.totalLikes} />
+                <Stat icon={<Eye />} label="Views" value={stats.totalViews} />
             </div>
+
+            <section className="grid md:grid-cols-3 gap-8">
+                <List title="🆕 New Users" items={stats.latestUsers.map(u => u.username)} />
+                <List title="🎨 Recent Posts" items={stats.latestPosts.map(p => p.title)} />
+                <List
+                    title="💹 Predictions"
+                    items={stats.latestPredictions.map(
+                        pr => `${pr.symbol}: $${pr.predictedPrice.toFixed(2)} (${pr.confidence} %)`
+                    )}
+                />
+            </section>
         </div>
     );
 }
 
-export default AdminDashboard;
+function Stat({ icon, label, value }) {
+    return (
+        <div className="bg-white/10 backdrop-blur rounded-2xl p-6 text-center border border-white/10">
+            <div className="flex justify-center mb-2 text-cyan-400">{icon}</div>
+            <div className="text-3xl font-bold">{value}</div>
+            <div className="text-white/70 text-sm">{label}</div>
+        </div>
+    );
+}
+
+function List({ title, items }) {
+    return (
+        <div className="bg-white/10 rounded-2xl p-6 border border-white/10">
+            <h3 className="font-semibold mb-4">{title}</h3>
+            <ul className="space-y-2 text-white/80 text-sm">
+                {items.map((item, i) => (
+                    <li key={i} className="bg-white/5 px-3 py-2 rounded">{item}</li>
+                ))}
+            </ul>
+        </div>
+    );
+}
