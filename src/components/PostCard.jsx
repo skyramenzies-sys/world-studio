@@ -1,7 +1,7 @@
 import React from "react";
 import { Heart, Eye, MessageCircle } from "lucide-react";
 import API from "../api/api";
-import { socket } from "../api/socket";
+import socket from "../api/socket";
 
 export default function PostCard({ post, currentUser }) {
     const handleLike = async () => {

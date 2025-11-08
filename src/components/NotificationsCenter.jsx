@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Bell } from "lucide-react";
-import { socket } from "../api/socket";
+import socket from "../api/socket";
 
 export default function NotificationCenter() {
     const [open, setOpen] = useState(false);

@@ -1,16 +1,14 @@
-// src/api/socket.js
 import { io } from "socket.io-client";
 
-const SOCKET_BASE =
-    import.meta.env.VITE_SOCKET_URL ||
+const SOCKET_URL =
+    import.meta.env.VITE_API_BASE_URL ||
     "https://world-studio-production.up.railway.app";
 
-const socket = io(SOCKET_BASE, {
+const socket = io(SOCKET_URL, {
     transports: ["websocket"],
     reconnection: true,
     reconnectionAttempts: 10,
-    reconnectionDelay: 1000,
-    autoConnect: true,
+    reconnectionDelay: 3000,
 });
 
 export default socket;
