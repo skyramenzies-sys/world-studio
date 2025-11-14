@@ -14,30 +14,39 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://world-studio-prod
 
 const StockPredictor = () => {
     const [stocks, setStocks] = useState([]);
-    const [selectedStock, setSelectedStock] = useState("AAPL");
+    const [selectedStock, setSelectedStock] = useState("");
     const [prediction, setPrediction] = useState(null);
     const [chartData, setChartData] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [stocksError, setStocksError] = useState(null);
 
     // Fetch supported stocks on mount
     useEffect(() => {
         fetchSupportedStocks();
+        // eslint-disable-next-line
     }, []);
 
     const fetchSupportedStocks = async () => {
+        setStocksError(null);
         try {
             const res = await fetch(`${API_BASE}/api/stocks/supported`);
+            if (!res.ok) throw new Error("Failed to fetch supported stocks.");
             const data = await res.json();
             setStocks(data);
+            if (data.length > 0) setSelectedStock(data[0].symbol);
         } catch (err) {
-            console.error("Error fetching stocks:", err);
+            setStocks([]);
+            setStocksError("Unable to load supported stocks.");
         }
     };
 
     const getPrediction = async () => {
+        if (!selectedStock) return;
         setLoading(true);
         setError(null);
+        setPrediction(null);
+        setChartData([]);
 
         try {
             const res = await fetch(`${API_BASE}/api/stocks/predict`, {
@@ -49,7 +58,7 @@ const StockPredictor = () => {
             if (!res.ok) throw new Error("Prediction failed");
             const data = await res.json();
 
-            // Simulate small trend chart
+            // Simulate chart data (replace with real chart data if API provides)
             const simulatedData = Array.from({ length: 10 }, (_, i) => ({
                 name: `-${10 - i}h`,
                 price:
@@ -65,7 +74,7 @@ const StockPredictor = () => {
             setPrediction(data);
             setChartData(simulatedData);
         } catch (err) {
-            setError(err.message);
+            setError(err.message || "Could not fetch prediction.");
         } finally {
             setLoading(false);
         }
@@ -83,7 +92,11 @@ const StockPredictor = () => {
                         value={selectedStock}
                         onChange={(e) => setSelectedStock(e.target.value)}
                         className="stock-select"
+                        disabled={loading || !stocks.length}
                     >
+                        {stocks.length === 0 && (
+                            <option value="">No assets available</option>
+                        )}
                         {stocks.map((stock) => (
                             <option key={stock.symbol} value={stock.symbol}>
                                 {stock.name} ({stock.symbol}) — {stock.type}
@@ -93,12 +106,16 @@ const StockPredictor = () => {
 
                     <button
                         onClick={getPrediction}
-                        disabled={loading}
+                        disabled={loading || !selectedStock}
                         className="predict-button"
                     >
                         {loading ? "🔄 Analyzing..." : "🚀 Get Prediction"}
                     </button>
                 </div>
+
+                {stocksError && (
+                    <div className="error-message">❌ {stocksError}</div>
+                )}
 
                 {error && <div className="error-message">❌ {error}</div>}
 
@@ -112,7 +129,7 @@ const StockPredictor = () => {
                             <div className="price-box">
                                 <span className="label">Current Price</span>
                                 <span className="price">
-                                    ${prediction.currentPrice.toFixed(2)}
+                                    ${prediction.currentPrice?.toFixed(2) ?? "N/A"}
                                 </span>
                             </div>
 
@@ -121,7 +138,7 @@ const StockPredictor = () => {
                             <div className="price-box">
                                 <span className="label">Predicted Tomorrow</span>
                                 <span className="price predicted">
-                                    ${prediction.predictedPrice.toFixed(2)}
+                                    ${prediction.predictedPrice?.toFixed(2) ?? "N/A"}
                                 </span>
                             </div>
                         </div>
@@ -132,47 +149,49 @@ const StockPredictor = () => {
                                     }`}
                             >
                                 {prediction.change > 0 ? "📈" : "📉"} $
-                                {prediction.change.toFixed(2)} (
+                                {prediction.change?.toFixed(2) ?? "0.00"} (
                                 {prediction.changePercent > 0 ? "+" : ""}
-                                {prediction.changePercent.toFixed(2)}%)
+                                {prediction.changePercent?.toFixed(2) ?? "0.00"}%)
                             </div>
                         </div>
 
                         {/* 📊 Recharts Graph */}
-                        <div style={{ width: "100%", height: 300, marginTop: "2rem" }}>
-                            <ResponsiveContainer>
-                                <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                                    <XAxis dataKey="name" stroke="white" />
-                                    <YAxis stroke="white" domain={["auto", "auto"]} />
-                                    <Tooltip
-                                        contentStyle={{
-                                            background: "rgba(0,0,0,0.7)",
-                                            border: "none",
-                                            borderRadius: "10px",
-                                            color: "white",
-                                        }}
-                                    />
-                                    <Line
-                                        type="monotone"
-                                        dataKey="price"
-                                        stroke="#06b6d4"
-                                        strokeWidth={3}
-                                        dot={{ r: 3 }}
-                                        activeDot={{ r: 6, fill: "#22c55e" }}
-                                    />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
+                        {chartData.length > 0 && (
+                            <div style={{ width: "100%", height: 300, marginTop: "2rem" }}>
+                                <ResponsiveContainer>
+                                    <LineChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                                        <XAxis dataKey="name" stroke="white" />
+                                        <YAxis stroke="white" domain={["auto", "auto"]} />
+                                        <Tooltip
+                                            contentStyle={{
+                                                background: "rgba(0,0,0,0.7)",
+                                                border: "none",
+                                                borderRadius: "10px",
+                                                color: "white",
+                                            }}
+                                        />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="price"
+                                            stroke="#06b6d4"
+                                            strokeWidth={3}
+                                            dot={{ r: 3 }}
+                                            activeDot={{ r: 6, fill: "#22c55e" }}
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
 
                         <div className="confidence-section">
                             <span>
-                                World-Studio Confidence: {prediction.confidence}%
+                                World-Studio Confidence: {prediction.confidence ?? "N/A"}%
                             </span>
                             <div className="confidence-bar">
                                 <div
                                     className="confidence-fill"
-                                    style={{ width: `${prediction.confidence}%` }}
+                                    style={{ width: `${prediction.confidence ?? 0}%` }}
                                 ></div>
                             </div>
                         </div>

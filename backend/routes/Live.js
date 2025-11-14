@@ -1,91 +1,78 @@
 // backend/routes/live.js
 const express = require("express");
 const router = express.Router();
-const LiveStream = require("../models/LiveStream");
-const auth = require("../middleware/auth");
+const Stream = require("../models/Stream");
+const authMiddleware = require("../middleware/authmiddleware");
 
-// 🔴 Start a new live stream
-router.post("/start", auth, async (req, res) => {
+// Get all live streams (for discover, supports search and filter)
+router.get("/", async (req, res) => {
+    try {
+        const { category, search } = req.query;
+        let query = { isLive: true };
+        if (category && category !== "All") query.category = category;
+        if (search) {
+            query.$or = [
+                { title: { $regex: search, $options: "i" } },
+                { streamerName: { $regex: search, $options: "i" } }
+            ];
+        }
+        const streams = await Stream.find(query).sort({ viewers: -1 }); // trending = most viewers
+        res.json(streams);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Start a stream
+router.post("/start", authMiddleware, async (req, res) => {
     try {
         const { title, category, coverImage } = req.body;
-        const stream = new LiveStream({
-            streamerId: req.userId,
-            streamerName: req.user.username,
+        const user = req.user;
+        const stream = await Stream.create({
             title,
+            streamerId: user._id,
+            streamerName: user.username,
             category,
             coverImage,
+            viewers: 0,
             isLive: true,
             startedAt: new Date(),
         });
-        await stream.save();
-        req.io.emit("start_stream", stream); // realtime notify
+        // Notify via socket.io
+        req.app.get("io").emit("start_stream");
         res.status(201).json(stream);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// 🟢 Stop stream
-router.post("/:id/stop", auth, async (req, res) => {
+// Stop a stream
+router.post("/stop/:id", authMiddleware, async (req, res) => {
     try {
-        const stream = await LiveStream.findById(req.params.id);
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
-        stream.isLive = false;
-        stream.endedAt = new Date();
-        await stream.save();
-        req.io.emit("stop_stream", stream);
-        res.json({ message: "Stream ended", stream });
+        const stream = await Stream.findByIdAndUpdate(
+            req.params.id,
+            { isLive: false },
+            { new: true }
+        );
+        req.app.get("io").emit("stop_stream");
+        res.json({ message: "Stream stopped", stream });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// 💬 Chat message
-router.post("/:id/chat", auth, async (req, res) => {
+// Increment viewers
+router.post("/:id/view", async (req, res) => {
     try {
-        const { text } = req.body;
-        const stream = await LiveStream.findById(req.params.id);
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
-        const message = {
-            userId: req.userId,
-            username: req.user.username,
-            text,
-        };
-        stream.chat.push(message);
-        await stream.save();
-        req.io.emit("chat_message", { streamId: stream._id, message });
-        res.json(message);
+        const stream = await Stream.findByIdAndUpdate(
+            req.params.id,
+            { $inc: { viewers: 1 } },
+            { new: true }
+        );
+        res.json({ viewers: stream.viewers });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
-});
-
-// 🎁 Send gift
-router.post("/:id/gift", auth, async (req, res) => {
-    try {
-        const { amount, icon, message } = req.body;
-        const stream = await LiveStream.findById(req.params.id);
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
-        const gift = {
-            senderId: req.userId,
-            senderName: req.user.username,
-            amount,
-            icon,
-            message,
-        };
-        stream.gifts.push(gift);
-        await stream.save();
-        req.io.emit("send_gift", { streamId: stream._id, gift });
-        res.json(gift);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// 🧭 Get all live streams
-router.get("/", async (req, res) => {
-    const streams = await LiveStream.find({ isLive: true }).sort({ startedAt: -1 });
-    res.json(streams);
 });
 
 module.exports = router;

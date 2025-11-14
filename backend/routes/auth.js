@@ -3,10 +3,10 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const auth = require('../middleware/auth');
+const authMiddleware = require('../middleware/authmiddleware');
 
 // Register
-router.post('/register', async (req, res) => {
+router.post('/register', authMiddleware, async (req, res) => {
     try {
         const { email, username, password, avatar, bio } = req.body;
         if (!email || !username || !password) return res.status(400).json({ error: 'Missing fields' });
@@ -66,7 +66,7 @@ router.post('/login', async (req, res) => {
 });
 
 // Get current user (requires token but middleware is forgiving)
-router.get('/me', auth, async (req, res) => {
+router.get('/me', authMiddleware, async (req, res) => {
     try {
         if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
         const user = await User.findById(req.userId).select('-password');

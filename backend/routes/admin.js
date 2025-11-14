@@ -2,13 +2,13 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
-const auth = require("../middleware/auth");
+const authMiddleware = require("../middleware/authmiddleware");
 const Post = require('../models/Post');
 const PredictionLog = require('../models/PredictionLog');
 const Prediction = require("../models/Prediction");
 
 // ✅ World-Studio Command Center States
-router.get('/stats', auth, async (req, res) => {
+router.get('/stats', authMiddleware, async (req, res) => {
     try {
         if (req.user.role !== "admin")
             return res.status(403).json({ error: "Access denied" });

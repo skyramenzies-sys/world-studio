@@ -27,7 +27,8 @@ export default function App() {
                 <Link to="/live" className="hover:text-cyan-300 transition">🎥 Go Live</Link>
                 <Link to="/upload" className="hover:text-cyan-300 transition">📤 Upload</Link>
                 <Link to="/profile" className="hover:text-cyan-300 transition">👤 Profile</Link>
-
+                {/* Spacer to push logout to right */}
+                <div className="flex-grow" />
                 <button
                     onClick={handleLogout}
                     className="ml-auto bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg text-white font-semibold transition"
