@@ -4,7 +4,7 @@ const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("cloudinary").v2;
 const Post = require("../models/Post");
-const authMiddleware = require("../middleware/authmiddleware");
+const authMiddleware = require("../middleware/authMiddleware");
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
