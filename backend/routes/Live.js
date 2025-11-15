@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const Stream = require("../models/Stream");
-const authMiddleware = require("../middleware/authmiddleware");
+const authMiddleware = require("../middleware/authMiddleware");
 
 // Get all live streams (for discover, supports search and filter)
 router.get("/", async (req, res) => {
