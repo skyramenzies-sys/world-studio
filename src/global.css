@@ -1,0 +1,140 @@
+/* -------------------------------------------------------
+   GLOBAL.CSS — World-Studio Clean Version
+   -------------------------------------------------------
+   - Resets
+   - Smooth UI
+   - Light/Dark Theme
+   - Scrollbar Styling
+   - Global Layout Rules
+   - No conflicting styles with Tailwind
+------------------------------------------------------- */
+
+/* Reset & base setup */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Smooth animations across UI */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Font smoothing + global font */
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Inter', sans-serif;
+    background: #0d0d0d;
+    color: #eaeaea;
+}
+
+/* Links default smooth style */
+a {
+    text-decoration: none;
+    transition: 0.2s ease-in-out;
+}
+
+a:hover {
+    opacity: 0.8;
+}
+
+/* Remove outlines but keep accessibility */
+button,
+input,
+textarea {
+    outline: none;
+}
+
+/* Scrollbar (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* -------------------------------------------------------
+   THEME CONTROL
+   Light mode (default)
+   Dark mode (when <html data-theme="dark"> is active)
+------------------------------------------------------- */
+
+/* LIGHT MODE */
+:root {
+    --bg: #f5f5f5;
+    --text: #111;
+    --card: #ffffff;
+    --border: rgba(0, 0, 0, 0.1);
+}
+
+/* DARK MODE */
+html[data-theme="dark"] {
+    --bg: #0a0a0a;
+    --text: #f1f1f1;
+    --card: #141414;
+    --border: rgba(255, 255, 255, 0.08);
+}
+
+/* Apply theme variables */
+body {
+    background-color: var(--bg);
+    color: var(--text);
+}
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+/* -------------------------------------------------------
+   UTILITY HELPERS (to complement Tailwind)
+------------------------------------------------------- */
+
+/* Disable selection */
+.noselect {
+    user-select: none;
+}
+
+/* Smooth fade animations */
+.fade-in {
+    animation: fadeIn 0.4s ease-in-out forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Center content */
+.v-center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Glass effect */
+.glass {
+    backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+}
+
+/* Shadow preset */
+.shadow-soft {
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+}
