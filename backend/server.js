@@ -18,7 +18,8 @@ const walletRoutes = require("./routes/wallet");
 const platformWalletRoutes = require("./routes/platformWallet");
 const adminWalletRoutes = require("./routes/adminWallet");
 const giftRoutes = require("./routes/gifts.route");
-const liveRoutes = require("./routes/live");
+const liveRoutes = require("./routes/Live");
+const liveAnalyticsRoutes = require("./routes/LiveAnalystics");
 
 const app = express();
 const server = http.createServer(app);
@@ -74,6 +75,7 @@ app.use("/api/gifts", giftRoutes);
 app.use("/api/platform-wallet", platformWalletRoutes);
 app.use("/api/admin-wallet", adminWalletRoutes);
 app.use("/api/live", liveRoutes);
+app.use("/api/live-analytics", liveAnalyticsRoutes);
 
 app.get("/", (req, res) => {
     res.json({ message: "🚀 World-Studio API is running!" });
