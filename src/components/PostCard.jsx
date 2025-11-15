@@ -71,8 +71,8 @@ export default function PostCard({ post, currentUser }) {
                 <button
                     onClick={handleLike}
                     className={`flex items-center gap-1 transition ${likeLoading || hasLiked
-                            ? "opacity-60 cursor-not-allowed"
-                            : "hover:text-red-400"
+                        ? "opacity-60 cursor-not-allowed"
+                        : "hover:text-red-400"
                         }`}
                     disabled={likeLoading || hasLiked}
                     aria-label="Like this post"
@@ -84,7 +84,7 @@ export default function PostCard({ post, currentUser }) {
                     {likes}
                 </button>
                 <div className="flex items-center gap-1" aria-label="Comments">
-                    <MessageCircle className="w-4 h-4" /> {post.comments?.length || 0}
+                    <MessageCircle className="w-4 h-4" /> {(post?.comments || []).length} Comments
                 </div>
                 <div className="flex items-center gap-1" aria-label="Views">
                     <Eye className="w-4 h-4" /> {post.views || 0}
