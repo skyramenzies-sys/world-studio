@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
-const authMiddleware = require('../middleware/authmiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
 
 // --- 1. Search users by username (with pagination) ---
 router.get('/', async (req, res) => {
