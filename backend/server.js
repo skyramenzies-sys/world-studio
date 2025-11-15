@@ -4,8 +4,8 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
-const helmet = require("helmet"); // For security headers
-const rateLimit = require("express-rate-limit"); // To prevent abuse
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 // ROUTE IMPORTS
 const authRoutes = require("./routes/auth");
@@ -28,16 +28,16 @@ const server = http.createServer(app);
 // Security headers
 app.use(helmet());
 
-// Rate limiter (customize as needed)
+// Rate limiter
 app.use(
     rateLimit({
         windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 500, // Limit each IP to 500 requests per windowMs
+        max: 500,
         message: "Too many requests, please try again later.",
     })
 );
 
-// CORS setup - Use env var or fallback to known allowed origins
+// CORS setup
 const allowedOrigins = (process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(",")
     : [
@@ -45,7 +45,7 @@ const allowedOrigins = (process.env.CORS_ORIGINS
         "https://world-studio.vercel.app",
         // Add your frontend domains here
     ]
-).map(origin => origin.trim());
+).map(origin => origin.trim()).filter(Boolean);
 
 app.use(
     cors({
@@ -55,9 +55,12 @@ app.use(
     })
 );
 
-// JSON/body parser
+// Body parser
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
+
+// Optional: Health check endpoint
+app.get("/healthz", (req, res) => res.send("ok"));
 
 // --------- ROUTES ---------
 app.use("/api/auth", authRoutes);
@@ -76,7 +79,7 @@ app.get("/", (req, res) => {
     res.json({ message: "🚀 World-Studio API is running!" });
 });
 
-// --------- GLOBAL ERROR HANDLER ---------
+// --------- ERROR HANDLER ---------
 app.use((err, req, res, next) => {
     console.error("Unhandled error:", err.stack || err);
     res.status(500).json({ error: "Server error" });
@@ -105,7 +108,6 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-    // Validate streamId/userId as strings for safety
     socket.on("join_stream", (streamId) => {
         if (typeof streamId === "string") socket.join(`stream_${streamId}`);
     });
@@ -132,10 +134,9 @@ io.on("connection", (socket) => {
         if (typeof userId === "string") io.emit("admin_user_banned", userId);
     });
     socket.on("disconnect", () => {
-        // Optional: clean up resources here
+        // Cleanup if needed
     });
 });
-
 app.set("io", io);
 
 // --------- GRACEFUL SHUTDOWN ---------

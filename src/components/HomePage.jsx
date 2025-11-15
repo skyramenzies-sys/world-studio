@@ -65,7 +65,7 @@ export default function HomePage({
 
             {/* === FEED SECTION === */}
             <main className="max-w-3xl mx-auto py-10 space-y-8 px-4">
-                {posts.length === 0 ? (
+                {Array.isArray(posts) && posts.length === 0 ? (
                     <div className="text-center text-white/60 py-20 text-lg">
                         No posts yet. Be the first to upload something amazing! 🚀
                     </div>

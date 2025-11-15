@@ -40,34 +40,34 @@ export default function GiftShop({ token }) {
     useEffect(() => {
         if (token) fetchHistory();
     }, [token]);
-
-    // Send Gift Handler
-    async function handleSendGift() {
-        if (!recipient) return setInfo("Select a recipient user.");
-        if (!selectedGift) return setInfo("Choose a gift.");
-        if (!amount || amount < 1) return setInfo("Amount must be at least 1.");
-        try {
-            const res = await axios.post(
-                API,
-                {
-                    recipientId: recipient._id,
-                    item: selectedGift.name,
-                    amount,
-                    message,
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            setInfo("Gift sent successfully!");
-            setRecipient(null);
-            setUserSearch("");
-            setSelectedGift(null);
-            setAmount(1);
-            setMessage("");
-            fetchHistory();
-        } catch (err) {
-            setInfo(err.response?.data?.message || "Error sending gift.");
-        }
+}
+// Send Gift Handler
+async function handleSendGift() {
+    if (!recipient) return setInfo("Select a recipient user.");
+    if (!selectedGift) return setInfo("Choose a gift.");
+    if (!amount || amount < 1) return setInfo("Amount must be at least 1.");
+    try {
+        const res = await axios.post(
+            API,
+            {
+                recipientId: recipient._id,
+                item: selectedGift.name,
+                amount,
+                message,
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setInfo("Gift sent successfully!");
+        setRecipient(null);
+        setUserSearch("");
+        setSelectedGift(null);
+        setAmount(1);
+        setMessage("");
+        fetchHistory();
+    } catch (err) {
+        setInfo(err.response?.data?.message || "Error sending gift.");
     }
+
 
     return (
         <div style={{ maxWidth: 700, margin: "0 auto", fontFamily: "sans-serif" }}>
@@ -84,7 +84,7 @@ export default function GiftShop({ token }) {
                             setRecipient(null);
                         }}
                     />
-                    {userResults.length > 0 && (
+                    {Array.isArray(userResults) && userResults.length > 0 && (
                         <div style={{ border: "1px solid #ccc", background: "#fff", zIndex: 10 }}>
                             {userResults.map(u => (
                                 <div
@@ -204,4 +204,4 @@ export default function GiftShop({ token }) {
             </div>
         </div>
     );
-}
+};

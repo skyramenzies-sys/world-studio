@@ -1,0 +1,115 @@
+/* 1. CSS Variables for easy theme/dark mode switching */
+:root {
+  --color-bg: #f6f7fb;
+  --color-text: #15161a;
+  --color-primary: #66e0ff;
+  --color-neutral: #25262b;
+  --color-border: #23242b;
+  --color-card: #fff;
+  --color-heading: #08090b;
+}
+
+[data-theme="dark"] {
+  --color-bg: #15161a;
+  --color-text: #f6f7fb;
+  --color-primary: #66e0ff;
+  --color-neutral: #25262b;
+  --color-border: #23242b;
+  --color-card: #18191f;
+  --color-heading: #fff;
+}
+
+/* 2. Normalize & base styles */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', 'Roboto', Arial, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+  transition: background 0.3s, color 0.3s;
+}
+
+/* Utility classes */
+.text-center { text-align: center; }
+.text-white { color: #fff; }
+.text-white\/60 { color: rgba(255,255,255,0.6); }
+.mt-20 { margin-top: 5rem; }
+.py-20 { padding-top: 5rem; padding-bottom: 5rem; }
+.max-w-3xl { max-width: 48rem; margin-left: auto; margin-right: auto; }
+.space-y-8 > * + * { margin-top: 2rem; }
+.px-4 { padding-left: 1rem; padding-right: 1rem; }
+.py-10 { padding-top: 2.5rem; padding-bottom: 2.5rem; }
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-heading);
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 0.5em;
+}
+
+/* Cards & containers */
+.card {
+  background: var(--color-card);
+  border-radius: 12px;
+  box-shadow: 0 2px 14px 0 rgb(0 0 0 / 8%);
+  padding: 1.5em 2em;
+  margin-bottom: 2em;
+}
+
+/* Links */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+a:hover, a:focus {
+  color: #1cc6e6;
+  text-decoration: underline;
+}
+
+/* Buttons */
+button {
+  font-family: inherit;
+  background: var(--color-neutral);
+  color: var(--color-text);
+  border: none;
+  border-radius: 6px;
+  padding: 0.5em 1.2em;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+button:hover, button:focus {
+  background: var(--color-primary);
+  color: #15161a;
+}
+
+/* Forms */
+input, textarea, select {
+  font-family: inherit;
+  padding: 0.5em;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text);
+  transition: border 0.2s;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* Images */
+img { max-width: 100%; display: block; }
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  background: var(--color-border);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral);
+  border-radius: 4px;
+}

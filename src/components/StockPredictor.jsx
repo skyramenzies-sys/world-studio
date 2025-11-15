@@ -156,7 +156,7 @@ const StockPredictor = () => {
                         </div>
 
                         {/* 📊 Recharts Graph */}
-                        {chartData.length > 0 && (
+                        {Array.isArray(chartData) && chartData.length > 0 && (
                             <div style={{ width: "100%", height: 300, marginTop: "2rem" }}>
                                 <ResponsiveContainer>
                                     <LineChart data={chartData}>

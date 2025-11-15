@@ -72,7 +72,7 @@ export default function LiveDiscover({ setCurrentPage, setSelectedStream }) {
                 />
             </div>
             {/* Streams */}
-            {filteredStreams.length === 0 ? (
+            {Array.isArray(filteredStreams) && filteredStreams.length === 0 ? (
                 <p className="text-white/60 text-center mt-20">
                     No live streams found. Try a new category or search!
                 </p>
