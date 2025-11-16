@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { upload } = require("../cloudinary");
+const { upload } = require("../config/cloudinary");
 const Post = require("../models/Post");
 const authMiddleware = require("../middleware/authMiddleware");
 
