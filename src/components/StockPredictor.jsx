@@ -12,7 +12,7 @@ import "./StockPredictor.css";
 
 // Fallback to production API if Vite env is missing
 const API_BASE =
-    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
     "https://world-studio-production.up.railway.app";
 
 const StockPredictor = () => {
@@ -174,8 +174,8 @@ const StockPredictor = () => {
                         <div className="change-section">
                             <div
                                 className={`change ${prediction.change > 0
-                                        ? "positive"
-                                        : "negative"
+                                    ? "positive"
+                                    : "negative"
                                     }`}
                             >
                                 {prediction.change > 0 ? "📈" : "📉"} $
