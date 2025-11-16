@@ -1,140 +1,90 @@
 // backend/routes/auth.js
-"use strict";
-
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 
-// ---------------------------------------------
-// Helper: Create JWT
-// ---------------------------------------------
-function generateToken(userId) {
-    return jwt.sign(
-        { id: userId },
-        process.env.JWT_SECRET,
-        {
-            expiresIn: "30d",
-            algorithm: "HS256"
-        }
-    );
-}
-
-// ---------------------------------------------
-// REGISTER (Public)
-// ---------------------------------------------
+// Register (public)
 router.post("/register", async (req, res) => {
     try {
-        const { email, username, password, avatar = "", bio = "" } = req.body;
-
+        const { email, username, password, avatar, bio } = req.body;
         if (!email || !username || !password) {
-            return res.status(400).json({ error: "Missing required fields" });
+            return res.status(400).json({ error: "Missing fields" });
         }
 
-        // Basic validations
-        if (password.length < 6) {
-            return res.status(400).json({ error: "Password must be at least 6 characters" });
-        }
+        const existing = await User.findOne({ email });
+        if (existing) return res.status(400).json({ error: "Email already registered" });
 
-        const emailExists = await User.findOne({ email });
-        if (emailExists) {
-            return res.status(400).json({ error: "Email already registered" });
-        }
-
-        const usernameExists = await User.findOne({ username });
-        if (usernameExists) {
-            return res.status(400).json({ error: "Username already taken" });
-        }
-
-        const user = new User({
-            email: email.toLowerCase().trim(),
-            username: username.trim(),
-            password,
-            avatar,
-            bio
-        });
-
+        const user = new User({ email, username, password, avatar, bio });
         await user.save();
 
-        const token = generateToken(user._id);
-
-        res.status(201).json({
-            message: "Account created successfully",
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                avatar: user.avatar
-            },
-            token
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+            expiresIn: "30d",
         });
 
+        res.status(201).json({
+            userId: user._id,
+            username: user.username,
+            email: user.email,
+            avatar: user.avatar,
+            followers: user.followers,
+            following: user.following,
+            totalViews: user.totalViews,
+            totalLikes: user.totalLikes,
+            earnings: user.earnings,
+            notifications: user.notifications,
+            token,
+        });
     } catch (err) {
         console.error("Register error:", err);
-        res.status(500).json({ error: "Registration failed" });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// ---------------------------------------------
-// LOGIN (Public)
-// ---------------------------------------------
+// Login
 router.post("/login", async (req, res) => {
     try {
         const { email, password } = req.body;
+        if (!email || !password) return res.status(400).json({ error: "Missing fields" });
 
-        if (!email || !password)
-            return res.status(400).json({ error: "Missing fields" });
+        const user = await User.findOne({ email });
+        if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-        const user = await User.findOne({ email: email.toLowerCase() });
-        if (!user)
-            return res.status(401).json({ error: "Invalid credentials" });
+        const match = await user.comparePassword(password);
+        if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-        const isMatch = await user.comparePassword(password);
-        if (!isMatch)
-            return res.status(401).json({ error: "Invalid credentials" });
-
-        const token = generateToken(user._id);
-
-        res.json({
-            message: "Login successful",
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                avatar: user.avatar,
-                followers: user.followers,
-                following: user.following,
-                notifications: user.notifications || [],
-            },
-            token
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+            expiresIn: "30d",
         });
 
+        res.json({
+            userId: user._id,
+            username: user.username,
+            email: user.email,
+            avatar: user.avatar,
+            followers: user.followers || [],
+            following: user.following || [],
+            totalViews: user.totalViews || 0,
+            totalLikes: user.totalLikes || 0,
+            earnings: user.earnings || 0,
+            notifications: user.notifications || [],
+            token,
+        });
     } catch (err) {
         console.error("Login error:", err);
-        res.status(500).json({ error: "Login failed" });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// ---------------------------------------------
-// GET CURRENT USER (Protected)
-// ---------------------------------------------
+// Get current user
 router.get("/me", authMiddleware, async (req, res) => {
     try {
-        if (!req.userId) {
-            return res.status(401).json({ error: "Unauthorized" });
-        }
-
         const user = await User.findById(req.userId).select("-password");
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
+        if (!user) return res.status(404).json({ error: "User not found" });
         res.json(user);
-
     } catch (err) {
-        console.error("Me route error:", err);
-        res.status(500).json({ error: "Failed to load user" });
+        res.status(500).json({ error: err.message });
     }
 });
 

@@ -1,92 +1,68 @@
 // backend/routes/admin.js
-"use strict";
-
 const express = require("express");
 const router = express.Router();
-const authMiddleware = require("../middleware/authMiddleware");
-
 const User = require("../models/User");
 const Post = require("../models/Post");
 const Prediction = require("../models/Prediction");
 const PredictionLog = require("../models/PredictionLog");
+const authMiddleware = require("../middleware/authMiddleware");
 
-// ----------------------------
-// ADMIN-ONLY PROTECTION
-// ----------------------------
-function requireAdmin(req, res, next) {
-    if (!req.user || req.user.role !== "admin") {
-        return res.status(403).json({ error: "Access denied. Admins only." });
-    }
-    next();
-}
-
-// ----------------------------
-// ADMIN DASHBOARD STATISTICS
-// ----------------------------
-router.get("/stats", authMiddleware, requireAdmin, async (req, res) => {
+// Admin dashboard stats
+router.get("/stats", authMiddleware, async (req, res) => {
     try {
-        // PARALLEL QUERIES FOR MAX SPEED
+        if (req.user.role !== "admin") {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
         const [users, posts, predictions] = await Promise.all([
-            User.find().sort({ createdAt: -1 }).limit(500).select("username createdAt"),
-            Post.find().sort({ createdAt: -1 }).limit(500).select("title views likes createdAt"),
-            Prediction.find().sort({ createdAt: -1 }).limit(50).select("symbol predictedPrice confidence createdAt")
+            User.find().select("username createdAt"),
+            Post.find().select("title views likes createdAt"),
+            Prediction.find().select("symbol predictedPrice confidence createdAt").limit(20),
         ]);
 
-        const totalUsers = await User.countDocuments();
-        const totalPosts = await Post.countDocuments();
-        const totalPredictions = await Prediction.countDocuments();
+        const latestUsers = users.slice(-10).reverse();
+        const latestPosts = posts.slice(-10).reverse();
+        const latestPredictions = predictions.slice(-10).reverse();
 
+        const totalUsers = users.length;
+        const totalPosts = posts.length;
+        const totalPredictions = predictions.length;
         const totalLikes = posts.reduce((sum, p) => sum + (p.likes || 0), 0);
         const totalViews = posts.reduce((sum, p) => sum + (p.views || 0), 0);
 
         res.json({
-            totals: {
-                users: totalUsers,
-                posts: totalPosts,
-                predictions: totalPredictions,
-                likes: totalLikes,
-                views: totalViews
-            },
-            latestUsers: users.slice(0, 10),
-            latestPosts: posts.slice(0, 10),
-            latestPredictions: predictions.slice(0, 10),
-            timestamp: new Date()
+            totalUsers,
+            totalPosts,
+            totalPredictions,
+            totalLikes,
+            totalViews,
+            latestUsers,
+            latestPosts,
+            latestPredictions,
+            timestamp: new Date(),
         });
-
     } catch (err) {
-        console.error("🔥 Admin stats error:", err);
-        res.status(500).json({ error: "Failed to load admin statistics" });
+        console.error("Admin stats error:", err);
+        res.status(500).json({ error: err.message });
     }
 });
 
-// ----------------------------
-// LOG A NEW AI PREDICTION
-// ----------------------------
-router.post("/log-prediction", authMiddleware, requireAdmin, async (req, res) => {
+// Log prediction
+router.post("/log-prediction", async (req, res) => {
     try {
-        const { symbol, currentPrice, predictedPrice, change, changePercent, confidence } = req.body;
+        const { symbol, predictedPrice, confidence, user } = req.body;
 
-        if (!symbol || !predictedPrice || confidence === undefined) {
-            return res.status(400).json({ error: "Missing required fields" });
-        }
-
-        const log = await PredictionLog.create({
+        const log = new PredictionLog({
             symbol,
-            currentPrice: currentPrice || 0,
             predictedPrice,
-            change: change || (predictedPrice - currentPrice),
-            changePercent: changePercent || 0,
-            confidence
+            confidence,
+            user: user || "system",
         });
 
-        res.json({
-            message: "Prediction logged successfully",
-            log
-        });
-
+        await log.save();
+        res.json({ message: "Prediction logged successfully", log });
     } catch (err) {
-        console.error("🔥 Log prediction error:", err);
-        res.status(500).json({ error: "Failed to log prediction" });
+        res.status(500).json({ error: err.message });
     }
 });
 

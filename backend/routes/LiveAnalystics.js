@@ -1,29 +1,15 @@
+// backend/routes/LiveAnalystics.js
 const express = require("express");
 const router = express.Router();
-const LiveStream = require("../models/LiveStream");
+const Stream = require("../models/Stream");
 
-// 🧠 Global analytics
-router.get("/stats", async (req, res) => {
+router.get("/summary", async (req, res) => {
     try {
-        const totalStreams = await LiveStream.countDocuments();
-        const activeStreams = await LiveStream.countDocuments({ isLive: true });
-        const totalGifts = (await LiveStream.find()).reduce(
-            (sum, s) => sum + s.gifts.reduce((a, g) => a + g.amount, 0),
-            0
-        );
-        const totalViewers = (await LiveStream.find()).reduce(
-            (sum, s) => sum + (s.viewers || 0),
-            0
-        );
-
-        res.json({
-            totalStreams,
-            activeStreams,
-            totalGifts,
-            totalViewers,
-            updatedAt: new Date(),
-        });
+        const totalLive = await Stream.countDocuments({ isLive: true });
+        const recent = await Stream.find().sort({ startedAt: -1 }).limit(10);
+        res.json({ totalLive, recent });
     } catch (err) {
+        console.error("Live analytics error:", err);
         res.status(500).json({ error: err.message });
     }
 });
