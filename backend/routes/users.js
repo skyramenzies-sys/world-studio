@@ -1,127 +1,172 @@
-const express = require('express');
+// backend/routes/users.js
+"use strict";
+
+const express = require("express");
 const router = express.Router();
-const User = require('../models/User');
-const authMiddleware = require('../middleware/authMiddleware');
+const User = require("../models/User");
+const authMiddleware = require("../middleware/authMiddleware");
 
-// --- 1. Search users by username (with pagination) ---
-router.get('/', async (req, res) => {
+// -------------------------------------------------------------
+// 1. Search Users (Public + Pagination)
+// -------------------------------------------------------------
+router.get("/", async (req, res) => {
     try {
-        const { q = '', page = 1, limit = 10 } = req.query;
-        const regex = new RegExp(q, 'i');
+        const q = req.query.q || "";
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
 
-        const users = await User.find({ username: regex })
-            .select('-password')
-            .skip((page - 1) * limit)
-            .limit(Number(limit));
+        const filter = q.trim()
+            ? { username: new RegExp(q, "i") }
+            : {};
 
-        const total = await User.countDocuments({ username: regex });
+        const [users, total] = await Promise.all([
+            User.find(filter)
+                .select("-password")
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .sort({ createdAt: -1 }),
 
-        res.json({
+            User.countDocuments(filter)
+        ]);
+
+        return res.json({
             users,
             total,
-            page: Number(page),
-            pages: Math.ceil(total / limit),
+            page,
+            pages: Math.ceil(total / limit)
         });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Users search error:", err);
+        res.status(500).json({ error: "Server error" });
     }
 });
 
-// --- 2. Suggested users to follow (paginated) ---
-router.get('/suggested', authMiddleware, async (req, res) => {
+// -------------------------------------------------------------
+// 2. Suggested Users to Follow (Protected)
+// -------------------------------------------------------------
+router.get("/suggested", authMiddleware, async (req, res) => {
     try {
-        const { page = 1, limit = 10 } = req.query;
-        const me = await User.findById(req.userId);
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
 
-        if (!me) return res.status(404).json({ error: "Current user not found" });
+        const me = await User.findById(req.userId).select("following");
+        if (!me) return res.status(404).json({ error: "User not found" });
 
-        const excludeIds = [me._id, ...me.following];
+        const exclude = [req.userId, ...me.following];
 
-        const suggestions = await User.find({ _id: { $nin: excludeIds } })
-            .select('-password')
-            .skip((page - 1) * limit)
-            .limit(Number(limit))
-            .sort({ createdAt: -1 });
+        const [suggestions, total] = await Promise.all([
+            User.find({ _id: { $nin: exclude } })
+                .select("-password")
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .sort({ createdAt: -1 }),
 
-        const total = await User.countDocuments({ _id: { $nin: excludeIds } });
+            User.countDocuments({ _id: { $nin: exclude } })
+        ]);
 
-        res.json({
+        return res.json({
             suggestions,
             total,
-            page: Number(page),
-            pages: Math.ceil(total / limit),
+            page,
+            pages: Math.ceil(total / limit)
         });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Suggested users error:", err);
+        res.status(500).json({ error: "Server error" });
     }
 });
 
-// --- 3. Get public profile by id ---
-router.get('/:id', async (req, res) => {
+// -------------------------------------------------------------
+// 3. Get Public Profile (Public)
+// -------------------------------------------------------------
+router.get("/:id", async (req, res) => {
     try {
-        const user = await User.findById(req.params.id).select('-password');
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json(user);
+        const profile = await User.findById(req.params.id).select("-password");
+        if (!profile) return res.status(404).json({ error: "User not found" });
+
+        return res.json(profile);
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Profile fetch error:", err);
+        res.status(500).json({ error: "Server error" });
     }
 });
 
-// --- 4. Update basic profile fields ---
-router.put('/:id', authMiddleware, async (req, res) => {
+// -------------------------------------------------------------
+// 4. Update User (Protected)
+// -------------------------------------------------------------
+router.put("/:id", authMiddleware, async (req, res) => {
     try {
-        if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
-        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-        if (
-            req.userId.toString() !== req.params.id &&
-            req.user.role !== 'admin'
-        ) {
-            return res.status(403).json({ error: 'Forbidden' });
+        const targetId = req.params.id;
+        const isOwner = req.userId.toString() === targetId;
+        const isAdmin = req.user.role === "admin";
+
+        if (!isOwner && !isAdmin)
+            return res.status(403).json({ error: "Forbidden" });
+
+        const allowedUpdates = ["username", "bio"];
+        const updates = {};
+
+        for (const key of allowedUpdates) {
+            if (req.body[key] !== undefined) {
+                updates[key] = req.body[key];
+            }
         }
 
-        const { username, bio } = req.body;
-        const updates = {};
-        if (username) updates.username = username;
-        if (bio) updates.bio = bio;
-
-        const user = await User.findByIdAndUpdate(
-            req.params.id,
+        const updated = await User.findByIdAndUpdate(
+            targetId,
             updates,
             { new: true }
-        ).select('-password');
-        res.json(user);
+        ).select("-password");
+
+        if (!updated)
+            return res.status(404).json({ error: "User not found" });
+
+        return res.json(updated);
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Profile update error:", err);
+        res.status(500).json({ error: "Server error" });
     }
 });
 
-// --- 5. Follow / unfollow (toggle) ---
-router.post('/:id/follow', authMiddleware, async (req, res) => {
+// -------------------------------------------------------------
+// 5. Follow / Unfollow (Protected + Toggle)
+// -------------------------------------------------------------
+router.post("/:id/follow", authMiddleware, async (req, res) => {
     try {
-        if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
         const targetId = req.params.id;
-        if (targetId === req.userId.toString()) {
-            return res.status(400).json({ error: "Cannot follow yourself" });
-        }
+
+        if (targetId === String(req.userId))
+            return res.status(400).json({ error: "You cannot follow yourself" });
 
         const me = await User.findById(req.userId);
-        if (!me) return res.status(404).json({ error: 'Current user not found' });
-
         const target = await User.findById(targetId);
-        if (!target) return res.status(404).json({ error: 'User not found' });
 
-        const isFollowing = me.following.some(id => id.toString() === targetId);
-        if (isFollowing) {
-            me.following = me.following.filter(id => id.toString() !== targetId);
-            target.followers = target.followers.filter(id => id.toString() !== req.userId.toString());
+        if (!me || !target)
+            return res.status(404).json({ error: "User not found" });
+
+        const alreadyFollowing = me.following.some(
+            (id) => String(id) === targetId
+        );
+
+        if (alreadyFollowing) {
+            // Unfollow
+            me.following = me.following.filter((id) => String(id) !== targetId);
+            target.followers = target.followers.filter(
+                (id) => String(id) !== String(req.userId)
+            );
         } else {
+            // Follow
             me.following.push(targetId);
             target.followers.push(req.userId);
-            // notify
-            if (typeof target.addNotification === 'function') {
+
+            if (typeof target.addNotification === "function") {
                 await target.addNotification({
                     message: `${me.username} started following you`,
-                    type: 'follow',
+                    type: "follow",
                     fromUser: me._id
                 });
             }
@@ -130,9 +175,14 @@ router.post('/:id/follow', authMiddleware, async (req, res) => {
         await me.save();
         await target.save();
 
-        res.json({ following: me.following, followers: target.followers });
+        return res.json({
+            following: me.following,
+            followers: target.followers
+        });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Follow toggle error:", err);
+        res.status(500).json({ error: "Server error" });
     }
 });
 

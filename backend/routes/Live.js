@@ -1,77 +1,139 @@
-// backend/routes/live.js
+// backend/routes/Live.js
 const express = require("express");
 const router = express.Router();
 const Stream = require("../models/Stream");
 const authMiddleware = require("../middleware/authMiddleware");
 
-// Get all live streams (for discover, supports search and filter)
+// =========================
+// HELPER: format response
+// =========================
+const formatStream = (s) => ({
+    id: s._id,
+    title: s.title,
+    category: s.category,
+    coverImage: s.coverImage,
+    streamerId: s.streamerId,
+    streamerName: s.streamerName,
+    viewers: s.viewers,
+    isLive: s.isLive,
+    startedAt: s.startedAt,
+});
+
+// =========================
+// GET: All live streams
+// /api/live
+// =========================
 router.get("/", async (req, res) => {
     try {
         const { category, search } = req.query;
-        let query = { isLive: true };
-        if (category && category !== "All") query.category = category;
+
+        const query = { isLive: true };
+
+        if (category && category !== "All") {
+            query.category = category;
+        }
+
         if (search) {
             query.$or = [
                 { title: { $regex: search, $options: "i" } },
-                { streamerName: { $regex: search, $options: "i" } }
+                { streamerName: { $regex: search, $options: "i" } },
             ];
         }
-        const streams = await Stream.find(query).sort({ viewers: -1 }); // trending = most viewers
-        res.json(streams);
+
+        const streams = await Stream.find(query)
+            .sort({ viewers: -1 })
+            .lean();
+
+        res.json(streams.map(formatStream));
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Live stream fetch error:", err);
+        res.status(500).json({ error: "Failed to fetch live streams." });
     }
 });
 
-// Start a stream
+// =========================
+// POST: Start a stream
+// /api/live/start
+// =========================
 router.post("/start", authMiddleware, async (req, res) => {
     try {
         const { title, category, coverImage } = req.body;
         const user = req.user;
+
+        if (!title) return res.status(400).json({ error: "Title required" });
+
         const stream = await Stream.create({
             title,
+            category: category || "General",
+            coverImage: coverImage || null,
             streamerId: user._id,
             streamerName: user.username,
-            category,
-            coverImage,
             viewers: 0,
             isLive: true,
             startedAt: new Date(),
         });
-        // Notify via socket.io
-        req.app.get("io").emit("start_stream");
-        res.status(201).json(stream);
+
+        // notify clients
+        const io = req.app.get("io");
+        if (io) io.emit("stream_started", formatStream(stream));
+
+        res.status(201).json(formatStream(stream));
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Stream start error:", err);
+        res.status(500).json({ error: "Failed to start stream." });
     }
 });
 
-// Stop a stream
+// =========================
+// POST: Stop stream
+// /api/live/stop/:id
+// =========================
 router.post("/stop/:id", authMiddleware, async (req, res) => {
     try {
+        const id = req.params.id;
+
         const stream = await Stream.findByIdAndUpdate(
-            req.params.id,
+            id,
             { isLive: false },
             { new: true }
         );
-        req.app.get("io").emit("stop_stream");
-        res.json({ message: "Stream stopped", stream });
+
+        if (!stream) return res.status(404).json({ error: "Stream not found" });
+
+        const io = req.app.get("io");
+        if (io) io.emit("stream_stopped", { id });
+
+        res.json({ message: "Stream stopped", stream: formatStream(stream) });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Stream stop error:", err);
+        res.status(500).json({ error: "Failed to stop stream." });
     }
 });
 
-// Increment viewers
+// =========================
+// POST: Increment viewers
+// /api/live/:id/view
+// =========================
 router.post("/:id/view", async (req, res) => {
     try {
+        const id = req.params.id;
+
         const stream = await Stream.findByIdAndUpdate(
-            req.params.id,
+            id,
             { $inc: { viewers: 1 } },
             { new: true }
-        );
+        ).lean();
+
+        if (!stream) return res.status(404).json({ error: "Stream not found" });
+
         res.json({ viewers: stream.viewers });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("View increment error:", err);
+        res.status(500).json({ error: "Failed to update viewers." });
     }
 });
 
