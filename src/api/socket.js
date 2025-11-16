@@ -1,22 +1,34 @@
 // src/api/socket.js
 import { io } from "socket.io-client";
 
-// Remove any trailing slash or "/api" in env variable if present
+// -------------------------------------------
+// Unified backend URL (zelfde als API logic)
+// -------------------------------------------
 let baseUrl =
-    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
     "https://world-studio-production.up.railway.app";
-baseUrl = baseUrl.replace(/\/api\/?$/, ""); // Removes '/api' at the end if present
 
+// Zorg dat er GEEN /api achter zit
+baseUrl = baseUrl.replace(/\/api\/?$/, "");
+
+console.log("🔗 Socket connecting to:", baseUrl);
+
+// -------------------------------------------
+// Create socket instance
+// -------------------------------------------
 const socket = io(baseUrl, {
-    transports: ["websocket"],
+    transports: ["websocket"],         // puur WebSocket, snelste
     reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 3000,
+    reconnectionAttempts: 20,
+    reconnectionDelay: 1500,
+    path: "/socket.io",                // verplicht voor Railway/Vercel
 });
 
-// Optional: For debugging connection errors
-socket.on("connect_error", (err) => {
-    console.error("Socket connection error:", err.message || err);
-});
+// Debug
+socket.on("connect", () => console.log("🟢 Socket connected:", socket.id));
+socket.on("disconnect", () => console.log("🔴 Socket disconnected"));
+socket.on("connect_error", (err) =>
+    console.error("❌ Socket connect error:", err?.message || err)
+);
 
 export default socket;

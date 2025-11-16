@@ -7,151 +7,207 @@ export default function AdminDashboard({ token }) {
     const [streams, setStreams] = useState([]);
     const [info, setInfo] = useState("");
 
-    // Fetch all users and streams
+    // ------------------------------------
+    // Fetch Users + Streams
+    // ------------------------------------
     useEffect(() => {
         if (!token) return;
-        axios.get("/api/users", { headers: { Authorization: `Bearer ${token}` } }).then(res => setUsers(res.data.users || res.data));
-        axios.get("/api/live").then(res => setStreams(res.data));
+
+        const headers = { Authorization: `Bearer ${token}` };
+
+        const fetchData = async () => {
+            try {
+                const usersRes = await axios.get("/api/users", { headers });
+                const streamsRes = await axios.get("/api/live");
+
+                setUsers(usersRes.data.users || usersRes.data);
+                setStreams(streamsRes.data);
+            } catch (err) {
+                console.error("Admin fetch error:", err);
+                setInfo("Failed to load admin data.");
+            }
+        };
+
+        fetchData();
     }, [token]);
 
-    // Stop a live stream
-    async function stopStream(streamId) {
+    const headers = { Authorization: `Bearer ${token}` };
+
+    // ------------------------------------
+    // Stop Stream
+    // ------------------------------------
+    const stopStream = async (streamId) => {
         try {
-            await axios.post(`/api/live/stop/${streamId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-            setStreams(streams => streams.filter(s => s._id !== streamId));
+            await axios.post(`/api/live/stop/${streamId}`, {}, { headers });
+            setStreams((prev) => prev.filter((s) => s._id !== streamId));
+
             socket.emit("admin_stop_stream", streamId);
             setInfo("Stream stopped.");
-        } catch {
+        } catch (err) {
+            console.error("Stop Stream Error:", err);
             setInfo("Error stopping stream.");
         }
-    }
+    };
 
-    // Ban a user
-    async function banUser(userId) {
+    // ------------------------------------
+    // Ban / Unban User
+    // ------------------------------------
+    const updateBanStatus = async (userId, action) => {
         try {
-            await axios.put(`/api/admin/ban/${userId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-            setUsers(users => users.map(u => u._id === userId ? { ...u, banned: true } : u));
-            socket.emit("admin_ban_user", userId);
-            setInfo("User banned.");
-        } catch {
-            setInfo("Error banning user.");
-        }
-    }
+            await axios.put(`/api/admin/${action}/${userId}`, {}, { headers });
 
-    // Unban user
-    async function unbanUser(userId) {
-        try {
-            await axios.put(`/api/admin/unban/${userId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-            setUsers(users => users.map(u => u._id === userId ? { ...u, banned: false } : u));
-            setInfo("User unbanned.");
-        } catch {
-            setInfo("Error unbanning user.");
-        }
-    }
+            setUsers((prev) =>
+                prev.map((u) =>
+                    u._id === userId ? { ...u, banned: action === "ban" } : u
+                )
+            );
 
-    // Start stream as admin (demo - creates a test stream)
-    async function startStreamAsAdmin() {
-        try {
-            const res = await axios.post("/api/live/start", {
-                title: "Admin Test Stream",
-                category: "Admin",
-                coverImage: ""
-            }, { headers: { Authorization: `Bearer ${token}` } });
-            setStreams(streams => [res.data, ...streams]);
-            setInfo("Admin started a stream.");
-        } catch {
-            setInfo("Error starting stream.");
+            if (action === "ban") socket.emit("admin_ban_user", userId);
+
+            setInfo(action === "ban" ? "User banned." : "User unbanned.");
+        } catch (err) {
+            console.error("Ban/Unban Error:", err);
+            setInfo(`Error trying to ${action} user.`);
         }
-    }
+    };
+
+    // ------------------------------------
+    // Start Stream As Admin
+    // ------------------------------------
+    const startStreamAsAdmin = async () => {
+        try {
+            const res = await axios.post(
+                "/api/live/start",
+                {
+                    title: "Admin Test Stream",
+                    category: "Admin",
+                    coverImage: "",
+                },
+                { headers }
+            );
+
+            setStreams((prev) => [res.data, ...prev]);
+            setInfo("Admin started a test stream.");
+        } catch (err) {
+            console.error("Admin start stream error:", err);
+            setInfo("Error starting admin stream.");
+        }
+    };
 
     return (
-        <div className="p-6 max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold mb-4">Admin Dashboard</h1>
-            {info && <div className="mb-4 text-yellow-400">{info}</div>}
+        <div className="p-6 max-w-5xl mx-auto text-white">
+            <h1 className="text-3xl font-bold mb-6">🛠 Admin Dashboard</h1>
 
-            <div className="mb-8">
-                <h2 className="text-xl font-semibold mb-2">Users</h2>
-                <table className="w-full bg-white/10 text-white rounded-lg overflow-hidden">
-                    <thead>
-                        <tr>
-                            <th className="px-2">Username</th>
-                            <th className="px-2">Role</th>
-                            <th className="px-2">Banned</th>
-                            <th className="px-2">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {users.map(u => (
-                            <tr key={u._id}>
-                                <td className="px-2">{u.username}</td>
-                                <td className="px-2">{u.role}</td>
-                                <td className="px-2">{u.banned ? "Yes" : "No"}</td>
-                                <td className="px-2">
-                                    {!u.banned ? (
-                                        <button
-                                            onClick={() => banUser(u._id)}
-                                            className="px-2 py-1 bg-red-600 rounded text-white text-xs mr-2"
-                                        >Ban</button>
-                                    ) : (
-                                        <button
-                                            onClick={() => unbanUser(u._id)}
-                                            className="px-2 py-1 bg-green-600 rounded text-white text-xs mr-2"
-                                        >Unban</button>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            {info && (
+                <div className="mb-4 p-2 bg-yellow-600/20 border border-yellow-400/50 rounded">
+                    {info}
+                </div>
+            )}
 
-            <div className="mb-8">
-                <h2 className="text-xl font-semibold mb-2">Live Streams</h2>
-                <button
-                    onClick={startStreamAsAdmin}
-                    className="mb-3 px-4 py-2 bg-blue-500 rounded-lg text-white font-bold"
-                >Start Test Stream</button>
-                <table className="w-full bg-white/10 text-white rounded-lg overflow-hidden">
-                    <thead>
-                        <tr>
-                            <th className="px-2">Title</th>
-                            <th className="px-2">Category</th>
-                            <th className="px-2">Host</th>
-                            <th className="px-2">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {streams.length === 0 ? (
+            {/* USERS */}
+            <section className="mb-10">
+                <h2 className="text-2xl font-semibold mb-3">Users</h2>
+
+                <div className="overflow-x-auto rounded-lg bg-white/10 backdrop-blur-md">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-black/20">
                             <tr>
-                                <td colSpan={4} className="text-center py-4 text-gray-400">
-                                    No live streams.
-                                </td>
+                                <th className="p-2">Username</th>
+                                <th className="p-2">Role</th>
+                                <th className="p-2">Status</th>
+                                <th className="p-2">Actions</th>
                             </tr>
-                        ) : (
-                            streams.map(s => (
-                                <tr key={s._id}>
-                                    <td className="px-2">{s.title}</td>
-                                    <td className="px-2">{s.category}</td>
-                                    <td className="px-2">{s.host?.username || s.host}</td>
-                                    <td className="px-2">
-                                        <button
-                                            onClick={() => stopStream(s._id)}
-                                            className="px-2 py-1 bg-red-600 rounded text-white text-xs"
-                                        >
-                                            Stop
-                                        </button>
+                        </thead>
+
+                        <tbody>
+                            {users.map((u) => (
+                                <tr key={u._id} className="border-b border-white/10">
+                                    <td className="p-2">{u.username}</td>
+                                    <td className="p-2">{u.role}</td>
+                                    <td className="p-2">
+                                        {u.banned ? "🚫 Banned" : "✅ Active"}
+                                    </td>
+
+                                    <td className="p-2">
+                                        {!u.banned ? (
+                                            <button
+                                                onClick={() => updateBanStatus(u._id, "ban")}
+                                                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                                            >
+                                                Ban
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={() => updateBanStatus(u._id, "unban")}
+                                                className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs"
+                                            >
+                                                Unban
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
 
-            {/* Optionally, add more admin controls here */}
+            {/* STREAMS */}
+            <section>
+                <h2 className="text-2xl font-semibold mb-3">Live Streams</h2>
 
+                <button
+                    onClick={startStreamAsAdmin}
+                    className="mb-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-bold"
+                >
+                    Start Test Stream
+                </button>
+
+                <div className="overflow-x-auto rounded-lg bg-white/10 backdrop-blur-md">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-black/20">
+                            <tr>
+                                <th className="p-2">Title</th>
+                                <th className="p-2">Category</th>
+                                <th className="p-2">Host</th>
+                                <th className="p-2">Actions</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {streams.length === 0 ? (
+                                <tr>
+                                    <td
+                                        colSpan={4}
+                                        className="text-center py-4 text-gray-400"
+                                    >
+                                        No active live streams.
+                                    </td>
+                                </tr>
+                            ) : (
+                                streams.map((s) => (
+                                    <tr key={s._id} className="border-b border-white/10">
+                                        <td className="p-2">{s.title}</td>
+                                        <td className="p-2">{s.category}</td>
+                                        <td className="p-2">
+                                            {s.host?.username || s.host}
+                                        </td>
+
+                                        <td className="p-2">
+                                            <button
+                                                onClick={() => stopStream(s._id)}
+                                                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs"
+                                            >
+                                                Stop
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </div>
     );
 }
-
-

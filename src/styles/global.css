@@ -1,4 +1,6 @@
-/* 1. CSS Variables for easy theme/dark mode switching */
+/* =========================================
+   1. COLOR VARIABLES (LIGHT + DARK)
+   ========================================= */
 :root {
   --color-bg: #f6f7fb;
   --color-text: #15161a;
@@ -10,17 +12,23 @@
 }
 
 [data-theme="dark"] {
-  --color-bg: #15161a;
+  --color-bg: #0e0f12;
   --color-text: #f6f7fb;
   --color-primary: #66e0ff;
-  --color-neutral: #25262b;
-  --color-border: #23242b;
-  --color-card: #18191f;
+  --color-neutral: #1c1d22;
+  --color-border: #2c2d34;
+  --color-card: #15161a;
   --color-heading: #fff;
 }
 
-/* 2. Normalize & base styles */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* =========================================
+   2. BASE RESET
+   ========================================= */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 body {
   font-family: 'Inter', 'Roboto', Arial, sans-serif;
@@ -28,21 +36,23 @@ body {
   color: var(--color-text);
   line-height: 1.6;
   min-height: 100vh;
-  transition: background 0.3s, color 0.3s;
 }
 
-/* Utility classes */
+/* =========================================
+   3. UTILITY HELPERS
+   ========================================= */
 .text-center { text-align: center; }
-.text-white { color: #fff; }
-.text-white\/60 { color: rgba(255,255,255,0.6); }
 .mt-20 { margin-top: 5rem; }
 .py-20 { padding-top: 5rem; padding-bottom: 5rem; }
-.max-w-3xl { max-width: 48rem; margin-left: auto; margin-right: auto; }
+.max-w-3xl { max-width: 48rem; margin: 0 auto; }
 .space-y-8 > * + * { margin-top: 2rem; }
-.px-4 { padding-left: 1rem; padding-right: 1rem; }
-.py-10 { padding-top: 2.5rem; padding-bottom: 2.5rem; }
 
-/* Headings */
+/* Fixed custom utility (Tailwind compatible) */
+.text-white-60 { color: rgba(255, 255, 255, 0.6); }
+
+/* =========================================
+   4. HEADINGS
+   ========================================= */
 h1, h2, h3, h4, h5, h6 {
   color: var(--color-heading);
   font-weight: 600;
@@ -50,43 +60,32 @@ h1, h2, h3, h4, h5, h6 {
   margin-bottom: 0.5em;
 }
 
-/* Cards & containers */
+/* =========================================
+   5. CARDS
+   ========================================= */
 .card {
   background: var(--color-card);
   border-radius: 12px;
-  box-shadow: 0 2px 14px 0 rgb(0 0 0 / 8%);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.08);
   padding: 1.5em 2em;
   margin-bottom: 2em;
 }
 
-/* Links */
+/* =========================================
+   6. LINKS
+   ========================================= */
 a {
   color: var(--color-primary);
   text-decoration: none;
-  transition: color 0.2s;
+  transition: color 0.25s ease;
 }
-a:hover, a:focus {
+a:hover {
   color: #1cc6e6;
-  text-decoration: underline;
 }
 
-/* Buttons */
-button {
-  font-family: inherit;
-  background: var(--color-neutral);
-  color: var(--color-text);
-  border: none;
-  border-radius: 6px;
-  padding: 0.5em 1.2em;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-button:hover, button:focus {
-  background: var(--color-primary);
-  color: #15161a;
-}
-
-/* Forms */
+/* =========================================
+   7. FORM ELEMENTS
+   ========================================= */
 input, textarea, select {
   font-family: inherit;
   padding: 0.5em;
@@ -94,17 +93,32 @@ input, textarea, select {
   border: 1px solid var(--color-border);
   background: var(--color-card);
   color: var(--color-text);
-  transition: border 0.2s;
 }
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--color-primary);
 }
 
-/* Images */
-img { max-width: 100%; display: block; }
+/* =========================================
+   8. BUTTONS
+   (NO OVERRIDE OF TAILWIND)
+   ========================================= */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
 
-/* Scrollbar */
+/* =========================================
+   9. IMAGES
+   ========================================= */
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* =========================================
+   10. SCROLLBAR
+   ========================================= */
 ::-webkit-scrollbar {
   width: 8px;
   background: var(--color-border);

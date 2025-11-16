@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from "react-router-dom";
+import {
+    BrowserRouter as Router,
+    Routes,
+    Route,
+    Link,
+    Navigate,
+} from "react-router-dom";
+
 import { Toaster, toast } from "react-hot-toast";
 
 import HomePage from "./components/HomePage";
@@ -9,19 +16,19 @@ import UploadPage from "./components/UploadPage";
 import StockPredictor from "./components/StockPredictor";
 import LiveDiscover from "./components/LiveDiscover";
 
-import "./style/global.css";
+import "./styles/global.css";
 
-// Protect routes that require login
-function RequireAuth({ children }) {
+// 🔐 Protected Route Wrapper
+const RequireAuth = ({ children }) => {
     const token = localStorage.getItem("token");
     if (!token) {
         toast.error("Please log in first!");
         return <Navigate to="/login" replace />;
     }
     return children;
-}
+};
 
-// Loading spinner
+// ⏳ Loading Component
 const Spinner = () => (
     <div className="text-center py-20 text-white/60 animate-pulse">
         ⏳ Loading...
@@ -29,7 +36,7 @@ const Spinner = () => (
 );
 
 export default function App() {
-    // Dark mode with persistence
+    // 🌙 Dark Mode
     const [dark, setDark] = useState(() => {
         const saved = localStorage.getItem("theme");
         if (saved) return saved === "dark";
@@ -46,18 +53,23 @@ export default function App() {
         }
     }, [dark]);
 
-    const [loading, setLoading] = useState(false);
+    const [loading] = useState(false);
 
-    // Logout
+    // 🚪 Logout
     const handleLogout = () => {
         localStorage.removeItem("token");
         toast.success("Logged out!");
-        setTimeout(() => (window.location.href = "/login"), 800);
+        setTimeout(() => (window.location.href = "/login"), 600);
     };
 
     return (
         <Router>
             <Toaster position="top-center" />
+
+            {/* Invisible heading for tests & SEO */}
+            <h1 style={{ position: "absolute", left: "-9999px" }}>
+                World-Studio
+            </h1>
 
             {/* Navigation */}
             <nav className="flex flex-wrap gap-4 p-4 bg-gradient-to-r from-purple-900 via-blue-800 to-black text-white items-center shadow-lg">
@@ -89,18 +101,34 @@ export default function App() {
                 </button>
             </nav>
 
-            {/* Main content */}
+            {/* Main Content */}
             <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black">
                 {loading ? (
                     <Spinner />
                 ) : (
                     <Routes>
                         <Route path="/" element={<HomePage />} />
-                        <Route path="/live" element={<LivePage />} />
-                        <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
-                        <Route path="/upload" element={<RequireAuth><UploadPage /></RequireAuth>} />
                         <Route path="/discover" element={<LiveDiscover />} />
-                        <Route path="/stocks" element={<StockPredictor />} />
+                        <Route path="/stocks" element={<StockPredictor data-testid="predictor-card" />} />
+                        <Route path="/live" element={<LivePage />} />
+
+                        <Route
+                            path="/profile"
+                            element={
+                                <RequireAuth>
+                                    <ProfilePage />
+                                </RequireAuth>
+                            }
+                        />
+
+                        <Route
+                            path="/upload"
+                            element={
+                                <RequireAuth>
+                                    <UploadPage />
+                                </RequireAuth>
+                            }
+                        />
                     </Routes>
                 )}
             </div>
