@@ -15,6 +15,7 @@ import ProfilePage from "./components/ProfilePage";
 import UploadPage from "./components/UploadPage";
 import StockPredictor from "./components/StockPredictor";
 import LiveDiscover from "./components/LiveDiscover";
+import LoginPage from "./components/LoginPage"; // ✅ Toegevoegd!
 
 import "./styles/global.css";
 
@@ -24,6 +25,15 @@ const RequireAuth = ({ children }) => {
     if (!token) {
         toast.error("Please log in first!");
         return <Navigate to="/login" replace />;
+    }
+    return children;
+};
+
+// 🔓 Guest Route (redirect to home if already logged in)
+const GuestOnly = ({ children }) => {
+    const token = localStorage.getItem("token");
+    if (token) {
+        return <Navigate to="/" replace />;
     }
     return children;
 };
@@ -55,9 +65,13 @@ export default function App() {
 
     const [loading] = useState(false);
 
+    // Check if user is logged in
+    const isLoggedIn = !!localStorage.getItem("token");
+
     // 🚪 Logout
     const handleLogout = () => {
         localStorage.removeItem("token");
+        localStorage.removeItem("ws_currentUser");
         toast.success("Logged out!");
         setTimeout(() => (window.location.href = "/login"), 600);
     };
@@ -93,12 +107,21 @@ export default function App() {
                     {dark ? "🌙" : "☀️"}
                 </button>
 
-                <button
-                    onClick={handleLogout}
-                    className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg text-white font-semibold transition"
-                >
-                    Logout
-                </button>
+                {isLoggedIn ? (
+                    <button
+                        onClick={handleLogout}
+                        className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg text-white font-semibold transition"
+                    >
+                        Logout
+                    </button>
+                ) : (
+                    <Link
+                        to="/login"
+                        className="bg-cyan-500 hover:bg-cyan-600 px-4 py-2 rounded-lg text-white font-semibold transition"
+                    >
+                        Login
+                    </Link>
+                )}
             </nav>
 
             {/* Main Content */}
@@ -111,6 +134,16 @@ export default function App() {
                         <Route path="/discover" element={<LiveDiscover />} />
                         <Route path="/stocks" element={<StockPredictor data-testid="predictor-card" />} />
                         <Route path="/live" element={<LivePage />} />
+
+                        {/* ✅ Login Route toegevoegd! */}
+                        <Route
+                            path="/login"
+                            element={
+                                <GuestOnly>
+                                    <LoginPage />
+                                </GuestOnly>
+                            }
+                        />
 
                         <Route
                             path="/profile"
@@ -127,6 +160,23 @@ export default function App() {
                                 <RequireAuth>
                                     <UploadPage />
                                 </RequireAuth>
+                            }
+                        />
+
+                        {/* ✅ 404 Catch-all route */}
+                        <Route
+                            path="*"
+                            element={
+                                <div className="text-center py-20">
+                                    <h2 className="text-3xl font-bold text-white mb-4">404</h2>
+                                    <p className="text-white/60 mb-6">Page not found</p>
+                                    <Link
+                                        to="/"
+                                        className="px-6 py-3 bg-cyan-500 hover:bg-cyan-600 rounded-xl text-white font-semibold transition"
+                                    >
+                                        Go Home
+                                    </Link>
+                                </div>
                             }
                         />
                     </Routes>
