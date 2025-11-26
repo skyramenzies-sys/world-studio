@@ -3,22 +3,20 @@ import { Heart, MessageCircle, Eye, LogOut, UserCircle2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import useSWR from "swr";
 import socket from "../api/socket";
+import api from "../api/api"; // ✅ Import de api module
 
-const fetcher = (url) =>
-    fetch(url).then((r) => {
-        if (!r.ok) throw new Error("Failed to load");
-        return r.json();
-    });
+// ✅ Gebruik api instance voor fetcher
+const fetcher = (url) => api.get(url).then((r) => r.data);
 
 export default function HomePage({ currentUser, onLike, onComment, onLogout, setCurrentPage }) {
     const feedRef = useRef(null);
     const [posts, setPosts] = useState([]);
     const [comment, setComment] = useState("");
 
-    // Load initial feed
-    const { data, error, isLoading, mutate } = useSWR("/api/posts", fetcher, {
+    // ✅ Gebruik relatieve URL - api.js voegt baseURL toe
+    const { data, error, isLoading, mutate } = useSWR("/posts", fetcher, {
         refreshInterval: 5000,
-        onSuccess: (res) => setPosts(res.posts || []),
+        onSuccess: (res) => setPosts(res.posts || res || []),
     });
 
     // Realtime events
@@ -71,7 +69,7 @@ export default function HomePage({ currentUser, onLike, onComment, onLogout, set
                         ...p,
                         comments: [
                             ...(p.comments || []),
-                            { username: currentUser.username, text: comment },
+                            { username: currentUser?.username || "Anonymous", text: comment },
                         ],
                     }
                     : p
@@ -92,7 +90,7 @@ export default function HomePage({ currentUser, onLike, onComment, onLogout, set
     if (error)
         return (
             <div className="text-center text-red-400 py-20">
-                Error loading feed.
+                Error loading feed. Please try again.
             </div>
         );
 
@@ -104,14 +102,14 @@ export default function HomePage({ currentUser, onLike, onComment, onLogout, set
 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => setCurrentPage("live")}
+                        onClick={() => setCurrentPage?.("live")}
                         className="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-600 rounded-xl"
                     >
                         🎥 Go Live
                     </button>
 
                     <button
-                        onClick={() => setCurrentPage("profile")}
+                        onClick={() => setCurrentPage?.("profile")}
                         className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-xl"
                     >
                         <UserCircle2 className="w-5 h-5" />
@@ -158,7 +156,7 @@ export default function HomePage({ currentUser, onLike, onComment, onLogout, set
                             {/* MEDIA */}
                             <div className="bg-black flex justify-center">
                                 {post.mediaType === "image" && (
-                                    <img src={post.mediaUrl} className="w-full object-cover" />
+                                    <img src={post.mediaUrl} className="w-full object-cover" alt="post" />
                                 )}
                                 {post.mediaType === "video" && (
                                     <video src={post.mediaUrl} controls className="w-full" />
@@ -215,7 +213,7 @@ export default function HomePage({ currentUser, onLike, onComment, onLogout, set
                                     <button
                                         onClick={() => handleSendComment(post._id)}
                                         disabled={!comment.trim()}
-                                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg"
+                                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg disabled:opacity-50"
                                     >
                                         Send
                                     </button>
