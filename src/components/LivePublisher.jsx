@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import socket from "../api/socket";
 import api from "../api/api";
+import GiftPanel from "./GiftPanel";
 
 // WebRTC configuration
 const RTC_CONFIG = {
@@ -31,6 +32,8 @@ export default function LivePublisher({
     const [chat, setChat] = useState([]);
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
+    const [gifts, setGifts] = useState([]);
+    const [totalGifts, setTotalGifts] = useState(0);
 
     // Stop live stream
     const stopLive = () => {
@@ -224,6 +227,13 @@ export default function LivePublisher({
                     setChat((prev) => [...prev.slice(-50), message]); // Keep last 50 messages
                 });
 
+                // Gift received
+                socket.on("gift_received", (gift) => {
+                    setGifts((prev) => [...prev.slice(-10), gift]);
+                    setTotalGifts((prev) => prev + (gift.amount || 0));
+                    toast.success(`🎁 ${gift.senderUsername} sent ${gift.icon || "💝"} x${gift.amount}!`);
+                });
+
                 // Server force-stop
                 socket.on("stream_ended", () => {
                     toast.error("Stream was ended");
@@ -256,6 +266,7 @@ export default function LivePublisher({
             socket.off("viewer_count");
             socket.off("chat_message");
             socket.off("stream_ended");
+            socket.off("gift_received");
 
             // Stop stream
             if (streamRef.current) {
@@ -309,9 +320,20 @@ export default function LivePublisher({
                 </div>
 
                 {/* Viewers */}
-                <div className="ml-auto flex items-center gap-2 text-white/70 bg-white/10 px-3 py-1.5 rounded-lg">
-                    <span>👁</span>
-                    <span className="font-semibold">{viewers}</span>
+                <div className="ml-auto flex items-center gap-4">
+                    {/* Total gifts received */}
+                    {totalGifts > 0 && (
+                        <div className="flex items-center gap-2 text-yellow-400 bg-yellow-500/10 px-3 py-1.5 rounded-lg">
+                            <span>🎁</span>
+                            <span className="font-semibold">{totalGifts}</span>
+                        </div>
+                    )}
+
+                    {/* Viewer count */}
+                    <div className="flex items-center gap-2 text-white/70 bg-white/10 px-3 py-1.5 rounded-lg">
+                        <span>👁</span>
+                        <span className="font-semibold">{viewers}</span>
+                    </div>
                 </div>
 
                 {/* Stop button */}
@@ -375,6 +397,26 @@ export default function LivePublisher({
                     <div className="absolute top-4 left-4 bg-black/60 px-3 py-1.5 rounded-lg text-sm">
                         <span className="text-white/50">Room: </span>
                         <span className="text-white font-mono">{roomId}</span>
+                    </div>
+
+                    {/* Gift animations */}
+                    <div className="absolute top-20 left-4 space-y-2 pointer-events-none">
+                        {gifts.slice(-5).map((gift, i) => (
+                            <div
+                                key={i}
+                                className="flex items-center gap-2 bg-black/60 px-3 py-2 rounded-lg animate-pulse"
+                            >
+                                <span className="text-2xl">{gift.icon || "🎁"}</span>
+                                <div>
+                                    <p className="text-sm font-semibold text-yellow-400">
+                                        {gift.senderUsername}
+                                    </p>
+                                    <p className="text-xs text-white/60">
+                                        sent {gift.item} x{gift.amount}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
 

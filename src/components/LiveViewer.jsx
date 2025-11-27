@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import socket from "../api/socket";
 import api from "../api/api";
+import GiftPanel from "./GiftPanel";
 
 // WebRTC configuration
 const RTC_CONFIG = {
@@ -25,6 +26,8 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
     const [viewers, setViewers] = useState(0);
     const [chat, setChat] = useState([]);
     const [chatInput, setChatInput] = useState("");
+    const [showGiftPanel, setShowGiftPanel] = useState(false);
+    const [gifts, setGifts] = useState([]);
 
     // Scroll chat to bottom
     const scrollToBottom = () => {
@@ -126,6 +129,12 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                     setChat((prev) => [...prev.slice(-100), message]);
                 });
 
+                // Gift received
+                socket.on("gift_received", (gift) => {
+                    setGifts((prev) => [...prev.slice(-10), gift]);
+                    toast.success(`🎁 ${gift.senderUsername} sent ${gift.icon || "💝"}!`);
+                });
+
                 // Stream ended
                 socket.on("stream_ended", () => {
                     setIsConnected(false);
@@ -161,6 +170,7 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
             socket.off("viewer_count");
             socket.off("chat_message");
             socket.off("stream_ended");
+            socket.off("gift_received");
 
             // Leave stream room
             socket.emit("leave_stream", roomId);
@@ -263,6 +273,19 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                     <span>👁</span>
                     <span className="font-semibold">{viewers}</span>
                 </div>
+
+                {/* Gift button */}
+                {currentUser && (
+                    <button
+                        onClick={() => setShowGiftPanel(!showGiftPanel)}
+                        className={`px-4 py-1.5 rounded-lg flex items-center gap-2 font-semibold transition ${showGiftPanel
+                                ? "bg-pink-500 text-white"
+                                : "bg-pink-500/20 text-pink-400 hover:bg-pink-500/30"
+                            }`}
+                    >
+                        🎁 Gift
+                    </button>
+                )}
             </div>
 
             {/* Main content */}
@@ -284,6 +307,48 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                         playsInline
                         className={`w-full h-full object-contain ${isConnecting ? "opacity-0" : "opacity-100"}`}
                     />
+
+                    {/* Gift animations */}
+                    <div className="absolute top-4 left-4 space-y-2 pointer-events-none">
+                        {gifts.slice(-5).map((gift, i) => (
+                            <div
+                                key={i}
+                                className="flex items-center gap-2 bg-black/60 px-3 py-2 rounded-lg animate-pulse"
+                            >
+                                <span className="text-2xl">{gift.icon || "🎁"}</span>
+                                <div>
+                                    <p className="text-sm font-semibold text-yellow-400">
+                                        {gift.senderUsername}
+                                    </p>
+                                    <p className="text-xs text-white/60">
+                                        sent {gift.item} x{gift.amount}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Gift Panel Modal */}
+                    {showGiftPanel && streamInfo && (
+                        <div className="absolute bottom-4 right-4 w-80 z-20">
+                            <GiftPanel
+                                recipient={{
+                                    _id: streamInfo.streamerId || streamInfo.hostId,
+                                    username: streamInfo.streamerName || streamInfo.host?.username,
+                                    avatar: streamInfo.host?.avatar,
+                                }}
+                                onClose={() => setShowGiftPanel(false)}
+                                onGiftSent={(gift) => {
+                                    socket.emit("gift_sent", {
+                                        ...gift,
+                                        streamId: roomId,
+                                        senderUsername: currentUser?.username,
+                                    });
+                                    setShowGiftPanel(false);
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* Chat sidebar */}
