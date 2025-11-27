@@ -1,3 +1,4 @@
+// src/components/LoginPage.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
@@ -23,45 +24,83 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
+            let response;
+
             if (isLogin) {
-                // Login
-                const res = await api.post("/auth/login", {
+                // LOGIN
+                response = await api.post("/auth/login", {
                     email: formData.email,
                     password: formData.password,
                 });
-
-                const { token, user } = res.data;
-
-                localStorage.setItem("token", token);
-                localStorage.setItem("ws_currentUser", JSON.stringify({ ...user, token }));
-
-                toast.success(`Welcome back, ${user.username}!`);
-                navigate("/");
             } else {
-                // Register
+                // REGISTER
                 if (!formData.username.trim()) {
                     toast.error("Username is required");
                     setLoading(false);
                     return;
                 }
 
-                const res = await api.post("/auth/register", {
+                response = await api.post("/auth/register", {
                     email: formData.email,
                     password: formData.password,
                     username: formData.username,
                 });
-
-                const { token, user } = res.data;
-
-                localStorage.setItem("token", token);
-                localStorage.setItem("ws_currentUser", JSON.stringify({ ...user, token }));
-
-                toast.success(`Welcome to World-Studio, ${user.username}!`);
-                navigate("/");
             }
+
+            // Backend stuurt data direct (niet in user object)
+            const data = response.data;
+
+            // Extract token en user info
+            const token = data.token;
+            const user = {
+                _id: data.userId || data._id,
+                id: data.userId || data._id,
+                username: data.username,
+                email: data.email,
+                avatar: data.avatar || "",
+                bio: data.bio || "",
+                followers: data.followers || [],
+                following: data.following || [],
+                totalViews: data.totalViews || 0,
+                totalLikes: data.totalLikes || 0,
+                earnings: data.earnings || 0,
+                notifications: data.notifications || [],
+                token: token,
+            };
+
+            // Valideer dat we token en username hebben
+            if (!token || !user.username) {
+                throw new Error("Invalid response from server");
+            }
+
+            // Sla op in localStorage
+            localStorage.setItem("token", token);
+            localStorage.setItem("ws_currentUser", JSON.stringify(user));
+
+            // Success message
+            toast.success(
+                isLogin
+                    ? `Welcome back, ${user.username}! 🎉`
+                    : `Welcome to World-Studio, ${user.username}! 🚀`
+            );
+
+            // Redirect naar home
+            navigate("/");
+
         } catch (err) {
             console.error("Auth error:", err);
-            const message = err.response?.data?.message || err.message || "Authentication failed";
+
+            // Betere error handling
+            let message = "Authentication failed";
+
+            if (err.response?.data?.error) {
+                message = err.response.data.error;
+            } else if (err.response?.data?.message) {
+                message = err.response.data.message;
+            } else if (err.message) {
+                message = err.message;
+            }
+
             toast.error(message);
         } finally {
             setLoading(false);
@@ -96,7 +135,6 @@ export default function LoginPage() {
                                 onChange={handleChange}
                                 placeholder="Choose a username"
                                 className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition"
-                                required={!isLogin}
                             />
                         </div>
                     )}
@@ -142,7 +180,22 @@ export default function LoginPage() {
                     >
                         {loading ? (
                             <span className="flex items-center justify-center gap-2">
-                                <span className="animate-spin">⏳</span>
+                                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                                    <circle
+                                        className="opacity-25"
+                                        cx="12"
+                                        cy="12"
+                                        r="10"
+                                        stroke="currentColor"
+                                        strokeWidth="4"
+                                        fill="none"
+                                    />
+                                    <path
+                                        className="opacity-75"
+                                        fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                    />
+                                </svg>
                                 {isLogin ? "Signing in..." : "Creating account..."}
                             </span>
                         ) : (
@@ -157,11 +210,21 @@ export default function LoginPage() {
                         {isLogin ? "Don't have an account?" : "Already have an account?"}
                         <button
                             type="button"
-                            onClick={() => setIsLogin(!isLogin)}
+                            onClick={() => {
+                                setIsLogin(!isLogin);
+                                setFormData({ email: "", password: "", username: "" });
+                            }}
                             className="ml-2 text-cyan-400 hover:text-cyan-300 font-semibold transition"
                         >
                             {isLogin ? "Sign Up" : "Sign In"}
                         </button>
+                    </p>
+                </div>
+
+                {/* Demo Hint */}
+                <div className="mt-8 pt-6 border-t border-white/10 text-center">
+                    <p className="text-white/40 text-sm">
+                        💡 New here? Click "Sign Up" to create an account
                     </p>
                 </div>
             </div>

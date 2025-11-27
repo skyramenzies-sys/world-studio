@@ -1,25 +1,48 @@
+// src/components/HomePage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, MessageCircle, Eye, LogOut, UserCircle2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Heart, MessageCircle, Eye, Send } from "lucide-react";
 import { toast } from "react-hot-toast";
 import useSWR from "swr";
 import socket from "../api/socket";
-import api from "../api/api"; // ✅ Import de api module
+import api from "../api/api";
 
-// ✅ Gebruik api instance voor fetcher
+// Fetcher voor SWR
 const fetcher = (url) => api.get(url).then((r) => r.data);
 
-export default function HomePage({ currentUser, onLike, onComment, onLogout, setCurrentPage }) {
+export default function HomePage() {
+    const navigate = useNavigate();
     const feedRef = useRef(null);
-    const [posts, setPosts] = useState([]);
-    const [comment, setComment] = useState("");
 
-    // ✅ Gebruik relatieve URL - api.js voegt baseURL toe
+    // Get current user from localStorage
+    const [currentUser, setCurrentUser] = useState(null);
+    const [posts, setPosts] = useState([]);
+    const [commentInputs, setCommentInputs] = useState({});
+    const [likingPost, setLikingPost] = useState(null);
+
+    // Load user from localStorage
+    useEffect(() => {
+        const storedUser = localStorage.getItem("ws_currentUser");
+        if (storedUser) {
+            try {
+                setCurrentUser(JSON.parse(storedUser));
+            } catch (e) {
+                console.error("Failed to parse user:", e);
+            }
+        }
+    }, []);
+
+    // Fetch posts with SWR
     const { data, error, isLoading, mutate } = useSWR("/posts", fetcher, {
-        refreshInterval: 5000,
-        onSuccess: (res) => setPosts(res.posts || res || []),
+        refreshInterval: 10000,
+        revalidateOnFocus: true,
+        onSuccess: (res) => {
+            const postsData = Array.isArray(res) ? res : res.posts || [];
+            setPosts(postsData);
+        },
     });
 
-    // Realtime events
+    // Socket.io realtime events
     useEffect(() => {
         socket.on("post_created", (newPost) => {
             setPosts((prev) => [newPost, ...prev]);
@@ -45,182 +68,251 @@ export default function HomePage({ currentUser, onLike, onComment, onLogout, set
         };
     }, []);
 
-    function handleLike(postId) {
+    // Handle like
+    const handleLike = async (postId) => {
+        if (!currentUser) {
+            toast.error("Please log in to like posts");
+            navigate("/login");
+            return;
+        }
+
+        setLikingPost(postId);
+        setPosts((prev) =>
+            prev.map((p) =>
+                p._id === postId ? { ...p, likes: (p.likes || 0) + 1 } : p
+            )
+        );
+
+        try {
+            await api.post(`/posts/${postId}/like`);
+        } catch (err) {
+            setPosts((prev) =>
+                prev.map((p) =>
+                    p._id === postId ? { ...p, likes: Math.max(0, (p.likes || 1) - 1) } : p
+                )
+            );
+            toast.error("Failed to like post");
+        } finally {
+            setLikingPost(null);
+        }
+    };
+
+    // Handle comment
+    const handleSendComment = async (postId) => {
+        const commentText = commentInputs[postId]?.trim();
+        if (!commentText) return;
+
+        if (!currentUser) {
+            toast.error("Please log in to comment");
+            navigate("/login");
+            return;
+        }
+
+        const newComment = {
+            username: currentUser.username,
+            text: commentText,
+        };
+
         setPosts((prev) =>
             prev.map((p) =>
                 p._id === postId
-                    ? {
-                        ...p,
-                        likes: (p.likes || 0) + 1,
-                    }
+                    ? { ...p, comments: [...(p.comments || []), newComment] }
                     : p
             )
         );
 
-        onLike?.(postId);
-    }
+        setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
 
-    function handleSendComment(postId) {
-        if (!comment.trim()) return;
-        setPosts((prev) =>
-            prev.map((p) =>
-                p._id === postId
-                    ? {
-                        ...p,
-                        comments: [
-                            ...(p.comments || []),
-                            { username: currentUser?.username || "Anonymous", text: comment },
-                        ],
-                    }
-                    : p
-            )
-        );
+        try {
+            await api.post(`/posts/${postId}/comment`, { text: commentText });
+        } catch (err) {
+            setPosts((prev) =>
+                prev.map((p) =>
+                    p._id === postId
+                        ? { ...p, comments: (p.comments || []).slice(0, -1) }
+                        : p
+                )
+            );
+            toast.error("Failed to post comment");
+        }
+    };
 
-        onComment?.(postId, comment);
-        setComment("");
-    }
+    // Format date
+    const formatDate = (dateString) => {
+        if (!dateString) return "";
+        const date = new Date(dateString);
+        const now = new Date();
+        const diff = now - date;
 
-    if (isLoading)
+        if (diff < 60000) return "Just now";
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+        if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+        return date.toLocaleDateString();
+    };
+
+    // Loading state
+    if (isLoading) {
         return (
-            <div className="text-center text-white py-20">
-                Loading feed...
+            <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black flex items-center justify-center">
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
+                    <p className="text-white/70">Loading feed...</p>
+                </div>
             </div>
         );
+    }
 
-    if (error)
+    // Error state
+    if (error) {
         return (
-            <div className="text-center text-red-400 py-20">
-                Error loading feed. Please try again.
+            <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black flex items-center justify-center">
+                <div className="text-center p-8 bg-white/5 rounded-2xl border border-white/10">
+                    <p className="text-red-400 mb-4">Failed to load feed</p>
+                    <button
+                        onClick={() => mutate()}
+                        className="px-6 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400"
+                    >
+                        Try Again
+                    </button>
+                </div>
             </div>
         );
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black text-white">
-            {/* NAVBAR */}
-            <header className="flex items-center justify-between px-8 py-5 border-b border-white/10 bg-black/30 backdrop-blur-xl sticky top-0 z-50">
-                <h1 className="text-2xl font-bold text-cyan-400">🌌 World-Studio</h1>
+            <main className="max-w-2xl mx-auto py-6 px-4 space-y-6" ref={feedRef}>
 
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => setCurrentPage?.("live")}
-                        className="px-4 py-2 bg-gradient-to-r from-red-500 to-pink-600 rounded-xl"
-                    >
-                        🎥 Go Live
-                    </button>
+                {/* Welcome message */}
+                {currentUser && (
+                    <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 p-4 rounded-xl border border-cyan-500/20">
+                        <p className="text-white/80">
+                            Welcome, <span className="text-cyan-400 font-semibold">{currentUser.username}</span>! 👋
+                        </p>
+                    </div>
+                )}
 
-                    <button
-                        onClick={() => setCurrentPage?.("profile")}
-                        className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-xl"
-                    >
-                        <UserCircle2 className="w-5 h-5" />
-                        Profile
-                    </button>
-
-                    <button
-                        onClick={onLogout}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/40 rounded-xl"
-                    >
-                        <LogOut className="w-5 h-5" />
-                        Logout
-                    </button>
-                </div>
-            </header>
-
-            {/* FEED */}
-            <main className="max-w-3xl mx-auto py-10 px-4 space-y-8" ref={feedRef}>
+                {/* Empty state */}
                 {posts.length === 0 ? (
-                    <p className="text-center text-white/60">No posts yet.</p>
+                    <div className="text-center py-20">
+                        <p className="text-6xl mb-4">📭</p>
+                        <p className="text-white/60 mb-4">No posts yet.</p>
+                        <button
+                            onClick={() => navigate("/upload")}
+                            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold"
+                        >
+                            Create First Post
+                        </button>
+                    </div>
                 ) : (
                     posts.map((post) => (
-                        <div
+                        <article
                             key={post._id}
-                            className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl shadow-lg"
+                            className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl overflow-hidden"
                         >
-                            {/* HEADER */}
-                            <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
+                            {/* POST HEADER */}
+                            <div
+                                className="flex items-center gap-3 px-5 py-4 border-b border-white/10 cursor-pointer hover:bg-white/5"
+                                onClick={() => navigate(`/profile/${post.userId}`)}
+                            >
                                 <img
-                                    src={post.authorPhoto || "/default-avatar.png"}
+                                    src={post.authorPhoto || "/defaults/default-avatar.png"}
                                     alt="avatar"
-                                    className="w-12 h-12 rounded-full object-cover"
+                                    className="w-11 h-11 rounded-full object-cover border-2 border-white/20"
+                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
                                 />
                                 <div>
-                                    <h3 className="font-semibold">{post.author}</h3>
-                                    <p className="text-sm text-white/50">
-                                        {post.timestamp
-                                            ? new Date(post.timestamp).toLocaleString()
-                                            : ""}
+                                    <h3 className="font-semibold">{post.author || "Anonymous"}</h3>
+                                    <p className="text-xs text-white/50">
+                                        {formatDate(post.timestamp || post.createdAt)}
                                     </p>
                                 </div>
                             </div>
 
                             {/* MEDIA */}
-                            <div className="bg-black flex justify-center">
-                                {post.mediaType === "image" && (
-                                    <img src={post.mediaUrl} className="w-full object-cover" alt="post" />
-                                )}
-                                {post.mediaType === "video" && (
-                                    <video src={post.mediaUrl} controls className="w-full" />
-                                )}
-                                {post.mediaType === "audio" && (
-                                    <audio src={post.mediaUrl} controls className="w-full p-3" />
-                                )}
-                            </div>
+                            {post.mediaUrl && (
+                                <div className="bg-black flex justify-center">
+                                    {post.mediaType === "image" && (
+                                        <img src={post.mediaUrl} className="w-full max-h-[500px] object-contain" alt="post" />
+                                    )}
+                                    {post.mediaType === "video" && (
+                                        <video src={post.mediaUrl} controls className="w-full max-h-[500px]" />
+                                    )}
+                                    {post.mediaType === "audio" && (
+                                        <audio src={post.mediaUrl} controls className="w-full p-4" />
+                                    )}
+                                </div>
+                            )}
 
-                            {/* CAPTION */}
-                            <div className="p-6">
-                                <p className="text-white/80">{post.content}</p>
-                            </div>
+                            {/* CONTENT */}
+                            {(post.content || post.title) && (
+                                <div className="px-5 py-4">
+                                    {post.title && <h4 className="font-semibold mb-1">{post.title}</h4>}
+                                    <p className="text-white/80">{post.content}</p>
+                                </div>
+                            )}
 
                             {/* ACTIONS */}
-                            <div className="flex items-center gap-6 px-6 pb-5 text-white/70">
+                            <div className="flex items-center gap-6 px-5 py-3 border-t border-white/10 text-white/70">
                                 <button
                                     onClick={() => handleLike(post._id)}
-                                    className="flex items-center gap-2 hover:text-red-400"
+                                    disabled={likingPost === post._id}
+                                    className="flex items-center gap-2 hover:text-red-400 disabled:opacity-50"
                                 >
-                                    <Heart className="w-6 h-6" />
+                                    <Heart className={`w-5 h-5 ${likingPost === post._id ? "animate-pulse" : ""}`} />
                                     <span>{post.likes || 0}</span>
                                 </button>
 
                                 <div className="flex items-center gap-2">
-                                    <MessageCircle className="w-6 h-6" />
+                                    <MessageCircle className="w-5 h-5" />
                                     <span>{(post.comments || []).length}</span>
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    <Eye className="w-6 h-6" />
+                                    <Eye className="w-5 h-5" />
                                     <span>{post.views || 0}</span>
                                 </div>
                             </div>
 
                             {/* COMMENTS */}
-                            <div className="px-6 pb-5 space-y-3">
-                                <h4 className="font-semibold text-white/80">Comments</h4>
-
-                                {(post.comments || []).map((c, i) => (
-                                    <div key={i} className="bg-white/5 rounded-lg px-4 py-2 text-sm">
-                                        <b>{c.username}:</b> {c.text}
+                            <div className="px-5 pb-5 space-y-3">
+                                {(post.comments || []).length > 0 && (
+                                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {(post.comments || []).slice(-5).map((c, i) => (
+                                            <div key={i} className="bg-white/5 rounded-lg px-3 py-2 text-sm">
+                                                <span className="font-semibold text-cyan-400">{c.username}:</span>{" "}
+                                                <span className="text-white/80">{c.text}</span>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
+                                )}
 
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
                                     <input
                                         type="text"
-                                        placeholder="Write a comment..."
-                                        value={comment}
-                                        onChange={(e) => setComment(e.target.value)}
-                                        className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2"
+                                        placeholder={currentUser ? "Write a comment..." : "Log in to comment"}
+                                        value={commentInputs[post._id] || ""}
+                                        onChange={(e) => setCommentInputs(prev => ({ ...prev, [post._id]: e.target.value }))}
+                                        onKeyPress={(e) => e.key === "Enter" && handleSendComment(post._id)}
+                                        disabled={!currentUser}
+                                        className="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-sm placeholder-white/40 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
                                     />
                                     <button
                                         onClick={() => handleSendComment(post._id)}
-                                        disabled={!comment.trim()}
-                                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg disabled:opacity-50"
+                                        disabled={!commentInputs[post._id]?.trim() || !currentUser}
+                                        className="p-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg disabled:opacity-50"
                                     >
-                                        Send
+                                        <Send className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                        </article>
                     ))
+                )}
+
+                {posts.length > 0 && (
+                    <p className="text-center text-white/40 text-sm py-8">You're all caught up! 🎉</p>
                 )}
             </main>
         </div>

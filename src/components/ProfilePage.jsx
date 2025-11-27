@@ -1,10 +1,19 @@
+// src/components/ProfilePage.jsx
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { useParams, useNavigate } from "react-router-dom";
+import { toast } from "react-hot-toast";
+import api from "../api/api";
 import GiftPanel from "./GiftPanel";
 
-const API = import.meta.env.VITE_API_URL || "";
+export default function ProfilePage() {
+    const { userId: paramUserId } = useParams();
+    const navigate = useNavigate();
 
-export default function ProfilePage({ userId, token, currentUser }) {
+    // Haal current user uit localStorage
+    const [currentUser, setCurrentUser] = useState(null);
+    const [token, setToken] = useState(null);
+
+    // Profile state
     const [profile, setProfile] = useState(null);
     const [streams, setStreams] = useState([]);
     const [receivedGifts, setReceivedGifts] = useState([]);
@@ -12,10 +21,51 @@ export default function ProfilePage({ userId, token, currentUser }) {
     const [error, setError] = useState("");
     const [giftSending, setGiftSending] = useState(false);
 
+    // Edit mode state
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState({
+        username: "",
+        bio: "",
+        avatar: "",
+    });
+
+    // Load current user from localStorage on mount
     useEffect(() => {
-        if (!userId) {
+        const storedToken = localStorage.getItem("token");
+        const storedUser = localStorage.getItem("ws_currentUser");
+
+        if (storedToken) {
+            setToken(storedToken);
+        }
+
+        if (storedUser) {
+            try {
+                const parsed = JSON.parse(storedUser);
+                setCurrentUser(parsed);
+            } catch (e) {
+                console.error("Failed to parse stored user:", e);
+            }
+        }
+    }, []);
+
+    // Bepaal welke userId we moeten laden
+    const targetUserId = paramUserId || currentUser?._id || currentUser?.id;
+
+    // Check if viewing own profile
+    const isOwnProfile = React.useMemo(() => {
+        if (!currentUser || !targetUserId) return false;
+        const currentUserId = currentUser._id || currentUser.id;
+        return String(currentUserId) === String(targetUserId);
+    }, [currentUser, targetUserId]);
+
+    // Fetch profile data
+    useEffect(() => {
+        if (!targetUserId) {
+            if (currentUser === null) {
+                // Still loading from localStorage, wait
+                return;
+            }
             setLoading(false);
-            setError("No user ID provided");
             return;
         }
 
@@ -25,59 +75,47 @@ export default function ProfilePage({ userId, token, currentUser }) {
 
         const fetchAll = async () => {
             try {
-                // Fetch profile and streams in parallel
-                const requests = [
-                    axios.get(`${API}/api/users/${userId}`),
-                    axios.get(`${API}/api/live?userId=${userId}`),
-                ];
-
-                // Only fetch gifts if user is authenticated
-                if (token) {
-                    requests.push(
-                        axios.get(`${API}/api/gifts/received`, {
-                            headers: { Authorization: `Bearer ${token}` },
-                        })
-                    );
-                }
-
-                const responses = await Promise.all(requests);
+                // Fetch profile
+                const profileRes = await api.get(`/users/${targetUserId}`);
 
                 if (cancelled) return;
 
-                // Profile data
-                const profileData = responses[0]?.data;
+                const profileData = profileRes.data;
                 if (!profileData) {
                     setError("User not found");
+                    setLoading(false);
                     return;
                 }
+
                 setProfile(profileData);
+                setEditForm({
+                    username: profileData.username || "",
+                    bio: profileData.bio || "",
+                    avatar: profileData.avatar || "",
+                });
 
-                // Streams data
-                const streamsData = responses[1]?.data;
-                setStreams(Array.isArray(streamsData) ? streamsData : []);
-
-                // Gifts data (only if token was provided)
-                if (token && responses[2]) {
-                    const giftsData = responses[2]?.data;
-                    const filteredGifts = Array.isArray(giftsData)
-                        ? giftsData.filter((g) => {
-                            // Validate gift has recipient
-                            if (!g || !g.recipient) return false;
-
-                            // Check if recipient matches userId
-                            const recipientId = g.recipient._id || g.recipient;
-                            return String(recipientId) === String(userId);
-                        })
-                        : [];
-                    setReceivedGifts(filteredGifts);
-                } else {
-                    setReceivedGifts([]);
+                // Fetch streams
+                try {
+                    const streamsRes = await api.get(`/live?userId=${targetUserId}`);
+                    setStreams(Array.isArray(streamsRes.data) ? streamsRes.data : []);
+                } catch (e) {
+                    setStreams([]);
                 }
+
+                // Fetch gifts if own profile
+                if (token && isOwnProfile) {
+                    try {
+                        const giftsRes = await api.get("/gifts/received");
+                        setReceivedGifts(Array.isArray(giftsRes.data) ? giftsRes.data : []);
+                    } catch (e) {
+                        setReceivedGifts([]);
+                    }
+                }
+
             } catch (err) {
                 console.error("ProfilePage fetch error:", err);
                 if (!cancelled) {
-                    const errorMsg = err.response?.data?.message || err.message || "Failed to load profile";
-                    setError(errorMsg);
+                    setError(err.response?.data?.error || err.message || "Failed to load profile");
                 }
             } finally {
                 if (!cancelled) {
@@ -87,62 +125,61 @@ export default function ProfilePage({ userId, token, currentUser }) {
         };
 
         fetchAll();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [userId, token]);
-
-    // Check if viewing own profile
-    const isOwnProfile = React.useMemo(() => {
-        if (!currentUser || !userId) return false;
-        const currentUserId = currentUser._id || currentUser.id;
-        return String(currentUserId) === String(userId);
-    }, [currentUser, userId]);
+        return () => { cancelled = true; };
+    }, [targetUserId, token, isOwnProfile, currentUser]);
 
     // Handle gift sending
     const handleSendGift = async (giftData) => {
         if (!token) {
-            console.error("No authentication token available");
-            return;
-        }
-
-        if (!giftData || !giftData.recipientId) {
-            console.error("Invalid gift data");
+            toast.error("Please log in to send gifts");
             return;
         }
 
         setGiftSending(true);
 
         try {
-            const response = await axios.post(
-                `${API}/api/gifts`,
-                {
-                    recipientId: giftData.recipientId,
-                    item: giftData.item,
-                    amount: giftData.amount || 1,
-                    itemIcon: giftData.itemIcon,
-                    itemImage: giftData.itemImage,
-                    ...giftData,
-                },
-                {
-                    headers: { Authorization: `Bearer ${token}` },
-                }
-            );
+            await api.post("/gifts", {
+                recipientId: profile._id,
+                item: giftData.item,
+                amount: giftData.amount || 1,
+                itemIcon: giftData.itemIcon,
+            });
 
-            // Update gifts list with new gift
-            if (response.data) {
-                setReceivedGifts((prev) => [response.data, ...prev]);
-            }
-
-            console.log("Gift sent successfully:", response.data);
+            toast.success(`Gift sent to ${profile.username}! 🎁`);
         } catch (err) {
-            console.error("Gift send failed:", err);
-            const errorMsg = err.response?.data?.message || "Failed to send gift";
-            alert(errorMsg);
+            toast.error(err.response?.data?.error || "Failed to send gift");
         } finally {
             setGiftSending(false);
         }
+    };
+
+    // Handle profile update
+    const handleUpdateProfile = async (e) => {
+        e.preventDefault();
+
+        try {
+            const response = await api.put(`/users/${targetUserId}`, editForm);
+
+            setProfile(response.data);
+            setIsEditing(false);
+
+            // Update localStorage
+            const updatedUser = { ...currentUser, ...response.data };
+            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
+            setCurrentUser(updatedUser);
+
+            toast.success("Profile updated! ✨");
+        } catch (err) {
+            toast.error(err.response?.data?.error || "Failed to update profile");
+        }
+    };
+
+    // Handle logout
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("ws_currentUser");
+        toast.success("Logged out successfully");
+        navigate("/login");
     };
 
     // Loading state
@@ -151,6 +188,24 @@ export default function ProfilePage({ userId, token, currentUser }) {
             <div className="max-w-2xl mx-auto p-6 text-center">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
                 <p className="mt-2 text-white/70">Loading profile...</p>
+            </div>
+        );
+    }
+
+    // Not logged in
+    if (!currentUser && !paramUserId) {
+        return (
+            <div className="max-w-2xl mx-auto p-6 text-center">
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
+                    <h2 className="text-2xl font-bold text-white mb-4">👤 Profile</h2>
+                    <p className="text-white/60 mb-6">Please log in to view your profile</p>
+                    <button
+                        onClick={() => navigate("/login")}
+                        className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl text-white font-semibold"
+                    >
+                        Go to Login
+                    </button>
+                </div>
             </div>
         );
     }
@@ -166,7 +221,7 @@ export default function ProfilePage({ userId, token, currentUser }) {
         );
     }
 
-    // No profile found
+    // No profile
     if (!profile) {
         return (
             <div className="max-w-2xl mx-auto p-6">
@@ -180,151 +235,166 @@ export default function ProfilePage({ userId, token, currentUser }) {
     return (
         <div className="max-w-2xl mx-auto p-6 text-white">
             {/* PROFILE HEADER */}
-            <div className="flex items-start gap-4 mb-6 bg-white/5 p-4 rounded-lg border border-white/10">
-                <img
-                    src={profile.avatar || "/defaults/default-avatar.png"}
-                    alt={`${profile.username}'s avatar`}
-                    className="w-20 h-20 rounded-full border-2 border-cyan-400 object-cover"
-                    onError={(e) => {
-                        e.target.src = "/defaults/default-avatar.png";
-                    }}
-                />
-
-                <div className="flex-1">
-                    <h2 className="text-2xl font-bold">{profile.username}</h2>
-
-                    {profile.bio ? (
-                        <p className="text-white/60 mt-1">{profile.bio}</p>
-                    ) : (
-                        <p className="text-white/40 mt-1 italic">No bio yet.</p>
-                    )}
-
-                    {/* Show gift panel only if NOT own profile and user is logged in */}
-                    {!isOwnProfile && token && (
-                        <div className="mt-4">
-                            <GiftPanel
-                                recipient={profile}
-                                onSendGift={handleSendGift}
-                                disabled={giftSending}
+            <div className="bg-white/5 p-6 rounded-2xl border border-white/10 mb-6">
+                {isEditing ? (
+                    <form onSubmit={handleUpdateProfile} className="space-y-4">
+                        <div className="flex items-start gap-4">
+                            <img
+                                src={editForm.avatar || "/defaults/default-avatar.png"}
+                                alt="avatar"
+                                className="w-20 h-20 rounded-full border-2 border-cyan-400 object-cover"
                             />
-                            {giftSending && (
-                                <p className="text-xs text-cyan-400 mt-1">
-                                    Sending gift...
-                                </p>
-                            )}
+                            <div className="flex-1 space-y-3">
+                                <input
+                                    type="text"
+                                    value={editForm.username}
+                                    onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                                    placeholder="Username"
+                                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
+                                />
+                                <input
+                                    type="text"
+                                    value={editForm.avatar}
+                                    onChange={(e) => setEditForm({ ...editForm, avatar: e.target.value })}
+                                    placeholder="Avatar URL"
+                                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
+                                />
+                                <textarea
+                                    value={editForm.bio}
+                                    onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                                    placeholder="Bio"
+                                    rows={3}
+                                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white resize-none"
+                                />
+                            </div>
                         </div>
-                    )}
-
-                    {isOwnProfile && (
-                        <div className="mt-2">
-                            <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-1 rounded">
-                                Your Profile
-                            </span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* RECENT STREAMS SECTION */}
-            <section className="mb-6">
-                <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
-                    <span>📹</span> Recent Streams
-                </h3>
-                <div className="space-y-3">
-                    {streams.length === 0 ? (
-                        <div className="bg-white/5 p-4 rounded-lg border border-white/10 text-center">
-                            <p className="text-white/50">No streams yet.</p>
-                        </div>
-                    ) : (
-                        streams.map((stream) => (
-                            <div
-                                key={stream._id}
-                                className="bg-white/10 p-4 rounded-lg border border-white/10 hover:bg-white/15 transition-colors"
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setIsEditing(false)}
+                                className="px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20"
                             >
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <strong className="text-white">
-                                            {stream.title || "Untitled Stream"}
-                                        </strong>
-                                        <div className="text-sm text-white/60 mt-1">
-                                            {stream.category || "Uncategorized"}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        {stream.isLive ? (
-                                            <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-                                                🔴 LIVE
-                                            </span>
-                                        ) : (
-                                            <span className="text-white/40 text-xs">
-                                                Ended
-                                            </span>
-                                        )}
-                                    </div>
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                className="px-4 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400"
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </form>
+                ) : (
+                    <div className="flex items-start gap-4">
+                        <img
+                            src={profile.avatar || "/defaults/default-avatar.png"}
+                            alt={profile.username}
+                            className="w-20 h-20 rounded-full border-2 border-cyan-400 object-cover"
+                        />
+
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-2xl font-bold">{profile.username}</h2>
+                                {isOwnProfile && (
+                                    <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-1 rounded">You</span>
+                                )}
+                            </div>
+
+                            <p className="text-white/60 mt-1">{profile.bio || "No bio yet."}</p>
+
+                            {/* Stats */}
+                            <div className="flex gap-4 mt-3 text-sm">
+                                <div>
+                                    <span className="font-semibold">{profile.followers?.length || 0}</span>
+                                    <span className="text-white/50 ml-1">Followers</span>
+                                </div>
+                                <div>
+                                    <span className="font-semibold">{profile.following?.length || 0}</span>
+                                    <span className="text-white/50 ml-1">Following</span>
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
-            </section>
 
-            {/* GIFTS RECEIVED SECTION */}
-            <section>
-                <h3 className="text-xl font-semibold mb-3 flex items-center gap-2">
-                    <span>🎁</span> Gifts Received
-                </h3>
-                <div className="space-y-2">
-                    {receivedGifts.length === 0 ? (
-                        <div className="bg-white/5 p-4 rounded-lg border border-white/10 text-center">
-                            <p className="text-white/50">No gifts received yet.</p>
-                        </div>
-                    ) : (
-                        receivedGifts.map((gift) => (
-                            <div
-                                key={gift._id}
-                                className="flex items-center gap-3 bg-white/5 p-3 rounded-lg border border-white/10 hover:bg-white/10 transition-colors"
-                            >
-                                {gift.itemImage && (
-                                    <img
-                                        src={gift.itemImage}
-                                        alt={gift.item}
-                                        className="w-8 h-8 rounded object-cover"
-                                        onError={(e) => {
-                                            e.target.style.display = "none";
-                                        }}
+                            {/* Actions */}
+                            <div className="flex gap-2 mt-4">
+                                {isOwnProfile ? (
+                                    <>
+                                        <button
+                                            onClick={() => setIsEditing(true)}
+                                            className="px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 text-sm"
+                                        >
+                                            ✏️ Edit
+                                        </button>
+                                        <button
+                                            onClick={handleLogout}
+                                            className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 text-sm"
+                                        >
+                                            🚪 Logout
+                                        </button>
+                                    </>
+                                ) : token && (
+                                    <GiftPanel
+                                        recipient={profile}
+                                        onSendGift={handleSendGift}
+                                        disabled={giftSending}
                                     />
                                 )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
 
-                                <div className="flex-1">
-                                    <span className="font-medium text-white">
-                                        {gift.itemIcon && (
-                                            <span className="mr-1">{gift.itemIcon}</span>
-                                        )}
-                                        {gift.item || "Gift"}
-                                        {gift.amount > 1 && (
-                                            <span className="text-cyan-400">
-                                                {" "}
-                                                x{gift.amount}
-                                            </span>
-                                        )}
-                                    </span>
+            {/* WALLET (own profile only) */}
+            {isOwnProfile && (
+                <div className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 p-4 rounded-xl border border-cyan-500/30 mb-6">
+                    <h3 className="font-semibold mb-2">💰 Wallet</h3>
+                    <p className="text-3xl font-bold text-cyan-400">
+                        ${(profile.wallet?.balance || 0).toFixed(2)}
+                    </p>
+                </div>
+            )}
+
+            {/* STREAMS */}
+            <section className="mb-6">
+                <h3 className="text-xl font-semibold mb-3">📹 Streams</h3>
+                {streams.length === 0 ? (
+                    <div className="bg-white/5 p-4 rounded-lg border border-white/10 text-center">
+                        <p className="text-white/50">No streams yet.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {streams.map((s) => (
+                            <div key={s._id} className="bg-white/10 p-4 rounded-lg border border-white/10">
+                                <strong>{s.title || "Untitled"}</strong>
+                                {s.isLive && <span className="ml-2 text-red-400">🔴 LIVE</span>}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            {/* GIFTS (own profile only) */}
+            {isOwnProfile && (
+                <section>
+                    <h3 className="text-xl font-semibold mb-3">🎁 Gifts Received</h3>
+                    {receivedGifts.length === 0 ? (
+                        <div className="bg-white/5 p-4 rounded-lg border border-white/10 text-center">
+                            <p className="text-white/50">No gifts yet.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {receivedGifts.map((gift) => (
+                                <div key={gift._id} className="flex items-center gap-3 bg-white/5 p-3 rounded-lg border border-white/10">
+                                    <span>{gift.itemIcon} {gift.item}</span>
                                     {gift.sender?.username && (
-                                        <div className="text-sm text-white/60">
-                                            from {gift.sender.username}
-                                        </div>
+                                        <span className="text-white/50 text-sm">from {gift.sender.username}</span>
                                     )}
                                 </div>
-
-                                {gift.createdAt && (
-                                    <span className="text-xs text-white/40">
-                                        {new Date(gift.createdAt).toLocaleDateString()}
-                                    </span>
-                                )}
-                            </div>
-                        ))
+                            ))}
+                        </div>
                     )}
-                </div>
-            </section>
+                </section>
+            )}
         </div>
     );
 }

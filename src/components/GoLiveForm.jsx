@@ -1,8 +1,10 @@
-// GoLiveForm.jsx
-import React, { useReducer, useRef } from "react";
-import axios from "axios";
+// src/components/GoLiveForm.jsx
+import React, { useReducer, useRef, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "react-hot-toast";
+import api from "../api/api";
 
-const CATEGORIES = ["Music", "Gaming", "Talk", "Art", "Education", "Sports"];
+const CATEGORIES = ["Music", "Gaming", "Talk", "Art", "Education", "Sports", "Cooking", "Fitness"];
 const MAX_FILE_SIZE_MB = 5;
 
 const initialState = {
@@ -25,6 +27,10 @@ function reducer(state, action) {
                 ...state,
                 errors: { ...state.errors, [action.field]: action.error },
             };
+        case "CLEAR_ERROR":
+            const newErrors = { ...state.errors };
+            delete newErrors[action.field];
+            return { ...state, errors: newErrors };
         case "RESET":
             return { ...initialState, category: CATEGORIES[0] };
         default:
@@ -32,29 +38,49 @@ function reducer(state, action) {
     }
 }
 
-export default function GoLiveForm({ token, onLiveStarted }) {
+export default function GoLiveForm({ onLiveStarted }) {
+    const navigate = useNavigate();
     const [state, dispatch] = useReducer(reducer, initialState);
     const fileRef = useRef(null);
 
-    /* -----------------------------
-       VALIDATION
-    ------------------------------ */
+    // Get current user from localStorage
+    const [currentUser, setCurrentUser] = useState(null);
+
+    useEffect(() => {
+        const storedUser = localStorage.getItem("ws_currentUser");
+        if (storedUser) {
+            try {
+                setCurrentUser(JSON.parse(storedUser));
+            } catch (e) {
+                console.error("Failed to parse user:", e);
+            }
+        }
+    }, []);
+
+    // Validation
     function validate() {
         const errors = {};
-        if (!state.title.trim()) errors.title = "Title is required.";
+        if (!state.title.trim()) {
+            errors.title = "Title is required.";
+        }
+        if (state.title.length > 100) {
+            errors.title = "Title must be 100 characters or less.";
+        }
         if (state.coverFile && state.coverFile.size / 1024 / 1024 > MAX_FILE_SIZE_MB) {
             errors.coverFile = `Image must be ≤ ${MAX_FILE_SIZE_MB}MB.`;
         }
         return errors;
     }
 
-    /* -----------------------------
-       COVER UPLOAD
-    ------------------------------ */
+    // Handle cover image upload
     async function handleCoverUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
 
+        // Clear previous errors
+        dispatch({ type: "CLEAR_ERROR", field: "coverFile" });
+
+        // Validate file type
         if (!file.type.startsWith("image/")) {
             return dispatch({
                 type: "ERROR",
@@ -63,6 +89,7 @@ export default function GoLiveForm({ token, onLiveStarted }) {
             });
         }
 
+        // Validate file size
         if (file.size / 1024 / 1024 > MAX_FILE_SIZE_MB) {
             return dispatch({
                 type: "ERROR",
@@ -77,42 +104,61 @@ export default function GoLiveForm({ token, onLiveStarted }) {
             const formData = new FormData();
             formData.append("file", file);
 
-            const res = await axios.post(
-                process.env.REACT_APP_UPLOAD_URL || "/api/upload",
-                formData,
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        "Content-Type": "multipart/form-data",
-                    },
-                }
-            );
+            const res = await api.post("/upload", formData, {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            });
 
             dispatch({
                 type: "SET",
                 payload: {
                     coverFile: file,
-                    coverImage: res.data.url,
+                    coverImage: res.data.url || res.data.mediaUrl,
                     uploading: false,
-                    info: "Cover uploaded!",
+                    info: "Cover uploaded! ✓",
                 },
             });
-        } catch {
+
+            toast.success("Cover image uploaded!");
+        } catch (err) {
+            console.error("Cover upload error:", err);
             dispatch({
                 type: "ERROR",
                 field: "coverFile",
-                error: "Upload failed. Try again.",
+                error: err.response?.data?.error || "Upload failed. Try again.",
             });
             dispatch({ type: "SET", payload: { uploading: false, info: "" } });
+            toast.error("Failed to upload cover image");
         }
     }
 
-    /* -----------------------------
-       GO LIVE
-    ------------------------------ */
+    // Remove cover image
+    function removeCover() {
+        dispatch({
+            type: "SET",
+            payload: {
+                coverFile: null,
+                coverImage: "",
+            },
+        });
+        if (fileRef.current) {
+            fileRef.current.value = "";
+        }
+    }
+
+    // Handle Go Live
     async function handleGoLive(e) {
         e.preventDefault();
 
+        // Check if logged in
+        if (!currentUser) {
+            toast.error("Please log in to go live");
+            navigate("/login");
+            return;
+        }
+
+        // Validate form
         const errors = validate();
         if (Object.keys(errors).length) {
             Object.entries(errors).forEach(([field, error]) =>
@@ -124,50 +170,72 @@ export default function GoLiveForm({ token, onLiveStarted }) {
         dispatch({ type: "SET", payload: { loading: true, info: "" } });
 
         try {
-            const res = await axios.post(
-                process.env.REACT_APP_LIVE_START_URL || "/api/live/start",
-                {
-                    title: state.title,
-                    category: state.category,
-                    coverImage: state.coverImage,
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const res = await api.post("/live", {
+                title: state.title.trim(),
+                category: state.category,
+                coverImage: state.coverImage,
+                hostId: currentUser._id || currentUser.id,
+                hostUsername: currentUser.username,
+            });
 
-            dispatch({ type: "SET", payload: { loading: false, info: "You're live!" } });
+            dispatch({ type: "SET", payload: { loading: false, info: "You're live! 🔴" } });
+            toast.success("You're now live!");
+
+            // Reset form
             dispatch({ type: "RESET" });
-
             if (fileRef.current) fileRef.current.value = "";
 
-            if (onLiveStarted) onLiveStarted(res.data);
+            // Callback with stream data
+            if (onLiveStarted) {
+                onLiveStarted(res.data);
+            } else {
+                // Navigate to the live page with the stream
+                navigate(`/live/${res.data._id || res.data.roomId}`);
+            }
         } catch (err) {
-            const msg =
-                err.response?.data?.error && typeof err.response.data.error === "string"
-                    ? err.response.data.error
-                    : "Failed to go live. Please try again.";
+            console.error("Go live error:", err);
+            const msg = err.response?.data?.error || err.response?.data?.message || "Failed to go live";
 
             dispatch({
                 type: "SET",
-                payload: { loading: false, info: `Failed to go live: ${msg}` },
+                payload: { loading: false, info: "" },
             });
+            toast.error(msg);
         }
     }
 
-    /* -----------------------------
-       RENDER
-    ------------------------------ */
     return (
         <form
             onSubmit={handleGoLive}
-            className="max-w-lg mx-auto bg-white/10 rounded-xl p-6 border border-white/20 text-white"
+            className="max-w-lg mx-auto bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 text-white shadow-xl"
             noValidate
         >
-            <h2 className="text-2xl font-bold mb-4">🎥 Start a Live Stream</h2>
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
+                Start a Live Stream
+            </h2>
+
+            {/* Not logged in warning */}
+            {!currentUser && (
+                <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <p className="text-yellow-400 text-sm">
+                        ⚠️ Please{" "}
+                        <button
+                            type="button"
+                            onClick={() => navigate("/login")}
+                            className="underline hover:text-yellow-300"
+                        >
+                            log in
+                        </button>{" "}
+                        to start streaming
+                    </p>
+                </div>
+            )}
 
             {/* TITLE */}
-            <div className="mb-4">
-                <label className="block mb-1 font-semibold">
-                    Title <span className="text-red-400">*</span>
+            <div className="mb-5">
+                <label className="block mb-2 font-semibold">
+                    Stream Title <span className="text-red-400">*</span>
                 </label>
                 <input
                     type="text"
@@ -177,87 +245,128 @@ export default function GoLiveForm({ token, onLiveStarted }) {
                             type: "SET",
                             payload: {
                                 title: e.target.value,
-                                errors: { ...state.errors, title: "" },
                             },
                         })
                     }
-                    className={`w-full px-3 py-2 rounded-lg bg-white/10 border ${state.errors.title ? "border-red-500" : "border-white/20"
-                        } outline-none`}
+                    onFocus={() => dispatch({ type: "CLEAR_ERROR", field: "title" })}
+                    placeholder="What are you streaming today?"
+                    maxLength={100}
+                    className={`w-full px-4 py-3 rounded-lg bg-white/10 border ${state.errors.title ? "border-red-500" : "border-white/20"
+                        } outline-none focus:border-cyan-400 transition`}
                 />
-                {state.errors.title && (
-                    <div className="text-red-300 text-sm mt-1">{state.errors.title}</div>
-                )}
+                <div className="flex justify-between mt-1">
+                    {state.errors.title ? (
+                        <span className="text-red-400 text-sm">{state.errors.title}</span>
+                    ) : (
+                        <span></span>
+                    )}
+                    <span className="text-white/40 text-sm">{state.title.length}/100</span>
+                </div>
             </div>
 
             {/* CATEGORY */}
-            <div className="mb-4">
-                <label className="block mb-1 font-semibold">Category</label>
-                <select
-                    value={state.category}
-                    onChange={(e) =>
-                        dispatch({ type: "SET", payload: { category: e.target.value } })
-                    }
-                    className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 outline-none"
-                >
+            <div className="mb-5">
+                <label className="block mb-2 font-semibold">Category</label>
+                <div className="flex flex-wrap gap-2">
                     {CATEGORIES.map((cat) => (
-                        <option key={cat}>{cat}</option>
+                        <button
+                            key={cat}
+                            type="button"
+                            onClick={() => dispatch({ type: "SET", payload: { category: cat } })}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${state.category === cat
+                                    ? "bg-cyan-500 text-black"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                }`}
+                        >
+                            {cat}
+                        </button>
                     ))}
-                </select>
+                </div>
             </div>
 
             {/* COVER IMAGE */}
-            <div className="mb-4">
-                <label className="block mb-1 font-semibold">
+            <div className="mb-6">
+                <label className="block mb-2 font-semibold">
                     Cover Image{" "}
-                    <span className="text-gray-400">(optional, max {MAX_FILE_SIZE_MB}MB)</span>
+                    <span className="text-white/40 font-normal">(optional, max {MAX_FILE_SIZE_MB}MB)</span>
                 </label>
 
-                <input
-                    type="file"
-                    ref={fileRef}
-                    accept="image/*"
-                    disabled={state.uploading}
-                    onChange={handleCoverUpload}
-                />
-
-                {state.uploading && (
-                    <div className="text-cyan-200 mt-1 text-sm">Uploading...</div>
-                )}
-
-                {state.errors.coverFile && (
-                    <div className="text-red-300 text-sm mt-1">
-                        {state.errors.coverFile}
+                {!state.coverImage ? (
+                    <div className="relative">
+                        <input
+                            type="file"
+                            ref={fileRef}
+                            accept="image/*"
+                            disabled={state.uploading}
+                            onChange={handleCoverUpload}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                        <div className={`border-2 border-dashed rounded-lg p-8 text-center transition ${state.uploading
+                                ? "border-cyan-400 bg-cyan-500/10"
+                                : "border-white/20 hover:border-white/40"
+                            }`}>
+                            {state.uploading ? (
+                                <div className="flex items-center justify-center gap-2">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-cyan-400"></div>
+                                    <span className="text-cyan-400">Uploading...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <p className="text-white/60 mb-1">📷 Click to upload cover image</p>
+                                    <p className="text-white/40 text-sm">or drag and drop</p>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="relative inline-block">
+                        <img
+                            src={state.coverImage}
+                            alt="Cover Preview"
+                            className="w-full max-w-xs rounded-lg border border-white/20 object-cover"
+                            style={{ aspectRatio: "16/9" }}
+                        />
+                        <button
+                            type="button"
+                            onClick={removeCover}
+                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white text-sm hover:bg-red-400 transition"
+                        >
+                            ×
+                        </button>
                     </div>
                 )}
 
-                {state.coverImage && (
-                    <img
-                        src={state.coverImage}
-                        alt="Cover Preview"
-                        className="mt-3 w-40 rounded-lg border border-white/20"
-                        style={{
-                            objectFit: "cover",
-                            aspectRatio: "16/9",
-                        }}
-                    />
+                {state.errors.coverFile && (
+                    <p className="text-red-400 text-sm mt-2">{state.errors.coverFile}</p>
                 )}
             </div>
 
-            {/* BUTTON */}
+            {/* GO LIVE BUTTON */}
             <button
                 type="submit"
-                disabled={state.loading || state.uploading}
-                className={`w-full py-3 rounded-xl font-semibold bg-gradient-to-r 
-                    from-cyan-500 to-blue-600 
-                    hover:shadow-lg hover:shadow-cyan-500/30 transition-all
-                    ${state.loading || state.uploading ? "opacity-60 cursor-not-allowed" : ""}
-                `}
+                disabled={state.loading || state.uploading || !currentUser}
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2 ${state.loading || state.uploading || !currentUser
+                        ? "bg-gray-600 cursor-not-allowed opacity-60"
+                        : "bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-400 hover:to-pink-500 hover:shadow-lg hover:shadow-red-500/30"
+                    }`}
             >
-                {state.loading ? "Starting..." : "Go Live"}
+                {state.loading ? (
+                    <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        Starting Stream...
+                    </>
+                ) : (
+                    <>
+                        <span className="w-3 h-3 bg-white rounded-full"></span>
+                        Go Live
+                    </>
+                )}
             </button>
 
-            {/* INFO */}
-            <div className="mt-3 text-yellow-200 min-h-[1.5em]">{state.info}</div>
+            {/* Info message */}
+            {state.info && (
+                <p className="mt-4 text-center text-cyan-400 font-medium">{state.info}</p>
+            )}
         </form>
     );
 }
