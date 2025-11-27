@@ -67,8 +67,25 @@ export default function StockPredictor() {
         try {
             const res = await api.get("/stocks/supported");
             if (Array.isArray(res.data) && res.data.length > 0) {
-                setAssets(res.data);
-                setSelectedAsset(res.data[0]);
+                // Check if API returns all types or just stocks
+                const hasAllTypes = res.data.some(a => a.type === "crypto") &&
+                    res.data.some(a => a.type === "commodity") &&
+                    res.data.some(a => a.type === "forex");
+
+                if (hasAllTypes) {
+                    // API has all types, use it
+                    setAssets(res.data);
+                    setSelectedAsset(res.data[0]);
+                } else {
+                    // API only has partial data, merge with defaults
+                    const apiSymbols = res.data.map(a => a.symbol);
+                    const merged = [
+                        ...res.data,
+                        ...DEFAULT_ASSETS.filter(d => !apiSymbols.includes(d.symbol))
+                    ];
+                    setAssets(merged);
+                    setSelectedAsset(merged[0]);
+                }
             }
         } catch (err) {
             console.log("Using default assets");
