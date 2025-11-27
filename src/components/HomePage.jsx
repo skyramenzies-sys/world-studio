@@ -208,7 +208,7 @@ export default function HomePage() {
                 ) : (
                     posts.map((post) => (
                         <article
-                            key={post._id}
+                            key={post.id || post.id || post._id}
                             className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl overflow-hidden"
                         >
                             {/* POST HEADER */}
@@ -217,13 +217,13 @@ export default function HomePage() {
                                 onClick={() => navigate(`/profile/${post.userId}`)}
                             >
                                 <img
-                                    src={post.authorPhoto || "/defaults/default-avatar.png"}
+                                    src={post.avatar || "/defaults/default-avatar.png"}
                                     alt="avatar"
                                     className="w-11 h-11 rounded-full object-cover border-2 border-white/20"
                                     onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
                                 />
                                 <div>
-                                    <h3 className="font-semibold">{post.author || "Anonymous"}</h3>
+                                    <h3 className="font-semibold">{post.username || "Anonymous"}</h3>
                                     <p className="text-xs text-white/50">
                                         {formatDate(post.timestamp || post.createdAt)}
                                     </p>
@@ -231,36 +231,36 @@ export default function HomePage() {
                             </div>
 
                             {/* MEDIA */}
-                            {post.mediaUrl && (
+                            {post.fileUrl && (
                                 <div className="bg-black flex justify-center">
-                                    {post.mediaType === "image" && (
-                                        <img src={post.mediaUrl} className="w-full max-h-[500px] object-contain" alt="post" />
+                                    {post.type === "image" && (
+                                        <img src={post.fileUrl} className="w-full max-h-[500px] object-contain" alt="post" />
                                     )}
-                                    {post.mediaType === "video" && (
-                                        <video src={post.mediaUrl} controls className="w-full max-h-[500px]" />
+                                    {post.type === "video" && (
+                                        <video src={post.fileUrl} controls className="w-full max-h-[500px]" />
                                     )}
-                                    {post.mediaType === "audio" && (
-                                        <audio src={post.mediaUrl} controls className="w-full p-4" />
+                                    {post.type === "audio" && (
+                                        <audio src={post.fileUrl} controls className="w-full p-4" />
                                     )}
                                 </div>
                             )}
 
                             {/* CONTENT */}
-                            {(post.content || post.title) && (
+                            {(post.description || post.title) && (
                                 <div className="px-5 py-4">
                                     {post.title && <h4 className="font-semibold mb-1">{post.title}</h4>}
-                                    <p className="text-white/80">{post.content}</p>
+                                    {post.description && <p className="text-white/80">{post.description}</p>}
                                 </div>
                             )}
 
                             {/* ACTIONS */}
                             <div className="flex items-center gap-6 px-5 py-3 border-t border-white/10 text-white/70">
                                 <button
-                                    onClick={() => handleLike(post._id)}
-                                    disabled={likingPost === post._id}
+                                    onClick={() => handleLike(post.id || post._id)}
+                                    disabled={likingPost === (post.id || post._id)}
                                     className="flex items-center gap-2 hover:text-red-400 disabled:opacity-50"
                                 >
-                                    <Heart className={`w-5 h-5 ${likingPost === post._id ? "animate-pulse" : ""}`} />
+                                    <Heart className={`w-5 h-5 ${likingPost === (post.id || post._id) ? "animate-pulse" : ""}`} />
                                     <span>{post.likes || 0}</span>
                                 </button>
 
@@ -292,15 +292,15 @@ export default function HomePage() {
                                     <input
                                         type="text"
                                         placeholder={currentUser ? "Write a comment..." : "Log in to comment"}
-                                        value={commentInputs[post._id] || ""}
-                                        onChange={(e) => setCommentInputs(prev => ({ ...prev, [post._id]: e.target.value }))}
-                                        onKeyPress={(e) => e.key === "Enter" && handleSendComment(post._id)}
+                                        value={commentInputs[post.id || post._id] || ""}
+                                        onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id || post._id]: e.target.value }))}
+                                        onKeyPress={(e) => e.key === "Enter" && handleSendComment(post.id || post._id)}
                                         disabled={!currentUser}
                                         className="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-sm placeholder-white/40 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
                                     />
                                     <button
-                                        onClick={() => handleSendComment(post._id)}
-                                        disabled={!commentInputs[post._id]?.trim() || !currentUser}
+                                        onClick={() => handleSendComment(post.id || post._id)}
+                                        disabled={!commentInputs[post.id || post._id]?.trim() || !currentUser}
                                         className="p-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg disabled:opacity-50"
                                     >
                                         <Send className="w-4 h-4" />
