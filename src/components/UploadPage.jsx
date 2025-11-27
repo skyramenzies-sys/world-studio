@@ -103,13 +103,12 @@ export default function UploadPage() {
 
         try {
             const formData = new FormData();
-            formData.append("file", file);
+            formData.append("files", file);  // Backend expects "files" (plural)
             formData.append("title", title || "Untitled");
             formData.append("description", description || "");
             formData.append("type", type);
-            formData.append("mediaType", type);
-            formData.append("userId", currentUser._id || currentUser.id);
-            formData.append("author", currentUser.username);
+            formData.append("category", "general");
+            formData.append("isFree", "true");
 
             // Upload with progress tracking
             const response = await api.post("/upload", formData, {
