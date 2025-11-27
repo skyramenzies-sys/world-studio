@@ -9,6 +9,11 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
 const app = express();
+
+// ✅ IMPORTANT: Trust proxy - Required for Railway/Vercel/Heroku
+// This fixes the X-Forwarded-For header error with express-rate-limit
+app.set("trust proxy", 1);
+
 const server = http.createServer(app);
 
 // Security Middleware
