@@ -9,12 +9,15 @@ router.post("/", authMiddleware, upload.array("files", 10), async (req, res) => 
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ error: "No files uploaded" });
         }
+
         const { title, description, category, isFree, price, isPremium } = req.body;
         const posts = [];
+
         for (const file of req.files) {
             let type = "image";
             if (file.mimetype.startsWith("video")) type = "video";
             else if (file.mimetype.startsWith("audio")) type = "audio";
+
             const post = new Post({
                 userId: req.userId,
                 username: req.user.username,
@@ -32,11 +35,14 @@ router.post("/", authMiddleware, upload.array("files", 10), async (req, res) => 
                 price: price || 0,
                 isPremium: isPremium || false,
             });
+
             const saved = await post.save();
             posts.push(saved);
+
             const io = req.app.get("io");
             if (io) io.emit("new_post", { postId: saved._id });
         }
+
         res.status(201).json({
             message: "Upload successful",
             posts,
