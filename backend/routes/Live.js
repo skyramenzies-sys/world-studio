@@ -11,7 +11,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 const formatStream = (s) => ({
     _id: s._id,
     id: s._id,
-    roomId: s.roomId || s._id?.toString(), // Include roomId for WebRTC
+    roomId: s.roomId || s._id?.toString(),
     title: s.title,
     category: s.category,
     coverImage: s.coverImage,
@@ -21,6 +21,8 @@ const formatStream = (s) => ({
     viewers: s.viewers,
     isLive: s.isLive,
     startedAt: s.startedAt,
+    type: s.type || "solo",
+    maxSeats: s.maxSeats || 1,
     host: {
         _id: s.streamerId,
         username: s.streamerName,
@@ -152,7 +154,7 @@ router.get("/:id", async (req, res) => {
 // =========================
 router.post("/start", authMiddleware, async (req, res) => {
     try {
-        const { title, category, coverImage, roomId } = req.body;
+        const { title, category, coverImage, roomId, type, maxSeats } = req.body;
         const user = req.user;
 
         if (!title) return res.status(400).json({ error: "Title required" });
@@ -178,6 +180,8 @@ router.post("/start", authMiddleware, async (req, res) => {
             streamerName: user.username,
             streamerAvatar: user.avatar || "",
             roomId: roomId || `stream_${user._id}_${Date.now()}`,
+            type: type || "solo", // solo, multi-guest, audio
+            maxSeats: maxSeats || 1,
             viewers: 0,
             isLive: true,
             startedAt: new Date(),

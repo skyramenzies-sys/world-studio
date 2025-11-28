@@ -223,10 +223,124 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Handle chat messages
+    // ========== Multi-Guest Live Events ==========
+
+    // Store multi-guest rooms
+    if (!io.multiRooms) io.multiRooms = new Map();
+
+    // Start multi-guest live
+    socket.on("start_multi_live", ({ roomId, host, title, maxSeats }) => {
+        if (!roomId) return;
+
+        io.multiRooms.set(roomId, {
+            hostId: socket.id,
+            host,
+            title,
+            maxSeats,
+            seats: [{ odId: 0, user: host, oderId: socket.id }],
+            viewers: new Set(),
+        });
+
+        socket.join(roomId);
+        console.log(`👥 Multi-guest live started: ${roomId} by ${host?.username}`);
+    });
+
+    // Join multi-guest live as viewer
+    socket.on("join_multi_live", ({ roomId, user }) => {
+        if (!roomId) return;
+
+        const room = io.multiRooms.get(roomId);
+        if (room) {
+            room.viewers.add(socket.id);
+            socket.join(roomId);
+            io.to(roomId).emit("viewer_count", { count: room.viewers.size });
+        }
+    });
+
+    // Request seat in multi-guest
+    socket.on("request_seat", ({ roomId, seatId, user }) => {
+        const room = io.multiRooms.get(roomId);
+        if (room) {
+            io.to(room.hostId).emit("seat_request", { seatId, user, odId: socket.id });
+            console.log(`🙋 Seat request from ${user?.username} for seat ${seatId}`);
+        }
+    });
+
+    // Approve seat request (host only)
+    socket.on("approve_seat", ({ roomId, seatId, user }) => {
+        const room = io.multiRooms.get(roomId);
+        if (room) {
+            room.seats.push({ odId: seatId, user, oderId: socket.id });
+            io.to(roomId).emit("seat_approved", { seatId, user });
+            console.log(`✅ Seat ${seatId} approved for ${user?.username}`);
+        }
+    });
+
+    // Leave seat
+    socket.on("leave_seat", ({ roomId, odId }) => {
+        const room = io.multiRooms.get(roomId);
+        if (room) {
+            room.seats = room.seats.filter(s => s.user?._id !== odId);
+            io.to(roomId).emit("user_left_seat", { odId });
+        }
+    });
+
+    // Kick from seat (host only)
+    socket.on("kick_from_seat", ({ roomId, oderId }) => {
+        const room = io.multiRooms.get(roomId);
+        if (room) {
+            room.seats = room.seats.filter(s => s.user?._id !== oderId);
+            io.to(roomId).emit("user_left_seat", { odId: oderId });
+            io.to(oderId).emit("kicked_from_seat");
+        }
+    });
+
+    // End multi-guest live
+    socket.on("end_multi_live", ({ roomId }) => {
+        io.to(roomId).emit("multi_live_ended");
+        io.multiRooms.delete(roomId);
+        console.log(`👥 Multi-guest live ended: ${roomId}`);
+    });
+
+    // Leave multi-guest live
+    socket.on("leave_multi_live", ({ roomId }) => {
+        const room = io.multiRooms.get(roomId);
+        if (room) {
+            room.viewers.delete(socket.id);
+            io.to(roomId).emit("viewer_count", { count: room.viewers.size });
+        }
+    });
+
+    // ========== Audio Live Events ==========
+
+    socket.on("start_audio_live", ({ roomId, host, title }) => {
+        if (!roomId) return;
+        socket.join(roomId);
+        console.log(`🎙️ Audio live started: ${roomId}`);
+    });
+
+    socket.on("join_audio_live", ({ roomId, user }) => {
+        if (!roomId) return;
+        socket.join(roomId);
+    });
+
+    socket.on("end_audio_live", ({ roomId }) => {
+        io.to(roomId).emit("audio_live_ended");
+    });
+
+    socket.on("leave_audio_live", ({ roomId }) => {
+        socket.leave(roomId);
+    });
+
+    // ========== Chat Events ==========
+
+    // Handle chat messages (updated to work with roomId)
     socket.on("chat_message", (data) => {
-        if (!data || !data.streamId) {
-            console.warn("Invalid chat message data");
+        if (!data) return;
+
+        const roomId = data.roomId || data.streamId;
+        if (!roomId) {
+            console.warn("Invalid chat message data - no roomId");
             return;
         }
 
@@ -236,7 +350,9 @@ io.on("connection", (socket) => {
             socketId: socket.id
         };
 
-        io.to(`stream_${data.streamId}`).emit("chat_message", messageData);
+        // Send to both room formats
+        io.to(roomId).emit("chat_message", messageData);
+        io.to(`stream_${roomId}`).emit("chat_message", messageData);
     });
 
     // Admin actions
