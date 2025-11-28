@@ -1,198 +1,130 @@
-const express = require("express");
-const router = express.Router();
-const User = require("../models/User");
-const authMiddleware = require("../middleware/authMiddleware");
-const { upload } = require("../config/cloudinary");
+// backend/models/User.js
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
-// Search users
-router.get("/", async (req, res) => {
+const notificationSchema = new mongoose.Schema({
+    message: { type: String, required: true },
+    type: {
+        type: String,
+        enum: ["follow", "like", "comment", "gift", "live", "mention", "system"],
+        default: "system"
+    },
+    fromUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    postId: { type: mongoose.Schema.Types.ObjectId, ref: "Post" },
+    streamId: { type: mongoose.Schema.Types.ObjectId, ref: "Stream" },
+    amount: { type: Number },
+    read: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now },
+});
+
+const walletSchema = new mongoose.Schema({
+    balance: { type: Number, default: 0 },
+    totalReceived: { type: Number, default: 0 },
+    totalSpent: { type: Number, default: 0 },
+});
+
+const userSchema = new mongoose.Schema({
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        lowercase: true,
+        trim: true,
+    },
+    username: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        minLength: 2,
+        maxLength: 30,
+    },
+    password: {
+        type: String,
+        required: true,
+        minLength: 6,
+    },
+    avatar: { type: String, default: "" },
+    bio: { type: String, default: "", maxLength: 500 },
+
+    // Social
+    followers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    following: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+    // Stats
+    totalViews: { type: Number, default: 0 },
+    totalLikes: { type: Number, default: 0 },
+    totalPosts: { type: Number, default: 0 },
+    totalStreams: { type: Number, default: 0 },
+
+    // Monetization
+    wallet: { type: walletSchema, default: () => ({ balance: 0, totalReceived: 0, totalSpent: 0 }) },
+    earnings: { type: Number, default: 0 },
+
+    // Notifications
+    notifications: [notificationSchema],
+
+    // Settings
+    role: { type: String, enum: ["user", "creator", "admin"], default: "user" },
+    isVerified: { type: Boolean, default: false },
+    isBanned: { type: Boolean, default: false },
+    lastSeen: { type: Date, default: Date.now },
+
+    // Streaming
+    isLive: { type: Boolean, default: false },
+    currentStreamId: { type: mongoose.Schema.Types.ObjectId, ref: "Stream" },
+
+}, { timestamps: true });
+
+// Indexes
+userSchema.index({ username: "text", email: "text" });
+userSchema.index({ followers: 1 });
+userSchema.index({ following: 1 });
+
+// Hash password before saving
+userSchema.pre("save", async function (next) {
+    if (!this.isModified("password")) return next();
+
     try {
-        const { q = "", page = 1, limit = 10 } = req.query;
-        const regex = new RegExp(q, "i");
-
-        const users = await User.find({ username: regex })
-            .select("-password")
-            .skip((page - 1) * limit)
-            .limit(Number(limit));
-
-        const total = await User.countDocuments({ username: regex });
-
-        res.json({
-            users,
-            total,
-            page: Number(page),
-            pages: Math.ceil(total / limit),
-        });
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+        next();
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        next(err);
     }
 });
 
-// Suggested
-router.get("/suggested", authMiddleware, async (req, res) => {
-    try {
-        const { page = 1, limit = 10 } = req.query;
-        const me = await User.findById(req.userId);
+// Compare password method
+userSchema.methods.comparePassword = async function (candidatePassword) {
+    return bcrypt.compare(candidatePassword, this.password);
+};
 
-        if (!me) return res.status(404).json({ error: "Current user not found" });
+// Add notification helper
+userSchema.methods.addNotification = async function (notification) {
+    this.notifications.push({
+        ...notification,
+        createdAt: new Date(),
+    });
 
-        const excludeIds = [me._id, ...me.following];
-
-        const suggestions = await User.find({ _id: { $nin: excludeIds } })
-            .select("-password")
-            .skip((page - 1) * limit)
-            .limit(Number(limit))
-            .sort({ createdAt: -1 });
-
-        const total = await User.countDocuments({ _id: { $nin: excludeIds } });
-
-        res.json({
-            suggestions,
-            total,
-            page: Number(page),
-            pages: Math.ceil(total / limit),
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+    // Keep only last 100 notifications
+    if (this.notifications.length > 100) {
+        this.notifications = this.notifications.slice(-100);
     }
+
+    return this.save();
+};
+
+// Virtual for follower count
+userSchema.virtual("followerCount").get(function () {
+    return this.followers?.length || 0;
 });
 
-// Upload avatar
-router.post("/avatar", authMiddleware, upload.single("avatar"), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: "No file uploaded" });
-        }
-
-        const avatarUrl = req.file.path;
-
-        // Update user's avatar in database
-        const user = await User.findByIdAndUpdate(
-            req.userId,
-            { avatar: avatarUrl },
-            { new: true }
-        ).select("-password");
-
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        res.json({
-            message: "Avatar updated successfully",
-            avatar: avatarUrl,
-            user,
-        });
-    } catch (err) {
-        console.error("Avatar upload error:", err);
-        res.status(500).json({ error: "Failed to upload avatar" });
-    }
+userSchema.virtual("followingCount").get(function () {
+    return this.following?.length || 0;
 });
 
-// Public profile
-router.get("/:id", async (req, res) => {
-    try {
-        const user = await User.findById(req.params.id).select("-password");
-        if (!user) return res.status(404).json({ error: "User not found" });
-        res.json(user);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
+// Ensure virtuals are included in JSON
+userSchema.set("toJSON", { virtuals: true });
+userSchema.set("toObject", { virtuals: true });
 
-// Update profile
-router.put("/:id", authMiddleware, async (req, res) => {
-    try {
-        if (!req.userId || !req.user) {
-            return res.status(401).json({ error: "Unauthorized" });
-        }
-        if (req.userId.toString() !== req.params.id && req.user.role !== "admin") {
-            return res.status(403).json({ error: "Forbidden" });
-        }
-
-        const { username, bio, avatar } = req.body;
-        const updates = {};
-        if (username) updates.username = username;
-        if (bio !== undefined) updates.bio = bio;
-        if (avatar) updates.avatar = avatar;
-
-        const user = await User.findByIdAndUpdate(req.params.id, updates, {
-            new: true,
-        }).select("-password");
-        res.json(user);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Follow / unfollow
-router.post("/:id/follow", authMiddleware, async (req, res) => {
-    try {
-        const targetId = req.params.id;
-        if (targetId === req.userId.toString()) {
-            return res.status(400).json({ error: "Cannot follow yourself" });
-        }
-
-        const me = await User.findById(req.userId);
-        const target = await User.findById(targetId);
-        if (!me || !target) return res.status(404).json({ error: "User not found" });
-
-        const isFollowing = me.following.some((id) => id.toString() === targetId);
-
-        if (isFollowing) {
-            me.following = me.following.filter((id) => id.toString() !== targetId);
-            target.followers = target.followers.filter(
-                (id) => id.toString() !== req.userId.toString()
-            );
-        } else {
-            me.following.push(targetId);
-            target.followers.push(req.userId);
-
-            if (typeof target.addNotification === "function") {
-                await target.addNotification({
-                    message: `${me.username} started following you`,
-                    type: "follow",
-                    fromUser: me._id,
-                });
-            }
-        }
-
-        await me.save();
-        await target.save();
-
-        res.json({ following: me.following, followers: target.followers });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// =========================
-// POST: Mark all notifications as read
-// /api/users/notifications/read-all
-// =========================
-router.post("/notifications/read-all", authMiddleware, async (req, res) => {
-    try {
-        await User.findByIdAndUpdate(req.userId, {
-            $set: { "notifications.$[].read": true }
-        });
-        res.json({ message: "All notifications marked as read" });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// =========================
-// DELETE: Clear all notifications
-// /api/users/notifications
-// =========================
-router.delete("/notifications", authMiddleware, async (req, res) => {
-    try {
-        await User.findByIdAndUpdate(req.userId, {
-            $set: { notifications: [] }
-        });
-        res.json({ message: "All notifications cleared" });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-module.exports = router;
+module.exports = mongoose.model("User", userSchema);

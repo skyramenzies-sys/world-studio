@@ -7,6 +7,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+const giftsRouter = require("./routes/gifts.route");
 
 const app = express();
 
@@ -71,6 +72,7 @@ app.use("/api/admin-wallet", require("./routes/adminWallet"));
 app.use("/api/gifts", require("./routes/gifts.route"));
 app.use("/api/live", require("./routes/Live"));
 app.use("/api/live-analytics", require("./routes/LiveAnalytics"));
+app.use("/api/gifts", giftsRouter);
 
 // Root Endpoint
 app.get("/", (req, res) => {
