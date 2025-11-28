@@ -22,5 +22,6 @@ const streamSchema = new mongoose.Schema({
 streamSchema.index({ isLive: 1, viewers: -1 });
 streamSchema.index({ streamerId: 1, isLive: 1 });
 streamSchema.index({ category: 1, isLive: 1 });
+streamSchema.index({ roomId: 1, isLive: 1 });
 
 module.exports = mongoose.model("Stream", streamSchema);

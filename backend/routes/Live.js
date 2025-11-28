@@ -11,6 +11,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 const formatStream = (s) => ({
     _id: s._id,
     id: s._id,
+    roomId: s.roomId || s._id?.toString(), // Include roomId for WebRTC
     title: s.title,
     category: s.category,
     coverImage: s.coverImage,
@@ -20,6 +21,11 @@ const formatStream = (s) => ({
     viewers: s.viewers,
     isLive: s.isLive,
     startedAt: s.startedAt,
+    host: {
+        _id: s.streamerId,
+        username: s.streamerName,
+        avatar: s.streamerAvatar,
+    }
 });
 
 // =========================
@@ -111,12 +117,23 @@ router.get("/", async (req, res) => {
 });
 
 // =========================
-// GET: Single stream by ID
+// GET: Single stream by ID or roomId
 // /api/live/:id
 // =========================
 router.get("/:id", async (req, res) => {
     try {
-        const stream = await Stream.findById(req.params.id).lean();
+        const id = req.params.id;
+        let stream;
+
+        // Try finding by MongoDB _id first
+        if (id.match(/^[0-9a-fA-F]{24}$/)) {
+            stream = await Stream.findById(id).lean();
+        }
+
+        // If not found, try by roomId
+        if (!stream) {
+            stream = await Stream.findOne({ roomId: id, isLive: true }).lean();
+        }
 
         if (!stream) {
             return res.status(404).json({ error: "Stream not found" });
