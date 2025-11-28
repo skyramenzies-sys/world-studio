@@ -152,6 +152,77 @@ io.on("connection", (socket) => {
         }
     });
 
+    // ========== WebRTC Signaling ==========
+
+    // Store broadcaster socket IDs by roomId
+    if (!io.broadcasters) io.broadcasters = new Map();
+    if (!io.viewerCounts) io.viewerCounts = new Map();
+
+    // Broadcaster starts stream
+    socket.on("start_broadcast", ({ roomId, streamer, title, category }) => {
+        if (roomId) {
+            io.broadcasters.set(roomId, socket.id);
+            socket.join(roomId);
+            io.viewerCounts.set(roomId, 0);
+            console.log(`📺 Broadcaster ${streamer} started stream in room ${roomId}`);
+        }
+    });
+
+    // Broadcaster stops stream
+    socket.on("stop_broadcast", ({ roomId }) => {
+        if (roomId) {
+            io.broadcasters.delete(roomId);
+            io.viewerCounts.delete(roomId);
+            io.to(roomId).emit("stream_ended");
+            console.log(`📺 Stream ended in room ${roomId}`);
+        }
+    });
+
+    // Viewer wants to watch
+    socket.on("watcher", ({ roomId }) => {
+        if (!roomId) return;
+
+        const broadcasterId = io.broadcasters.get(roomId);
+        if (broadcasterId) {
+            // Join the room
+            socket.join(roomId);
+
+            // Update viewer count
+            const count = (io.viewerCounts.get(roomId) || 0) + 1;
+            io.viewerCounts.set(roomId, count);
+            io.to(roomId).emit("viewer_count", { viewers: count });
+
+            // Tell broadcaster about new watcher
+            io.to(broadcasterId).emit("watcher", { watcherId: socket.id });
+            console.log(`👁 Viewer ${socket.id} watching room ${roomId} (${count} viewers)`);
+        } else {
+            socket.emit("error", { message: "Stream not found or has ended" });
+            console.log(`❌ Viewer ${socket.id} tried to join non-existent room ${roomId}`);
+        }
+    });
+
+    // WebRTC offer from broadcaster to viewer
+    socket.on("offer", ({ watcherId, sdp }) => {
+        if (watcherId && sdp) {
+            io.to(watcherId).emit("offer", { sdp });
+        }
+    });
+
+    // WebRTC answer from viewer to broadcaster
+    socket.on("answer", ({ roomId, sdp }) => {
+        const broadcasterId = io.broadcasters.get(roomId);
+        if (broadcasterId && sdp) {
+            io.to(broadcasterId).emit("answer", { watcherId: socket.id, sdp });
+        }
+    });
+
+    // ICE candidate exchange
+    socket.on("candidate", ({ target, candidate }) => {
+        if (target && candidate) {
+            io.to(target).emit("candidate", { from: socket.id, candidate });
+        }
+    });
+
     // Handle chat messages
     socket.on("chat_message", (data) => {
         if (!data || !data.streamId) {
@@ -186,6 +257,33 @@ io.on("connection", (socket) => {
     // Handle disconnect
     socket.on("disconnect", () => {
         console.log(`❌ Socket disconnected: ${socket.id}`);
+
+        // Check if this was a broadcaster
+        if (io.broadcasters) {
+            for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
+                if (broadcasterId === socket.id) {
+                    io.broadcasters.delete(roomId);
+                    io.viewerCounts?.delete(roomId);
+                    io.to(roomId).emit("stream_ended");
+                    console.log(`📺 Broadcaster disconnected, stream ${roomId} ended`);
+                    break;
+                }
+            }
+        }
+
+        // Notify broadcaster that viewer left (for all rooms this socket was in)
+        if (io.broadcasters) {
+            for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
+                io.to(broadcasterId).emit("remove_watcher", { watcherId: socket.id });
+
+                // Decrement viewer count
+                if (io.viewerCounts?.has(roomId)) {
+                    const count = Math.max(0, (io.viewerCounts.get(roomId) || 1) - 1);
+                    io.viewerCounts.set(roomId, count);
+                    io.to(roomId).emit("viewer_count", { viewers: count });
+                }
+            }
+        }
     });
 });
 

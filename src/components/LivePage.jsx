@@ -2,20 +2,21 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
+import api from "../api/api";
 import LivePublisher from "./LivePublisher";
 import LiveViewer from "./LiveViewer";
 
 export default function LivePage() {
-    const { streamId } = useParams(); // Get streamId from URL if present
+    const { streamId } = useParams();
     const navigate = useNavigate();
 
-    // Get current user from localStorage
     const [currentUser, setCurrentUser] = useState(null);
-
-    const [mode, setMode] = useState(null); // "publish" | "watch"
+    const [mode, setMode] = useState(null);
     const [roomId, setRoomId] = useState("");
     const [streamTitle, setStreamTitle] = useState("");
     const [streamCategory, setStreamCategory] = useState("Talk");
+    const [streamInfo, setStreamInfo] = useState(null);
+    const [loading, setLoading] = useState(false);
 
     const CATEGORIES = ["Music", "Gaming", "Talk", "Art", "Education", "Sports", "Cooking", "Fitness"];
 
@@ -26,8 +27,7 @@ export default function LivePage() {
             try {
                 const user = JSON.parse(storedUser);
                 setCurrentUser(user);
-                // Auto-generate room ID based on username
-                if (!roomId) {
+                if (!roomId && !streamId) {
                     setRoomId(`${user.username}-live-${Date.now().toString(36)}`);
                 }
             } catch (e) {
@@ -36,16 +36,49 @@ export default function LivePage() {
         }
     }, []);
 
-    // Auto-join if streamId in URL (coming from Discover page)
+    // If streamId in URL, fetch stream info and auto-join as viewer
     useEffect(() => {
         if (streamId) {
-            setRoomId(streamId);
-            setMode("watch");
-        }
-    }, [streamId]);
+            setLoading(true);
 
-    // Start as publisher (go live)
-    const startAsPublisher = () => {
+            const fetchStreamInfo = async () => {
+                try {
+                    const res = await api.get(`/live/${streamId}`);
+                    const stream = res.data;
+
+                    if (!stream) {
+                        toast.error("Stream not found");
+                        navigate("/discover");
+                        return;
+                    }
+
+                    if (!stream.isLive) {
+                        toast.error("This stream has ended");
+                        navigate("/discover");
+                        return;
+                    }
+
+                    setStreamInfo(stream);
+                    // Use roomId from stream, fallback to _id
+                    setRoomId(stream.roomId || stream._id || streamId);
+                    setStreamTitle(stream.title || "Live Stream");
+                    setStreamCategory(stream.category || "Talk");
+                    setMode("watch");
+
+                } catch (err) {
+                    console.error("Failed to fetch stream:", err);
+                    setRoomId(streamId);
+                    setMode("watch");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            fetchStreamInfo();
+        }
+    }, [streamId, navigate]);
+
+    const startAsPublisher = async () => {
         if (!currentUser) {
             toast.error("Please log in to go live");
             navigate("/login");
@@ -65,7 +98,6 @@ export default function LivePage() {
         setMode("publish");
     };
 
-    // Start as viewer (watch stream)
     const startAsViewer = () => {
         if (!roomId.trim()) {
             toast.error("Please enter a valid Room ID");
@@ -74,10 +106,8 @@ export default function LivePage() {
         setMode("watch");
     };
 
-    // Handle stop/leave
     const handleStopStream = () => {
         setMode(null);
-        // Keep roomId if user might want to restart
         toast.success("Stream ended");
         navigate("/discover");
     };
@@ -85,19 +115,29 @@ export default function LivePage() {
     const handleLeaveStream = () => {
         setMode(null);
         setRoomId("");
+        setStreamInfo(null);
         navigate("/discover");
     };
 
-    // Generate random room ID
     const generateRoomId = () => {
         const username = currentUser?.username || "user";
         const randomId = Math.random().toString(36).substring(2, 8);
         setRoomId(`${username}-${randomId}`);
     };
 
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
+                    <p className="text-white/70">Connecting to stream...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black text-white">
-            {/* HOME PANEL - Mode selection */}
+        <div className="text-white">
             {!mode && (
                 <div className="max-w-xl mx-auto py-8 md:py-16 px-4 md:px-6 space-y-8">
                     <div className="text-center">
@@ -124,7 +164,6 @@ export default function LivePage() {
                             </div>
                         )}
 
-                        {/* Stream Title */}
                         <div className="space-y-2">
                             <label className="text-sm text-white/70">Stream Title</label>
                             <input
@@ -136,7 +175,6 @@ export default function LivePage() {
                             />
                         </div>
 
-                        {/* Category */}
                         <div className="space-y-2">
                             <label className="text-sm text-white/70">Category</label>
                             <div className="flex flex-wrap gap-2">
@@ -145,8 +183,8 @@ export default function LivePage() {
                                         key={cat}
                                         onClick={() => setStreamCategory(cat)}
                                         className={`px-3 py-1.5 rounded-full text-sm transition ${streamCategory === cat
-                                                ? "bg-cyan-500 text-black font-semibold"
-                                                : "bg-white/10 text-white/70 hover:bg-white/20"
+                                            ? "bg-cyan-500 text-black font-semibold"
+                                            : "bg-white/10 text-white/70 hover:bg-white/20"
                                             }`}
                                     >
                                         {cat}
@@ -155,7 +193,6 @@ export default function LivePage() {
                             </div>
                         </div>
 
-                        {/* Room ID */}
                         <div className="space-y-2">
                             <label className="text-sm text-white/70">Room ID</label>
                             <div className="flex gap-2">
@@ -168,17 +205,12 @@ export default function LivePage() {
                                 <button
                                     onClick={generateRoomId}
                                     className="px-4 py-3 bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition text-sm"
-                                    title="Generate random ID"
                                 >
                                     🎲
                                 </button>
                             </div>
-                            <p className="text-xs text-white/40">
-                                Share this ID with viewers so they can join
-                            </p>
                         </div>
 
-                        {/* Go Live Button */}
                         <button
                             disabled={!roomId.trim() || !streamTitle.trim() || !currentUser}
                             onClick={startAsPublisher}
@@ -223,7 +255,6 @@ export default function LivePage() {
                         </p>
                     </div>
 
-                    {/* Back button */}
                     <button
                         onClick={() => navigate("/")}
                         className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl hover:bg-white/20 transition"
@@ -233,7 +264,6 @@ export default function LivePage() {
                 </div>
             )}
 
-            {/* PUBLISHER MODE */}
             {mode === "publish" && (
                 <div className="w-full h-screen">
                     <LivePublisher
@@ -246,12 +276,12 @@ export default function LivePage() {
                 </div>
             )}
 
-            {/* VIEWER MODE */}
             {mode === "watch" && (
                 <div className="w-full h-screen">
                     <LiveViewer
                         roomId={roomId}
                         currentUser={currentUser}
+                        streamInfo={streamInfo}
                         onLeave={handleLeaveStream}
                     />
                 </div>

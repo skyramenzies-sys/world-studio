@@ -92,7 +92,7 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
 
                 // Join the stream room
                 socket.emit("join_stream", roomId);
-                socket.emit("watch", { roomId });
+                socket.emit("watcher", { roomId, odId: socket.id });
 
                 // ---- SOCKET EVENTS ----
 
