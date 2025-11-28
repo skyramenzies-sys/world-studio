@@ -87,7 +87,7 @@ export default function LiveDiscover() {
     // Loading state
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black flex items-center justify-center">
+            <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
                     <p className="text-white/70">Loading live streams...</p>
@@ -97,7 +97,7 @@ export default function LiveDiscover() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black text-white p-4 md:p-8">
+        <div className="text-white p-4 md:p-8">
             {/* Header */}
             <div className="max-w-7xl mx-auto">
                 <h1 className="text-3xl font-bold text-cyan-400 mb-2">

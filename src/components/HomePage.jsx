@@ -1,320 +1,262 @@
-// src/components/HomePage.jsx
-import React, { useEffect, useRef, useState } from "react";
+// src/components/LiveDiscover.jsx
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, Eye, Send } from "lucide-react";
 import { toast } from "react-hot-toast";
-import useSWR from "swr";
-import socket from "../api/socket";
 import api from "../api/api";
+import socket from "../api/socket";
 
-// Fetcher voor SWR
-const fetcher = (url) => api.get(url).then((r) => r.data);
+const CATEGORIES = [
+    "All", "Music", "Gaming", "Talk", "Art", "Education", "Sports", "Cooking", "Fitness"
+];
 
-export default function HomePage() {
+export default function LiveDiscover() {
     const navigate = useNavigate();
-    const feedRef = useRef(null);
 
-    // Get current user from localStorage
-    const [currentUser, setCurrentUser] = useState(null);
-    const [posts, setPosts] = useState([]);
-    const [commentInputs, setCommentInputs] = useState({});
-    const [likingPost, setLikingPost] = useState(null);
+    const [streams, setStreams] = useState([]);
+    const [category, setCategory] = useState("All");
+    const [search, setSearch] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
 
-    // Load user from localStorage
-    useEffect(() => {
-        const storedUser = localStorage.getItem("ws_currentUser");
-        if (storedUser) {
-            try {
-                setCurrentUser(JSON.parse(storedUser));
-            } catch (e) {
-                console.error("Failed to parse user:", e);
-            }
+    // Fetch streams from backend
+    const fetchStreams = useCallback(async () => {
+        try {
+            setError("");
+            const res = await api.get("/live");
+            const data = Array.isArray(res.data) ? res.data : res.data?.streams || [];
+            // Only show live streams
+            const liveStreams = data.filter(s => s.isLive !== false);
+            setStreams(liveStreams);
+        } catch (err) {
+            console.error("❌ Failed to load live streams", err);
+            setError("Failed to load streams");
+        } finally {
+            setLoading(false);
         }
     }, []);
 
-    // Fetch posts with SWR
-    const { data, error, isLoading, mutate } = useSWR("/posts", fetcher, {
-        refreshInterval: 10000,
-        revalidateOnFocus: true,
-        onSuccess: (res) => {
-            const postsData = Array.isArray(res) ? res : res.posts || [];
-            setPosts(postsData);
-        },
-    });
-
-    // Socket.io realtime events
+    // Initial fetch and realtime updates
     useEffect(() => {
-        socket.on("post_created", (newPost) => {
-            setPosts((prev) => [newPost, ...prev]);
-            toast.success("🆕 New post!");
+        fetchStreams();
+
+        // Socket events for realtime updates
+        socket.on("live_started", (newStream) => {
+            setStreams(prev => {
+                // Add new stream if not already in list
+                if (!prev.find(s => s._id === newStream._id)) {
+                    return [newStream, ...prev];
+                }
+                return prev;
+            });
+            toast.success(`🔴 ${newStream.host?.username || "Someone"} went live!`);
         });
 
-        socket.on("update_likes", ({ postId, likes }) => {
-            setPosts((prev) =>
-                prev.map((p) => (p._id === postId ? { ...p, likes } : p))
-            );
+        socket.on("live_stopped", (stoppedStream) => {
+            setStreams(prev => prev.filter(s => s._id !== stoppedStream._id));
         });
 
-        socket.on("update_comments", ({ postId, comments }) => {
-            setPosts((prev) =>
-                prev.map((p) => (p._id === postId ? { ...p, comments } : p))
+        socket.on("viewer_count_update", ({ streamId, viewers }) => {
+            setStreams(prev =>
+                prev.map(s => s._id === streamId ? { ...s, viewers } : s)
             );
         });
 
         return () => {
-            socket.off("post_created");
-            socket.off("update_likes");
-            socket.off("update_comments");
+            socket.off("live_started");
+            socket.off("live_stopped");
+            socket.off("viewer_count_update");
         };
-    }, []);
+    }, [fetchStreams]);
 
-    // Handle like
-    const handleLike = async (postId) => {
-        if (!currentUser) {
-            toast.error("Please log in to like posts");
-            navigate("/login");
-            return;
-        }
+    // Filter streams
+    const filtered = streams
+        .filter((s) => {
+            const matchCategory = category === "All" || s.category === category;
+            const matchSearch = search.length === 0 ||
+                s.title?.toLowerCase().includes(search.toLowerCase()) ||
+                s.host?.username?.toLowerCase().includes(search.toLowerCase());
+            return matchCategory && matchSearch;
+        })
+        .sort((a, b) => (b.viewers || 0) - (a.viewers || 0));
 
-        setLikingPost(postId);
-        setPosts((prev) =>
-            prev.map((p) =>
-                p._id === postId ? { ...p, likes: (p.likes || 0) + 1 } : p
-            )
-        );
-
-        try {
-            await api.post(`/posts/${postId}/like`);
-        } catch (err) {
-            setPosts((prev) =>
-                prev.map((p) =>
-                    p._id === postId ? { ...p, likes: Math.max(0, (p.likes || 1) - 1) } : p
-                )
-            );
-            toast.error("Failed to like post");
-        } finally {
-            setLikingPost(null);
-        }
-    };
-
-    // Handle comment
-    const handleSendComment = async (postId) => {
-        const commentText = commentInputs[postId]?.trim();
-        if (!commentText) return;
-
-        if (!currentUser) {
-            toast.error("Please log in to comment");
-            navigate("/login");
-            return;
-        }
-
-        const newComment = {
-            username: currentUser.username,
-            text: commentText,
-        };
-
-        setPosts((prev) =>
-            prev.map((p) =>
-                p._id === postId
-                    ? { ...p, comments: [...(p.comments || []), newComment] }
-                    : p
-            )
-        );
-
-        setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
-
-        try {
-            await api.post(`/posts/${postId}/comment`, { text: commentText });
-        } catch (err) {
-            setPosts((prev) =>
-                prev.map((p) =>
-                    p._id === postId
-                        ? { ...p, comments: (p.comments || []).slice(0, -1) }
-                        : p
-                )
-            );
-            toast.error("Failed to post comment");
-        }
-    };
-
-    // Format date
-    const formatDate = (dateString) => {
-        if (!dateString) return "";
-        const date = new Date(dateString);
-        const now = new Date();
-        const diff = now - date;
-
-        if (diff < 60000) return "Just now";
-        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-        if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-        return date.toLocaleDateString();
+    // Handle stream click
+    const handleStreamClick = (stream) => {
+        navigate(`/live/${stream._id}`);
     };
 
     // Loading state
-    if (isLoading) {
+    if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black flex items-center justify-center">
+            <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
-                    <p className="text-white/70">Loading feed...</p>
-                </div>
-            </div>
-        );
-    }
-
-    // Error state
-    if (error) {
-        return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black flex items-center justify-center">
-                <div className="text-center p-8 bg-white/5 rounded-2xl border border-white/10">
-                    <p className="text-red-400 mb-4">Failed to load feed</p>
-                    <button
-                        onClick={() => mutate()}
-                        className="px-6 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400"
-                    >
-                        Try Again
-                    </button>
+                    <p className="text-white/70">Loading live streams...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black text-white">
-            <main className="max-w-2xl mx-auto py-6 px-4 space-y-6" ref={feedRef}>
+        <div className="text-white p-4 md:p-8">
+            {/* Header */}
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold text-cyan-400 mb-2">
+                    🌍 Live Discovery
+                </h1>
+                <p className="text-white/60 mb-6">
+                    Discover live streams from creators around the world
+                </p>
 
-                {/* Welcome message */}
-                {currentUser && (
-                    <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 p-4 rounded-xl border border-cyan-500/20">
-                        <p className="text-white/80">
-                            Welcome, <span className="text-cyan-400 font-semibold">{currentUser.username}</span>! 👋
-                        </p>
+                {/* Filters */}
+                <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
+                    {/* Category buttons */}
+                    <div className="flex flex-wrap gap-2">
+                        {CATEGORIES.map((cat) => (
+                            <button
+                                key={cat}
+                                onClick={() => setCategory(cat)}
+                                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${category === cat
+                                        ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/30"
+                                        : "bg-white/10 text-white/80 hover:bg-white/20"
+                                    }`}
+                            >
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Search input */}
+                    <input
+                        className="md:ml-auto px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 outline-none focus:border-cyan-400 transition w-full md:w-64"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="🔍 Search streams..."
+                    />
+                </div>
+
+                {/* Error state */}
+                {error && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
+                        <p className="text-red-400">{error}</p>
+                        <button
+                            onClick={fetchStreams}
+                            className="mt-2 text-sm text-cyan-400 hover:underline"
+                        >
+                            Try again
+                        </button>
                     </div>
                 )}
 
-                {/* Empty state */}
-                {posts.length === 0 ? (
+                {/* Streams Grid */}
+                {filtered.length === 0 ? (
                     <div className="text-center py-20">
-                        <p className="text-6xl mb-4">📭</p>
-                        <p className="text-white/60 mb-4">No posts yet.</p>
+                        <p className="text-6xl mb-4">📺</p>
+                        <p className="text-white/60 mb-2">No live streams found</p>
+                        <p className="text-white/40 text-sm mb-6">
+                            {search || category !== "All"
+                                ? "Try a different category or search term"
+                                : "Be the first to go live!"
+                            }
+                        </p>
                         <button
-                            onClick={() => navigate("/upload")}
-                            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold"
+                            onClick={() => navigate("/live")}
+                            className="px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 rounded-xl font-semibold hover:shadow-lg transition"
                         >
-                            Create First Post
+                            🎥 Start Streaming
                         </button>
                     </div>
                 ) : (
-                    posts.map((post) => (
-                        <article
-                            key={post.id || post.id || post._id}
-                            className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl overflow-hidden"
-                        >
-                            {/* POST HEADER */}
-                            <div
-                                className="flex items-center gap-3 px-5 py-4 border-b border-white/10 cursor-pointer hover:bg-white/5"
-                                onClick={() => navigate(`/profile/${post.userId}`)}
-                            >
-                                <img
-                                    src={post.avatar || "/defaults/default-avatar.png"}
-                                    alt="avatar"
-                                    className="w-11 h-11 rounded-full object-cover border-2 border-white/20"
-                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
-                                />
-                                <div>
-                                    <h3 className="font-semibold">{post.username || "Anonymous"}</h3>
-                                    <p className="text-xs text-white/50">
-                                        {formatDate(post.timestamp || post.createdAt)}
-                                    </p>
-                                </div>
-                            </div>
+                    <>
+                        {/* Live count */}
+                        <p className="text-white/50 text-sm mb-4">
+                            {filtered.length} stream{filtered.length !== 1 ? "s" : ""} live
+                        </p>
 
-                            {/* MEDIA */}
-                            {post.fileUrl && (
-                                <div className="bg-black flex justify-center">
-                                    {post.type === "image" && (
-                                        <img src={post.fileUrl} className="w-full max-h-[500px] object-contain" alt="post" />
-                                    )}
-                                    {post.type === "video" && (
-                                        <video src={post.fileUrl} controls className="w-full max-h-[500px]" />
-                                    )}
-                                    {post.type === "audio" && (
-                                        <audio src={post.fileUrl} controls className="w-full p-4" />
-                                    )}
-                                </div>
-                            )}
-
-                            {/* CONTENT */}
-                            {(post.description || post.title) && (
-                                <div className="px-5 py-4">
-                                    {post.title && <h4 className="font-semibold mb-1">{post.title}</h4>}
-                                    {post.description && <p className="text-white/80">{post.description}</p>}
-                                </div>
-                            )}
-
-                            {/* ACTIONS */}
-                            <div className="flex items-center gap-6 px-5 py-3 border-t border-white/10 text-white/70">
-                                <button
-                                    onClick={() => handleLike(post.id || post._id)}
-                                    disabled={likingPost === (post.id || post._id)}
-                                    className="flex items-center gap-2 hover:text-red-400 disabled:opacity-50"
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {filtered.map((stream, idx) => (
+                                <div
+                                    key={stream._id}
+                                    className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl overflow-hidden hover:scale-[1.02] hover:border-cyan-500/50 transition-all cursor-pointer group"
+                                    onClick={() => handleStreamClick(stream)}
                                 >
-                                    <Heart className={`w-5 h-5 ${likingPost === (post.id || post._id) ? "animate-pulse" : ""}`} />
-                                    <span>{post.likes || 0}</span>
-                                </button>
+                                    {/* Thumbnail */}
+                                    <div className="relative aspect-video bg-black/50">
+                                        <img
+                                            src={stream.thumbnail || stream.coverImage || "/defaults/default-stream.jpg"}
+                                            alt={stream.title}
+                                            className="w-full h-full object-cover group-hover:opacity-90 transition"
+                                            onError={(e) => {
+                                                e.target.src = "/defaults/default-stream.jpg";
+                                            }}
+                                        />
 
-                                <div className="flex items-center gap-2">
-                                    <MessageCircle className="w-5 h-5" />
-                                    <span>{(post.comments || []).length}</span>
-                                </div>
+                                        {/* Live badge */}
+                                        <div className="absolute top-2 left-2 bg-red-500 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 animate-pulse">
+                                            <span className="w-2 h-2 bg-white rounded-full"></span>
+                                            LIVE
+                                        </div>
 
-                                <div className="flex items-center gap-2">
-                                    <Eye className="w-5 h-5" />
-                                    <span>{post.views || 0}</span>
-                                </div>
-                            </div>
-
-                            {/* COMMENTS */}
-                            <div className="px-5 pb-5 space-y-3">
-                                {(post.comments || []).length > 0 && (
-                                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                                        {(post.comments || []).slice(-5).map((c, i) => (
-                                            <div key={i} className="bg-white/5 rounded-lg px-3 py-2 text-sm">
-                                                <span className="font-semibold text-cyan-400">{c.username}:</span>{" "}
-                                                <span className="text-white/80">{c.text}</span>
+                                        {/* Trending badge */}
+                                        {idx === 0 && filtered.length > 1 && (
+                                            <div className="absolute top-2 right-2 px-2 py-1 rounded bg-yellow-400 text-black text-xs font-bold">
+                                                🔥 TRENDING
                                             </div>
-                                        ))}
+                                        )}
+
+                                        {/* Viewers */}
+                                        <div className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded text-xs">
+                                            👁 {stream.viewers || 0}
+                                        </div>
                                     </div>
-                                )}
 
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder={currentUser ? "Write a comment..." : "Log in to comment"}
-                                        value={commentInputs[post.id || post._id] || ""}
-                                        onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id || post._id]: e.target.value }))}
-                                        onKeyPress={(e) => e.key === "Enter" && handleSendComment(post.id || post._id)}
-                                        disabled={!currentUser}
-                                        className="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-sm placeholder-white/40 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
-                                    />
-                                    <button
-                                        onClick={() => handleSendComment(post.id || post._id)}
-                                        disabled={!commentInputs[post.id || post._id]?.trim() || !currentUser}
-                                        className="p-2 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-lg disabled:opacity-50"
-                                    >
-                                        <Send className="w-4 h-4" />
-                                    </button>
+                                    {/* Info */}
+                                    <div className="p-4">
+                                        <h2 className="font-bold text-lg line-clamp-1 group-hover:text-cyan-400 transition">
+                                            {stream.title || "Untitled Stream"}
+                                        </h2>
+
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <img
+                                                src={stream.host?.avatar || "/defaults/default-avatar.png"}
+                                                alt={stream.host?.username}
+                                                className="w-6 h-6 rounded-full object-cover"
+                                                onError={(e) => {
+                                                    e.target.src = "/defaults/default-avatar.png";
+                                                }}
+                                            />
+                                            <span className="text-white/70 text-sm">
+                                                {stream.host?.username || "Unknown"}
+                                            </span>
+
+                                            {stream.category && (
+                                                <span className="ml-auto px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">
+                                                    {stream.category}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </article>
-                    ))
+                            ))}
+                        </div>
+                    </>
                 )}
 
-                {posts.length > 0 && (
-                    <p className="text-center text-white/40 text-sm py-8">You're all caught up! 🎉</p>
-                )}
-            </main>
+                {/* Start streaming CTA */}
+                <div className="mt-12 text-center">
+                    <div className="inline-block p-6 bg-white/5 rounded-2xl border border-white/10">
+                        <h3 className="text-xl font-bold mb-2">Ready to go live?</h3>
+                        <p className="text-white/60 mb-4">
+                            Share your talent with the world
+                        </p>
+                        <button
+                            onClick={() => navigate("/live")}
+                            className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/30 transition-all"
+                        >
+                            🎥 Start My Live Stream
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }
