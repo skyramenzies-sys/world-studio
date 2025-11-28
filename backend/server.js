@@ -7,57 +7,42 @@ const http = require("http");
 const { Server } = require("socket.io");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const giftsRouter = require("./routes/gifts.route");
+const User = require("./models/User");
 
 const app = express();
 
-// ✅ IMPORTANT: Trust proxy - Required for Railway/Vercel/Heroku
-// This fixes the X-Forwarded-For header error with express-rate-limit
 app.set("trust proxy", 1);
 
 const server = http.createServer(app);
 
-// Security Middleware
-app.use(
-    helmet({
-        contentSecurityPolicy: false,
-        crossOriginEmbedderPolicy: false,
-    })
-);
+// Security
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
-// Rate Limiting
-app.use(
-    rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 400, // limit each IP to 400 requests per windowMs
-        standardHeaders: true,
-        legacyHeaders: false,
-    })
-);
+app.use(rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 400,
+    standardHeaders: true,
+    legacyHeaders: false,
+}));
 
-// CORS Configuration
+// CORS
 const allowedOrigins = (process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(",")
     : ["http://localhost:5173", "https://world-studio.vercel.app"]
 ).map((o) => o.trim());
 
-app.use(
-    cors({
-        origin: allowedOrigins,
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-        credentials: true,
-    })
-);
+app.use(cors({
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+}));
 
-// Body Parsing Middleware
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ extended: true, limit: "100mb" }));
 
-// Health Check Endpoint
-app.get("/healthz", (req, res) => {
-    res.status(200).json({ status: "ok" });
-});
+// Health Check
+app.get("/healthz", (req, res) => res.status(200).json({ status: "ok" }));
 
 // API Routes
 app.use("/api/auth", require("./routes/auth"));
@@ -72,73 +57,61 @@ app.use("/api/admin-wallet", require("./routes/adminWallet"));
 app.use("/api/gifts", require("./routes/gifts.route"));
 app.use("/api/live", require("./routes/Live"));
 app.use("/api/live-analytics", require("./routes/LiveAnalytics"));
-app.use("/api/gifts", giftsRouter);
 
-// Root Endpoint
 app.get("/", (req, res) => {
-    res.json({
-        message: "🚀 World-Studio API running in production mode",
-        version: "1.0.0",
-        status: "online"
-    });
+    res.json({ message: "🚀 World-Studio API running", version: "1.0.0", status: "online" });
 });
 
-// Global Error Handler
+// Error Handler
 app.use((err, req, res, next) => {
-    console.error("❌ Unhandled Error:", err);
-    res.status(500).json({
-        error: "Internal server error",
-        message: process.env.NODE_ENV === "development" ? err.message : undefined
-    });
+    console.error("❌ Error:", err);
+    res.status(500).json({ error: "Internal server error" });
 });
 
-// MongoDB Connection
+// MongoDB
 if (!process.env.MONGODB_URI) {
-    console.error("❌ Missing MONGODB_URI in environment variables");
+    console.error("❌ Missing MONGODB_URI");
     process.exit(1);
 }
 
-mongoose
-    .connect(process.env.MONGODB_URI)
-    .then(() => {
-        console.log("✅ MongoDB connected successfully");
-    })
-    .catch((err) => {
-        console.error("❌ MongoDB connection failed:", err);
-        process.exit(1);
-    });
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log("✅ MongoDB connected"))
+    .catch((err) => { console.error("❌ MongoDB failed:", err); process.exit(1); });
 
-// Socket.io Configuration
+// Socket.io
 const io = new Server(server, {
-    cors: {
-        origin: allowedOrigins,
-        credentials: true
-    },
+    cors: { origin: allowedOrigins, credentials: true },
     pingTimeout: 60000,
     pingInterval: 25000
 });
 
-// Socket.io Event Handlers
+// Store maps
+if (!io.broadcasters) io.broadcasters = new Map();
+if (!io.viewerCounts) io.viewerCounts = new Map();
+if (!io.multiRooms) io.multiRooms = new Map();
+if (!io.userSockets) io.userSockets = new Map(); // Map odId -> socket.id
+
 io.on("connection", (socket) => {
     console.log(`✅ Socket connected: ${socket.id}`);
 
-    // Join user's personal room for notifications
+    // User joins their personal room for notifications
     socket.on("join_user_room", (userId) => {
         if (userId) {
             socket.join(`user_${userId}`);
-            console.log(`User ${socket.id} joined personal room: user_${userId}`);
+            io.userSockets.set(userId, socket.id);
+            socket.userId = userId;
+            console.log(`User ${socket.id} joined room user_${userId}`);
         }
     });
 
-    // Leave user's personal room
     socket.on("leave_user_room", (userId) => {
         if (userId) {
             socket.leave(`user_${userId}`);
-            console.log(`User ${socket.id} left personal room: user_${userId}`);
+            io.userSockets.delete(userId);
         }
     });
 
-    // Join a livestream room
+    // Join stream room
     socket.on("join_stream", (streamId) => {
         if (streamId) {
             socket.join(`stream_${streamId}`);
@@ -146,111 +119,115 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Leave a livestream room
     socket.on("leave_stream", (streamId) => {
-        if (streamId) {
-            socket.leave(`stream_${streamId}`);
-            console.log(`User ${socket.id} left stream ${streamId}`);
-        }
+        if (streamId) socket.leave(`stream_${streamId}`);
     });
 
     // ========== WebRTC Signaling ==========
 
-    // Store broadcaster socket IDs by roomId
-    if (!io.broadcasters) io.broadcasters = new Map();
-    if (!io.viewerCounts) io.viewerCounts = new Map();
+    // Broadcaster starts - NOTIFY FOLLOWERS
+    socket.on("start_broadcast", async ({ roomId, streamer, title, category, streamerId }) => {
+        if (!roomId) return;
 
-    // Broadcaster starts stream
-    socket.on("start_broadcast", ({ roomId, streamer, title, category }) => {
-        if (roomId) {
-            io.broadcasters.set(roomId, socket.id);
-            socket.join(roomId);
-            io.viewerCounts.set(roomId, 0);
-            console.log(`📺 Broadcaster ${streamer} started stream in room ${roomId}`);
+        io.broadcasters.set(roomId, socket.id);
+        socket.join(roomId);
+        io.viewerCounts.set(roomId, 0);
+        console.log(`📺 ${streamer} started stream in ${roomId}`);
+
+        // Notify all followers that this user is live
+        try {
+            if (streamerId) {
+                const user = await User.findById(streamerId).select("followers username").lean();
+                if (user && user.followers?.length > 0) {
+                    console.log(`📢 Notifying ${user.followers.length} followers that ${user.username} is live`);
+
+                    user.followers.forEach(followerId => {
+                        io.to(`user_${followerId}`).emit("followed_user_live", {
+                            streamId: roomId,
+                            username: streamer || user.username,
+                            title: title || "Untitled Stream",
+                            category,
+                            streamerId,
+                        });
+                    });
+
+                    // Also broadcast to all clients for discover page update
+                    io.emit("live_started", {
+                        _id: roomId,
+                        roomId,
+                        title,
+                        category,
+                        streamerId,
+                        streamerName: streamer,
+                        host: { _id: streamerId, username: streamer },
+                        viewers: 0,
+                        isLive: true,
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Failed to notify followers:", err);
         }
     });
 
-    // Broadcaster stops stream
     socket.on("stop_broadcast", ({ roomId }) => {
         if (roomId) {
             io.broadcasters.delete(roomId);
             io.viewerCounts.delete(roomId);
             io.to(roomId).emit("stream_ended");
-            console.log(`📺 Stream ended in room ${roomId}`);
+            io.emit("live_stopped", { _id: roomId });
+            console.log(`📺 Stream ended: ${roomId}`);
         }
     });
 
-    // Viewer wants to watch
+    // Viewer watching
     socket.on("watcher", ({ roomId }) => {
         if (!roomId) return;
 
         const broadcasterId = io.broadcasters.get(roomId);
         if (broadcasterId) {
-            // Join the room
             socket.join(roomId);
-
-            // Update viewer count
             const count = (io.viewerCounts.get(roomId) || 0) + 1;
             io.viewerCounts.set(roomId, count);
             io.to(roomId).emit("viewer_count", { viewers: count });
-
-            // Tell broadcaster about new watcher
             io.to(broadcasterId).emit("watcher", { watcherId: socket.id });
-            console.log(`👁 Viewer ${socket.id} watching room ${roomId} (${count} viewers)`);
+            console.log(`👁 Viewer joined ${roomId} (${count} viewers)`);
         } else {
-            socket.emit("error", { message: "Stream not found or has ended" });
-            console.log(`❌ Viewer ${socket.id} tried to join non-existent room ${roomId}`);
+            socket.emit("error", { message: "Stream not found" });
         }
     });
 
-    // WebRTC offer from broadcaster to viewer
+    // WebRTC signaling
     socket.on("offer", ({ watcherId, sdp }) => {
-        if (watcherId && sdp) {
-            io.to(watcherId).emit("offer", { sdp });
-        }
+        if (watcherId && sdp) io.to(watcherId).emit("offer", { sdp });
     });
 
-    // WebRTC answer from viewer to broadcaster
     socket.on("answer", ({ roomId, sdp }) => {
         const broadcasterId = io.broadcasters.get(roomId);
-        if (broadcasterId && sdp) {
-            io.to(broadcasterId).emit("answer", { watcherId: socket.id, sdp });
-        }
+        if (broadcasterId && sdp) io.to(broadcasterId).emit("answer", { watcherId: socket.id, sdp });
     });
 
-    // ICE candidate exchange
     socket.on("candidate", ({ target, candidate }) => {
-        if (target && candidate) {
-            io.to(target).emit("candidate", { from: socket.id, candidate });
-        }
+        if (target && candidate) io.to(target).emit("candidate", { from: socket.id, candidate });
     });
 
-    // ========== Multi-Guest Live Events ==========
+    // ========== Multi-Guest Live ==========
 
-    // Store multi-guest rooms
-    if (!io.multiRooms) io.multiRooms = new Map();
-
-    // Start multi-guest live
     socket.on("start_multi_live", ({ roomId, host, title, maxSeats }) => {
         if (!roomId) return;
-
         io.multiRooms.set(roomId, {
             hostId: socket.id,
             host,
             title,
             maxSeats,
-            seats: [{ odId: 0, user: host, oderId: socket.id }],
+            seats: [{ seatId: 0, user: host, oderId: socket.id }],
             viewers: new Set(),
         });
-
         socket.join(roomId);
-        console.log(`👥 Multi-guest live started: ${roomId} by ${host?.username}`);
+        console.log(`👥 Multi-guest started: ${roomId}`);
     });
 
-    // Join multi-guest live as viewer
     socket.on("join_multi_live", ({ roomId, user }) => {
-        if (!roomId) return;
-
         const room = io.multiRooms.get(roomId);
         if (room) {
             room.viewers.add(socket.id);
@@ -259,26 +236,21 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Request seat in multi-guest
     socket.on("request_seat", ({ roomId, seatId, user }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
-            io.to(room.hostId).emit("seat_request", { seatId, user, odId: socket.id });
-            console.log(`🙋 Seat request from ${user?.username} for seat ${seatId}`);
+            io.to(room.hostId).emit("seat_request", { seatId, user, socketId: socket.id });
         }
     });
 
-    // Approve seat request (host only)
-    socket.on("approve_seat", ({ roomId, seatId, user }) => {
+    socket.on("approve_seat", ({ roomId, seatId, user, socketId }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
-            room.seats.push({ odId: seatId, user, oderId: socket.id });
+            room.seats.push({ seatId, user, socketId });
             io.to(roomId).emit("seat_approved", { seatId, user });
-            console.log(`✅ Seat ${seatId} approved for ${user?.username}`);
         }
     });
 
-    // Leave seat
     socket.on("leave_seat", ({ roomId, odId }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
@@ -287,24 +259,20 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Kick from seat (host only)
-    socket.on("kick_from_seat", ({ roomId, oderId }) => {
+    socket.on("kick_from_seat", ({ roomId, socketId, odId }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
-            room.seats = room.seats.filter(s => s.user?._id !== oderId);
-            io.to(roomId).emit("user_left_seat", { odId: oderId });
-            io.to(oderId).emit("kicked_from_seat");
+            room.seats = room.seats.filter(s => s.socketId !== socketId);
+            io.to(roomId).emit("user_left_seat", { odId });
+            io.to(socketId).emit("kicked_from_seat");
         }
     });
 
-    // End multi-guest live
     socket.on("end_multi_live", ({ roomId }) => {
         io.to(roomId).emit("multi_live_ended");
         io.multiRooms.delete(roomId);
-        console.log(`👥 Multi-guest live ended: ${roomId}`);
     });
 
-    // Leave multi-guest live
     socket.on("leave_multi_live", ({ roomId }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
@@ -313,17 +281,14 @@ io.on("connection", (socket) => {
         }
     });
 
-    // ========== Audio Live Events ==========
+    // ========== Audio Live ==========
 
-    socket.on("start_audio_live", ({ roomId, host, title }) => {
-        if (!roomId) return;
-        socket.join(roomId);
-        console.log(`🎙️ Audio live started: ${roomId}`);
+    socket.on("start_audio_live", ({ roomId }) => {
+        if (roomId) socket.join(roomId);
     });
 
-    socket.on("join_audio_live", ({ roomId, user }) => {
-        if (!roomId) return;
-        socket.join(roomId);
+    socket.on("join_audio_live", ({ roomId }) => {
+        if (roomId) socket.join(roomId);
     });
 
     socket.on("end_audio_live", ({ roomId }) => {
@@ -334,119 +299,84 @@ io.on("connection", (socket) => {
         socket.leave(roomId);
     });
 
-    // ========== Chat Events ==========
+    // ========== Chat ==========
 
-    // Handle chat messages (updated to work with roomId)
     socket.on("chat_message", (data) => {
         if (!data) return;
-
         const roomId = data.roomId || data.streamId;
-        if (!roomId) {
-            console.warn("Invalid chat message data - no roomId");
-            return;
-        }
+        if (!roomId) return;
 
-        const messageData = {
-            ...data,
-            timestamp: new Date(),
-            socketId: socket.id
-        };
-
-        // Send to both room formats
+        const messageData = { ...data, timestamp: new Date(), socketId: socket.id };
         io.to(roomId).emit("chat_message", messageData);
         io.to(`stream_${roomId}`).emit("chat_message", messageData);
     });
 
-    // Admin actions
+    // ========== Admin ==========
+
     socket.on("admin_stop_stream", (streamId) => {
-        if (streamId) {
-            io.emit("admin_stream_stopped", streamId);
-            console.log(`Admin stopped stream ${streamId}`);
-        }
+        if (streamId) io.emit("admin_stream_stopped", streamId);
     });
 
     socket.on("admin_ban_user", (userId) => {
-        if (userId) {
-            io.emit("admin_user_banned", userId);
-            console.log(`Admin banned user ${userId}`);
-        }
+        if (userId) io.emit("admin_user_banned", userId);
     });
 
-    // Handle disconnect
-    socket.on("disconnect", () => {
-        console.log(`❌ Socket disconnected: ${socket.id}`);
+    // ========== Disconnect ==========
 
-        // Check if this was a broadcaster
-        if (io.broadcasters) {
-            for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
-                if (broadcasterId === socket.id) {
-                    io.broadcasters.delete(roomId);
-                    io.viewerCounts?.delete(roomId);
-                    io.to(roomId).emit("stream_ended");
-                    console.log(`📺 Broadcaster disconnected, stream ${roomId} ended`);
-                    break;
-                }
+    socket.on("disconnect", () => {
+        console.log(`❌ Disconnected: ${socket.id}`);
+
+        // Clean up broadcaster
+        for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
+            if (broadcasterId === socket.id) {
+                io.broadcasters.delete(roomId);
+                io.viewerCounts.delete(roomId);
+                io.to(roomId).emit("stream_ended");
+                io.emit("live_stopped", { _id: roomId });
+                break;
             }
         }
 
-        // Notify broadcaster that viewer left (for all rooms this socket was in)
-        if (io.broadcasters) {
-            for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
-                io.to(broadcasterId).emit("remove_watcher", { watcherId: socket.id });
-
-                // Decrement viewer count
-                if (io.viewerCounts?.has(roomId)) {
-                    const count = Math.max(0, (io.viewerCounts.get(roomId) || 1) - 1);
-                    io.viewerCounts.set(roomId, count);
-                    io.to(roomId).emit("viewer_count", { viewers: count });
-                }
+        // Update viewer counts
+        for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
+            io.to(broadcasterId).emit("remove_watcher", { watcherId: socket.id });
+            if (io.viewerCounts.has(roomId)) {
+                const count = Math.max(0, (io.viewerCounts.get(roomId) || 1) - 1);
+                io.viewerCounts.set(roomId, count);
+                io.to(roomId).emit("viewer_count", { viewers: count });
             }
+        }
+
+        // Clean up user socket mapping
+        if (socket.userId) {
+            io.userSockets.delete(socket.userId);
         }
     });
 });
 
-// Make io accessible to routes
 app.set("io", io);
 
-// Graceful Shutdown Handler
+// Shutdown
 const shutdown = () => {
-    console.log("🔄 Shutting down gracefully...");
+    console.log("🔄 Shutting down...");
     server.close(() => {
-        console.log("✅ HTTP server closed");
         mongoose.connection.close(false, () => {
-            console.log("✅ MongoDB connection closed");
-            console.log("🔒 Clean shutdown completed");
+            console.log("✅ Clean shutdown");
             process.exit(0);
         });
     });
-
-    // Force close after 10 seconds
-    setTimeout(() => {
-        console.error("⚠️ Forced shutdown after timeout");
-        process.exit(1);
-    }, 10000);
+    setTimeout(() => process.exit(1), 10000);
 };
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+process.on("uncaughtException", (err) => { console.error("❌ Uncaught:", err); shutdown(); });
+process.on("unhandledRejection", (reason) => { console.error("❌ Unhandled:", reason); shutdown(); });
 
-// Handle uncaught exceptions
-process.on("uncaughtException", (err) => {
-    console.error("❌ Uncaught Exception:", err);
-    shutdown();
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-    console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
-    shutdown();
-});
-
-// Start Server
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-    console.log(`🚀 Production server running on port ${PORT}`);
-    console.log(`📡 Environment: ${process.env.NODE_ENV || "development"}`);
-    console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ")}`);
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌐 CORS: ${allowedOrigins.join(", ")}`);
 });
 
 module.exports = { app, server, io };
