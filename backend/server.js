@@ -357,15 +357,17 @@ io.on("connection", (socket) => {
 app.set("io", io);
 
 // Shutdown
-const shutdown = () => {
+const shutdown = async () => {
     console.log("🔄 Shutting down...");
-    server.close(() => {
-        mongoose.connection.close(false, () => {
-            console.log("✅ Clean shutdown");
-            process.exit(0);
-        });
-    });
-    setTimeout(() => process.exit(1), 10000);
+    try {
+        server.close();
+        await mongoose.connection.close();
+        console.log("✅ Clean shutdown");
+        process.exit(0);
+    } catch (err) {
+        console.error("Shutdown error:", err);
+        process.exit(1);
+    }
 };
 
 process.on("SIGTERM", shutdown);
