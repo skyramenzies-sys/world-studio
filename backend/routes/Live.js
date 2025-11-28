@@ -23,6 +23,63 @@ const formatStream = (s) => ({
 });
 
 // =========================
+// POST: Cleanup - Stop all my streams
+// /api/live/cleanup
+// =========================
+router.post("/cleanup", authMiddleware, async (req, res) => {
+    try {
+        const result = await Stream.updateMany(
+            { streamerId: req.userId, isLive: true },
+            { isLive: false, endedAt: new Date() }
+        );
+
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("streams_cleaned", { userId: req.userId });
+        }
+
+        res.json({
+            message: "Cleaned up all your streams",
+            count: result.modifiedCount
+        });
+    } catch (err) {
+        console.error("Cleanup error:", err);
+        res.status(500).json({ error: "Cleanup failed" });
+    }
+});
+
+// =========================
+// POST: Admin Cleanup - Stop ALL zombie streams (older than 24h)
+// /api/live/admin/cleanup
+// =========================
+router.post("/admin/cleanup", authMiddleware, async (req, res) => {
+    try {
+        // Only allow admin
+        if (req.user.role !== "admin") {
+            return res.status(403).json({ error: "Admin only" });
+        }
+
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        const result = await Stream.updateMany(
+            {
+                isLive: true,
+                startedAt: { $lt: twentyFourHoursAgo }
+            },
+            { isLive: false, endedAt: new Date() }
+        );
+
+        res.json({
+            message: "Cleaned up zombie streams",
+            count: result.modifiedCount
+        });
+    } catch (err) {
+        console.error("Admin cleanup error:", err);
+        res.status(500).json({ error: "Admin cleanup failed" });
+    }
+});
+
+// =========================
 // GET: All live streams
 // /api/live
 // =========================
