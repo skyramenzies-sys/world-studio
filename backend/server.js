@@ -120,6 +120,22 @@ const io = new Server(server, {
 io.on("connection", (socket) => {
     console.log(`✅ Socket connected: ${socket.id}`);
 
+    // Join user's personal room for notifications
+    socket.on("join_user_room", (userId) => {
+        if (userId) {
+            socket.join(`user_${userId}`);
+            console.log(`User ${socket.id} joined personal room: user_${userId}`);
+        }
+    });
+
+    // Leave user's personal room
+    socket.on("leave_user_room", (userId) => {
+        if (userId) {
+            socket.leave(`user_${userId}`);
+            console.log(`User ${socket.id} left personal room: user_${userId}`);
+        }
+    });
+
     // Join a livestream room
     socket.on("join_stream", (streamId) => {
         if (streamId) {
