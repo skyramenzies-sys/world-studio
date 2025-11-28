@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+const { upload } = require("../config/cloudinary");
 
 // Search users
 router.get("/", async (req, res) => {
@@ -56,6 +57,37 @@ router.get("/suggested", authMiddleware, async (req, res) => {
     }
 });
 
+// Upload avatar
+router.post("/avatar", authMiddleware, upload.single("avatar"), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        const avatarUrl = req.file.path;
+
+        // Update user's avatar in database
+        const user = await User.findByIdAndUpdate(
+            req.userId,
+            { avatar: avatarUrl },
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        res.json({
+            message: "Avatar updated successfully",
+            avatar: avatarUrl,
+            user,
+        });
+    } catch (err) {
+        console.error("Avatar upload error:", err);
+        res.status(500).json({ error: "Failed to upload avatar" });
+    }
+});
+
 // Public profile
 router.get("/:id", async (req, res) => {
     try {
@@ -77,10 +109,11 @@ router.put("/:id", authMiddleware, async (req, res) => {
             return res.status(403).json({ error: "Forbidden" });
         }
 
-        const { username, bio } = req.body;
+        const { username, bio, avatar } = req.body;
         const updates = {};
         if (username) updates.username = username;
-        if (bio) updates.bio = bio;
+        if (bio !== undefined) updates.bio = bio;
+        if (avatar) updates.avatar = avatar;
 
         const user = await User.findByIdAndUpdate(req.params.id, updates, {
             new: true,

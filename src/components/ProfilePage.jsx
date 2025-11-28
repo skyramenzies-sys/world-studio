@@ -28,6 +28,8 @@ export default function ProfilePage() {
         bio: "",
         avatar: "",
     });
+    const [avatarUploading, setAvatarUploading] = useState(false);
+    const avatarInputRef = React.useRef(null);
 
     // Load current user from localStorage on mount
     useEffect(() => {
@@ -182,6 +184,57 @@ export default function ProfilePage() {
         navigate("/login");
     };
 
+    // Handle avatar upload
+    const handleAvatarUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Validate file type
+        if (!file.type.startsWith("image/")) {
+            toast.error("Please select an image file");
+            return;
+        }
+
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error("Image must be less than 5MB");
+            return;
+        }
+
+        setAvatarUploading(true);
+
+        try {
+            const formData = new FormData();
+            formData.append("avatar", file);
+
+            const response = await api.post("/users/avatar", formData, {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            });
+
+            const newAvatarUrl = response.data.avatar || response.data.url;
+
+            // Update edit form
+            setEditForm(prev => ({ ...prev, avatar: newAvatarUrl }));
+
+            // Update profile immediately
+            setProfile(prev => ({ ...prev, avatar: newAvatarUrl }));
+
+            // Update localStorage
+            const updatedUser = { ...currentUser, avatar: newAvatarUrl };
+            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
+            setCurrentUser(updatedUser);
+
+            toast.success("Profile photo updated! 📸");
+        } catch (err) {
+            console.error("Avatar upload error:", err);
+            toast.error(err.response?.data?.error || "Failed to upload avatar");
+        } finally {
+            setAvatarUploading(false);
+        }
+    };
+
     // Loading state
     if (loading) {
         return (
@@ -239,48 +292,82 @@ export default function ProfilePage() {
                 {isEditing ? (
                     <form onSubmit={handleUpdateProfile} className="space-y-4">
                         <div className="flex items-start gap-4">
-                            <img
-                                src={editForm.avatar || "/defaults/default-avatar.png"}
-                                alt="avatar"
-                                className="w-20 h-20 rounded-full border-2 border-cyan-400 object-cover"
-                            />
-                            <div className="flex-1 space-y-3">
-                                <input
-                                    type="text"
-                                    value={editForm.username}
-                                    onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
-                                    placeholder="Username"
-                                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
+                            {/* Avatar with upload */}
+                            <div className="relative group">
+                                <img
+                                    src={editForm.avatar || "/defaults/default-avatar.png"}
+                                    alt="avatar"
+                                    className="w-24 h-24 rounded-full border-2 border-cyan-400 object-cover"
+                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
                                 />
+
+                                {/* Upload overlay */}
+                                <button
+                                    type="button"
+                                    onClick={() => avatarInputRef.current?.click()}
+                                    disabled={avatarUploading}
+                                    className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                >
+                                    {avatarUploading ? (
+                                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                                    ) : (
+                                        <span className="text-2xl">📷</span>
+                                    )}
+                                </button>
+
+                                {/* Hidden file input */}
                                 <input
-                                    type="text"
-                                    value={editForm.avatar}
-                                    onChange={(e) => setEditForm({ ...editForm, avatar: e.target.value })}
-                                    placeholder="Avatar URL"
-                                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"
-                                />
-                                <textarea
-                                    value={editForm.bio}
-                                    onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
-                                    placeholder="Bio"
-                                    rows={3}
-                                    className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white resize-none"
+                                    ref={avatarInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={handleAvatarUpload}
+                                    className="hidden"
                                 />
                             </div>
+
+                            <div className="flex-1 space-y-3">
+                                <div>
+                                    <label className="text-xs text-white/50 block mb-1">Username</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.username}
+                                        onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                                        placeholder="Username"
+                                        className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-cyan-400 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-white/50 block mb-1">Bio</label>
+                                    <textarea
+                                        value={editForm.bio}
+                                        onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                                        placeholder="Tell something about yourself..."
+                                        rows={3}
+                                        maxLength={200}
+                                        className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white resize-none focus:border-cyan-400 outline-none"
+                                    />
+                                    <p className="text-xs text-white/40 mt-1">{editForm.bio?.length || 0}/200</p>
+                                </div>
+                            </div>
                         </div>
+
+                        <p className="text-xs text-white/40 text-center">
+                            💡 Click on your photo to upload a new one
+                        </p>
+
                         <div className="flex gap-2 justify-end">
                             <button
                                 type="button"
                                 onClick={() => setIsEditing(false)}
-                                className="px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20"
+                                className="px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 transition"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
-                                className="px-4 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400"
+                                className="px-4 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400 transition font-semibold"
                             >
-                                Save
+                                Save Changes
                             </button>
                         </div>
                     </form>
