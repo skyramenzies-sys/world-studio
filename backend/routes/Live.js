@@ -48,58 +48,45 @@ router.post("/cleanup", authMiddleware, async (req, res) => {
 
         res.json({
             message: "Cleaned up all your streams",
-            count: result.modifiedCount
+            count: result.modifiedCount || 0,
         });
     } catch (err) {
         console.error("Cleanup error:", err);
-        res.status(500).json({ error: "Cleanup failed" });
-    }
-});
-
-// =========================
-// POST: Admin Cleanup - Stop ALL zombie streams (older than 24h)
-// /api/live/admin/cleanup
-// =========================
-router.post("/admin/cleanup", authMiddleware, async (req, res) => {
-    try {
-        // Only allow admin
-        if (req.user.role !== "admin") {
-            return res.status(403).json({ error: "Admin only" });
-        }
-
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-        const result = await Stream.updateMany(
-            {
-                isLive: true,
-                startedAt: { $lt: twentyFourHoursAgo }
-            },
-            { isLive: false, endedAt: new Date() }
-        );
-
-        res.json({
-            message: "Cleaned up zombie streams",
-            count: result.modifiedCount
-        });
-    } catch (err) {
-        console.error("Admin cleanup error:", err);
-        res.status(500).json({ error: "Admin cleanup failed" });
+        res.status(500).json({ error: "Failed to cleanup streams." });
     }
 });
 
 // =========================
 // GET: All live streams
 // /api/live
+// Query params: category, search, userId, isLive
 // =========================
 router.get("/", async (req, res) => {
     try {
-        const { category, search } = req.query;
-        const query = { isLive: true };
+        const { category, search, userId, isLive } = req.query;
 
+        // Build query - default to isLive: true unless explicitly set to false
+        const query = {};
+
+        // Handle isLive filter
+        if (isLive === "false") {
+            query.isLive = false;
+        } else if (isLive === "true" || isLive === undefined) {
+            query.isLive = true;
+        }
+        // If isLive is "all", don't filter by isLive
+
+        // Filter by userId if provided
+        if (userId) {
+            query.streamerId = userId;
+        }
+
+        // Filter by category
         if (category && category !== "All") {
             query.category = category;
         }
 
+        // Search filter
         if (search) {
             query.$or = [
                 { title: { $regex: search, $options: "i" } },
@@ -115,6 +102,27 @@ router.get("/", async (req, res) => {
     } catch (err) {
         console.error("Live stream fetch error:", err);
         res.status(500).json({ error: "Failed to fetch live streams." });
+    }
+});
+
+// =========================
+// GET: Check if user is currently live
+// /api/live/user/:userId/status
+// =========================
+router.get("/user/:userId/status", async (req, res) => {
+    try {
+        const stream = await Stream.findOne({
+            streamerId: req.params.userId,
+            isLive: true
+        }).lean();
+
+        res.json({
+            isLive: !!stream,
+            stream: stream ? formatStream(stream) : null
+        });
+    } catch (err) {
+        console.error("Check live status error:", err);
+        res.status(500).json({ error: "Failed to check live status." });
     }
 });
 
@@ -154,280 +162,116 @@ router.get("/:id", async (req, res) => {
 // =========================
 router.post("/start", authMiddleware, async (req, res) => {
     try {
-        const { title, category, coverImage, roomId, type, maxSeats } = req.body;
-        const user = req.user;
+        const { title, category, coverImage, type, maxSeats } = req.body;
 
-        if (!title) return res.status(400).json({ error: "Title required" });
-
-        // Check if user already has an active stream
-        const existingStream = await Stream.findOne({
-            streamerId: user._id,
-            isLive: true,
-        });
-
-        if (existingStream) {
-            // End the old stream first
-            existingStream.isLive = false;
-            await existingStream.save();
+        if (!title) {
+            return res.status(400).json({ error: "Title is required" });
         }
 
-        // Create new stream
-        const stream = await Stream.create({
-            title,
-            category: category || "General",
-            coverImage: coverImage || null,
-            streamerId: user._id,
-            streamerName: user.username,
-            streamerAvatar: user.avatar || "",
-            roomId: roomId || `stream_${user._id}_${Date.now()}`,
-            type: type || "solo", // solo, multi-guest, audio
-            maxSeats: maxSeats || 1,
-            viewers: 0,
-            isLive: true,
-            startedAt: new Date(),
-        });
-
-        const io = req.app.get("io");
-
-        // Notify ALL clients that a new stream started
-        if (io) {
-            io.emit("stream_started", formatStream(stream));
-            io.emit("live_started", formatStream(stream));
-        }
-
-        // Notify followers that this user went live
-        if (user.followers && user.followers.length > 0) {
-            const followers = await User.find({
-                _id: { $in: user.followers }
-            }).select("_id");
-
-            for (const follower of followers) {
-                // Add notification to follower
-                await User.findByIdAndUpdate(follower._id, {
-                    $push: {
-                        notifications: {
-                            message: `${user.username} is now live: "${title}"`,
-                            type: "live",
-                            fromUser: user._id,
-                            streamId: stream._id,
-                            read: false,
-                            createdAt: new Date(),
-                        }
-                    }
-                });
-
-                // Send realtime notification via socket
-                if (io) {
-                    io.to(`user_${follower._id}`).emit("followed_user_live", {
-                        streamId: stream._id,
-                        username: user.username,
-                        avatar: user.avatar,
-                        title: title,
-                    });
-
-                    io.to(`user_${follower._id}`).emit("notification", {
-                        type: "live",
-                        message: `${user.username} is now live!`,
-                    });
-                }
-            }
-
-            console.log(`📢 Notified ${followers.length} followers that ${user.username} is live`);
-        }
-
-        res.status(201).json(formatStream(stream));
-    } catch (err) {
-        console.error("Stream start error:", err);
-        res.status(500).json({ error: "Failed to start stream." });
-    }
-});
-
-// =========================
-// POST: Create stream (alternative route)
-// /api/live
-// =========================
-router.post("/", authMiddleware, async (req, res) => {
-    try {
-        const { title, category, coverImage, roomId } = req.body;
-        const user = req.user;
-
-        if (!title) return res.status(400).json({ error: "Title required" });
-
-        // Check if user already has an active stream
-        const existingStream = await Stream.findOne({
-            streamerId: user._id,
-            isLive: true,
-        });
-
-        if (existingStream) {
-            existingStream.isLive = false;
-            await existingStream.save();
-        }
-
-        const stream = await Stream.create({
-            title,
-            category: category || "General",
-            coverImage: coverImage || null,
-            streamerId: user._id,
-            streamerName: user.username,
-            streamerAvatar: user.avatar || "",
-            roomId: roomId || `stream_${user._id}_${Date.now()}`,
-            viewers: 0,
-            isLive: true,
-            startedAt: new Date(),
-        });
-
-        const io = req.app.get("io");
-
-        if (io) {
-            io.emit("stream_started", formatStream(stream));
-            io.emit("live_started", formatStream(stream));
-        }
-
-        // Notify followers
-        if (user.followers && user.followers.length > 0) {
-            const followers = await User.find({
-                _id: { $in: user.followers }
-            }).select("_id");
-
-            for (const follower of followers) {
-                await User.findByIdAndUpdate(follower._id, {
-                    $push: {
-                        notifications: {
-                            message: `${user.username} is now live: "${title}"`,
-                            type: "live",
-                            fromUser: user._id,
-                            streamId: stream._id,
-                            read: false,
-                            createdAt: new Date(),
-                        }
-                    }
-                });
-
-                if (io) {
-                    io.to(`user_${follower._id}`).emit("followed_user_live", {
-                        streamId: stream._id,
-                        username: user.username,
-                        avatar: user.avatar,
-                        title: title,
-                    });
-
-                    io.to(`user_${follower._id}`).emit("notification", {
-                        type: "live",
-                        message: `${user.username} is now live!`,
-                    });
-                }
-            }
-        }
-
-        res.status(201).json(formatStream(stream));
-    } catch (err) {
-        console.error("Stream start error:", err);
-        res.status(500).json({ error: "Failed to start stream." });
-    }
-});
-
-// =========================
-// POST: Stop stream
-// /api/live/stop/:id
-// =========================
-router.post("/stop/:id", authMiddleware, async (req, res) => {
-    try {
-        const id = req.params.id;
-        const stream = await Stream.findByIdAndUpdate(
-            id,
-            { isLive: false, endedAt: new Date() },
-            { new: true }
+        // End any existing live streams for this user
+        await Stream.updateMany(
+            { streamerId: req.userId, isLive: true },
+            { isLive: false, endedAt: new Date() }
         );
 
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
-
-        const io = req.app.get("io");
-        if (io) {
-            io.emit("stream_stopped", { id });
-            io.emit("live_stopped", { _id: id, id });
+        const user = await User.findById(req.userId).select("username avatar");
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
         }
 
-        res.json({ message: "Stream stopped", stream: formatStream(stream) });
+        const stream = new Stream({
+            title,
+            category: category || "Other",
+            coverImage: coverImage || "",
+            streamerId: req.userId,
+            streamerName: user.username,
+            streamerAvatar: user.avatar || "",
+            isLive: true,
+            viewers: 0,
+            startedAt: new Date(),
+            type: type || "solo",
+            maxSeats: maxSeats || 1,
+        });
+
+        await stream.save();
+
+        // Notify followers
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("new_stream", formatStream(stream));
+
+            // Send notification to followers
+            const streamer = await User.findById(req.userId).populate("followers");
+            if (streamer?.followers) {
+                streamer.followers.forEach(followerId => {
+                    io.to(`user_${followerId}`).emit("followed_user_live", {
+                        streamId: stream._id,
+                        streamerName: user.username,
+                        title: stream.title,
+                    });
+                });
+            }
+        }
+
+        res.status(201).json(formatStream(stream));
     } catch (err) {
-        console.error("Stream stop error:", err);
-        res.status(500).json({ error: "Failed to stop stream." });
+        console.error("Start stream error:", err);
+        res.status(500).json({ error: "Failed to start stream." });
     }
 });
 
 // =========================
-// POST: End stream (alternative)
+// POST: End a stream
 // /api/live/:id/end
 // =========================
 router.post("/:id/end", authMiddleware, async (req, res) => {
     try {
-        const id = req.params.id;
-        const stream = await Stream.findByIdAndUpdate(
-            id,
-            { isLive: false, endedAt: new Date() },
-            { new: true }
-        );
+        const stream = await Stream.findById(req.params.id);
 
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
+        if (!stream) {
+            return res.status(404).json({ error: "Stream not found" });
+        }
+
+        if (stream.streamerId.toString() !== req.userId.toString()) {
+            return res.status(403).json({ error: "Not authorized to end this stream" });
+        }
+
+        stream.isLive = false;
+        stream.endedAt = new Date();
+        await stream.save();
 
         const io = req.app.get("io");
         if (io) {
-            io.emit("stream_stopped", { id });
-            io.emit("live_stopped", { _id: id, id });
+            io.emit("stream_ended", { streamId: stream._id });
+            io.to(`stream_${stream._id}`).emit("stream_ended", { streamId: stream._id });
         }
 
         res.json({ message: "Stream ended", stream: formatStream(stream) });
     } catch (err) {
-        console.error("Stream end error:", err);
+        console.error("End stream error:", err);
         res.status(500).json({ error: "Failed to end stream." });
     }
 });
 
 // =========================
-// POST: Increment viewers
-// /api/live/:id/view
-// =========================
-router.post("/:id/view", async (req, res) => {
-    try {
-        const id = req.params.id;
-        const stream = await Stream.findByIdAndUpdate(
-            id,
-            { $inc: { viewers: 1 } },
-            { new: true }
-        ).lean();
-
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
-
-        const io = req.app.get("io");
-        if (io) {
-            io.emit("viewer_count_update", { streamId: id, viewers: stream.viewers });
-        }
-
-        res.json({ viewers: stream.viewers });
-    } catch (err) {
-        console.error("View increment error:", err);
-        res.status(500).json({ error: "Failed to update viewers." });
-    }
-});
-
-// =========================
-// POST: Join stream
+// POST: Join a stream (increment viewers)
 // /api/live/:id/join
 // =========================
 router.post("/:id/join", async (req, res) => {
     try {
-        const id = req.params.id;
         const stream = await Stream.findByIdAndUpdate(
-            id,
+            req.params.id,
             { $inc: { viewers: 1 } },
             { new: true }
-        ).lean();
+        );
 
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
+        if (!stream) {
+            return res.status(404).json({ error: "Stream not found" });
+        }
 
         const io = req.app.get("io");
         if (io) {
-            io.emit("viewer_count_update", { streamId: id, viewers: stream.viewers });
+            io.to(`stream_${stream._id}`).emit("viewer_count", { count: stream.viewers });
         }
 
         res.json(formatStream(stream));
@@ -438,32 +282,33 @@ router.post("/:id/join", async (req, res) => {
 });
 
 // =========================
-// POST: Leave stream
+// POST: Leave a stream (decrement viewers)
 // /api/live/:id/leave
 // =========================
 router.post("/:id/leave", async (req, res) => {
     try {
-        const id = req.params.id;
         const stream = await Stream.findByIdAndUpdate(
-            id,
+            req.params.id,
             { $inc: { viewers: -1 } },
             { new: true }
-        ).lean();
+        );
 
-        if (!stream) return res.status(404).json({ error: "Stream not found" });
+        if (!stream) {
+            return res.status(404).json({ error: "Stream not found" });
+        }
 
-        // Ensure viewers doesn't go negative
+        // Ensure viewers doesn't go below 0
         if (stream.viewers < 0) {
-            await Stream.findByIdAndUpdate(id, { viewers: 0 });
             stream.viewers = 0;
+            await stream.save();
         }
 
         const io = req.app.get("io");
         if (io) {
-            io.emit("viewer_count_update", { streamId: id, viewers: Math.max(0, stream.viewers) });
+            io.to(`stream_${stream._id}`).emit("viewer_count", { count: stream.viewers });
         }
 
-        res.json({ viewers: Math.max(0, stream.viewers) });
+        res.json(formatStream(stream));
     } catch (err) {
         console.error("Leave stream error:", err);
         res.status(500).json({ error: "Failed to leave stream." });

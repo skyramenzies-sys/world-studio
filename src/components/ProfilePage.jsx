@@ -15,14 +15,12 @@ export default function ProfilePage() {
 
     const [profile, setProfile] = useState(null);
     const [posts, setPosts] = useState([]);
-    const [streams, setStreams] = useState([]);
+    const [liveStream, setLiveStream] = useState(null);
     const [receivedGifts, setReceivedGifts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-    const [giftSending, setGiftSending] = useState(false);
     const [isFollowing, setIsFollowing] = useState(false);
     const [followLoading, setFollowLoading] = useState(false);
-    const [isLive, setIsLive] = useState(false);
     const [activeTab, setActiveTab] = useState("posts");
 
     const [isEditing, setIsEditing] = useState(false);
@@ -38,8 +36,7 @@ export default function ProfilePage() {
 
         if (storedUser) {
             try {
-                const parsed = JSON.parse(storedUser);
-                setCurrentUser(parsed);
+                setCurrentUser(JSON.parse(storedUser));
             } catch (e) { }
         }
     }, []);
@@ -51,6 +48,8 @@ export default function ProfilePage() {
         const currentUserId = currentUser._id || currentUser.id;
         return String(currentUserId) === String(targetUserId);
     }, [currentUser, targetUserId]);
+
+    const isLive = !!liveStream;
 
     useEffect(() => {
         if (!targetUserId) {
@@ -65,6 +64,7 @@ export default function ProfilePage() {
 
         const fetchAll = async () => {
             try {
+                // Fetch profile
                 const profileRes = await api.get(`/users/${targetUserId}`);
                 if (cancelled) return;
 
@@ -84,26 +84,36 @@ export default function ProfilePage() {
 
                 // Check if current user is following this profile
                 if (currentUser && Array.isArray(currentUser.following)) {
-                    setIsFollowing(currentUser.following.includes(targetUserId));
+                    const targetId = profileData._id || profileData.id;
+                    setIsFollowing(currentUser.following.some(id =>
+                        String(id) === String(targetId)
+                    ));
                 }
 
                 // Fetch user's posts
                 try {
-                    const postsRes = await api.get(`/posts?userId=${targetUserId}`);
-                    setPosts(Array.isArray(postsRes.data) ? postsRes.data : []);
+                    const postsRes = await api.get("/posts");
+                    const allPosts = Array.isArray(postsRes.data) ? postsRes.data : [];
+                    // Filter posts by this user
+                    const userPosts = allPosts.filter(p => {
+                        const postUserId = p.userId?._id || p.userId || p.authorId;
+                        return String(postUserId) === String(targetUserId);
+                    });
+                    setPosts(userPosts);
                 } catch (e) {
                     setPosts([]);
                 }
 
-                // Check if user is currently live
+                // Check if user is currently live using the new endpoint
                 try {
-                    const liveRes = await api.get(`/live?userId=${targetUserId}&isLive=true`);
-                    const liveStreams = Array.isArray(liveRes.data) ? liveRes.data : [];
-                    setIsLive(liveStreams.length > 0);
-                    setStreams(liveStreams);
+                    const liveRes = await api.get(`/live/user/${targetUserId}/status`);
+                    if (liveRes.data?.isLive && liveRes.data?.stream) {
+                        setLiveStream(liveRes.data.stream);
+                    } else {
+                        setLiveStream(null);
+                    }
                 } catch (e) {
-                    setIsLive(false);
-                    setStreams([]);
+                    setLiveStream(null);
                 }
 
                 // Fetch gifts if own profile
@@ -150,7 +160,7 @@ export default function ProfilePage() {
             // Update localStorage
             const updatedUser = { ...currentUser };
             if (wasFollowing) {
-                updatedUser.following = updatedUser.following.filter(id => id !== targetUserId);
+                updatedUser.following = (updatedUser.following || []).filter(id => String(id) !== String(targetUserId));
             } else {
                 updatedUser.following = [...(updatedUser.following || []), targetUserId];
             }
@@ -161,14 +171,16 @@ export default function ProfilePage() {
             setProfile(prev => ({
                 ...prev,
                 followers: wasFollowing
-                    ? prev.followers.filter(id => id !== (currentUser._id || currentUser.id))
+                    ? (prev.followers || []).filter(id => String(id) !== String(currentUser._id || currentUser.id))
                     : [...(prev.followers || []), currentUser._id || currentUser.id]
             }));
 
             toast.success(wasFollowing ? "Unfollowed" : `Following ${profile.username}!`);
         } catch (err) {
             setIsFollowing(wasFollowing);
-            toast.error("Failed to follow user");
+            const errMsg = err.response?.data?.error || err.response?.data?.message || "Failed to follow user";
+            toast.error(errMsg);
+            console.error("Follow error:", err);
         } finally {
             setFollowLoading(false);
         }
@@ -176,30 +188,8 @@ export default function ProfilePage() {
 
     // Join live stream
     const joinLiveStream = () => {
-        if (streams.length > 0) {
-            navigate(`/live/${streams[0]._id || streams[0].roomId}`);
-        }
-    };
-
-    const handleSendGift = async (giftData) => {
-        if (!token) {
-            toast.error("Please log in to send gifts");
-            return;
-        }
-
-        setGiftSending(true);
-        try {
-            await api.post("/gifts", {
-                recipientId: profile._id,
-                item: giftData.item,
-                amount: giftData.amount || 1,
-                itemIcon: giftData.itemIcon,
-            });
-            toast.success(`Gift sent to ${profile.username}! 🎁`);
-        } catch (err) {
-            toast.error(err.response?.data?.error || "Failed to send gift");
-        } finally {
-            setGiftSending(false);
+        if (liveStream) {
+            navigate(`/live/${liveStream._id || liveStream.roomId}`);
         }
     };
 
@@ -395,7 +385,7 @@ export default function ProfilePage() {
                             <img
                                 src={profile.avatar || "/defaults/default-avatar.png"}
                                 alt={profile.username}
-                                className={`w-24 h-24 rounded-full object-cover border-4 ${isLive ? 'border-red-500 animate-pulse' : 'border-cyan-400'}`}
+                                className={`w-24 h-24 rounded-full object-cover border-4 ${isLive ? 'border-red-500' : 'border-cyan-400'}`}
                                 onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
                             />
                             {isLive && (
@@ -554,13 +544,13 @@ export default function ProfilePage() {
                         <div className="grid grid-cols-3 gap-2">
                             {posts.map((post) => (
                                 <div
-                                    key={post._id}
-                                    onClick={() => navigate(`/post/${post._id}`)}
+                                    key={post._id || post.id}
+                                    onClick={() => navigate(`/post/${post._id || post.id}`)}
                                     className="aspect-square bg-white/10 rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition relative"
                                 >
                                     {post.type === "image" || post.mediaType === "image" ? (
                                         <img
-                                            src={post.fileUrl || post.mediaUrl}
+                                            src={post.fileUrl || post.mediaUrl || post.thumbnail}
                                             alt={post.title}
                                             className="w-full h-full object-cover"
                                         />
@@ -589,10 +579,7 @@ export default function ProfilePage() {
             {/* Gift Panel (other users) */}
             {!isOwnProfile && activeTab === "gift" && (
                 <section className="mb-6">
-                    <GiftPanel
-                        recipient={profile}
-                        onGiftSent={handleSendGift}
-                    />
+                    <GiftPanel recipient={profile} />
                 </section>
             )}
 
