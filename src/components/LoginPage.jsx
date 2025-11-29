@@ -27,13 +27,11 @@ export default function LoginPage() {
             let response;
 
             if (isLogin) {
-                // LOGIN
                 response = await api.post("/auth/login", {
                     email: formData.email,
                     password: formData.password,
                 });
             } else {
-                // REGISTER
                 if (!formData.username.trim()) {
                     toast.error("Username is required");
                     setLoading(false);
@@ -47,11 +45,12 @@ export default function LoginPage() {
                 });
             }
 
-            // Backend stuurt data direct (niet in user object)
             const data = response.data;
 
-            // Extract token en user info
+            // Extract token
             const token = data.token;
+
+            // Build complete user object including wallet
             const user = {
                 _id: data.userId || data._id,
                 id: data.userId || data._id,
@@ -64,33 +63,40 @@ export default function LoginPage() {
                 totalViews: data.totalViews || 0,
                 totalLikes: data.totalLikes || 0,
                 earnings: data.earnings || 0,
+                wallet: data.wallet || { balance: 0, totalReceived: 0, totalSpent: 0 },
                 notifications: data.notifications || [],
+                role: data.role || "user",
+                createdAt: data.createdAt,
                 token: token,
             };
 
-            // Valideer dat we token en username hebben
+            // Validate response
             if (!token || !user.username) {
                 throw new Error("Invalid response from server");
             }
 
-            // Sla op in localStorage
+            // Save to localStorage - BOTH token and user with token
             localStorage.setItem("token", token);
             localStorage.setItem("ws_currentUser", JSON.stringify(user));
 
-            // Success message
+            // Log for debugging
+            console.log("✅ Login successful:", {
+                username: user.username,
+                hasToken: !!token,
+                wallet: user.wallet
+            });
+
             toast.success(
                 isLogin
                     ? `Welcome back, ${user.username}! 🎉`
-                    : `Welcome to World-Studio, ${user.username}! 🚀`
+                    : `Welcome to World-Studio, ${user.username}! 🚀 You got 100 free coins!`
             );
 
-            // Redirect naar home
             navigate("/");
 
         } catch (err) {
             console.error("Auth error:", err);
 
-            // Betere error handling
             let message = "Authentication failed";
 
             if (err.response?.data?.error) {
@@ -221,10 +227,13 @@ export default function LoginPage() {
                     </p>
                 </div>
 
-                {/* Demo Hint */}
+                {/* Info */}
                 <div className="mt-8 pt-6 border-t border-white/10 text-center">
                     <p className="text-white/40 text-sm">
-                        💡 New here? Click "Sign Up" to create an account
+                        {isLogin
+                            ? "💡 Forgot password? Contact support"
+                            : "🎁 New users get 100 free WS-Coins!"
+                        }
                     </p>
                 </div>
             </div>
