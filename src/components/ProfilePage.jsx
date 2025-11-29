@@ -28,6 +28,7 @@ export default function ProfilePage() {
     const [avatarUploading, setAvatarUploading] = useState(false);
     const avatarInputRef = React.useRef(null);
 
+    // Load current user from localStorage
     useEffect(() => {
         const storedToken = localStorage.getItem("token");
         const storedUser = localStorage.getItem("ws_currentUser");
@@ -36,8 +37,14 @@ export default function ProfilePage() {
 
         if (storedUser) {
             try {
-                setCurrentUser(JSON.parse(storedUser));
-            } catch (e) { }
+                const parsed = JSON.parse(storedUser);
+                // Ensure following is always an array
+                parsed.following = Array.isArray(parsed.following) ? parsed.following : [];
+                parsed.followers = Array.isArray(parsed.followers) ? parsed.followers : [];
+                setCurrentUser(parsed);
+            } catch (e) {
+                console.error("Failed to parse user:", e);
+            }
         }
     }, []);
 
@@ -51,6 +58,7 @@ export default function ProfilePage() {
 
     const isLive = !!liveStream;
 
+    // Fetch profile data
     useEffect(() => {
         if (!targetUserId) {
             if (currentUser === null) return;
@@ -75,6 +83,10 @@ export default function ProfilePage() {
                     return;
                 }
 
+                // Ensure arrays exist
+                profileData.followers = Array.isArray(profileData.followers) ? profileData.followers : [];
+                profileData.following = Array.isArray(profileData.following) ? profileData.following : [];
+
                 setProfile(profileData);
                 setEditForm({
                     username: profileData.username || "",
@@ -83,18 +95,16 @@ export default function ProfilePage() {
                 });
 
                 // Check if current user is following this profile
-                if (currentUser && Array.isArray(currentUser.following)) {
-                    const targetId = profileData._id || profileData.id;
-                    setIsFollowing(currentUser.following.some(id =>
-                        String(id) === String(targetId)
-                    ));
+                if (currentUser) {
+                    const userFollowing = Array.isArray(currentUser.following) ? currentUser.following : [];
+                    const targetId = String(profileData._id || profileData.id);
+                    setIsFollowing(userFollowing.some(id => String(id) === targetId));
                 }
 
                 // Fetch user's posts
                 try {
                     const postsRes = await api.get("/posts");
                     const allPosts = Array.isArray(postsRes.data) ? postsRes.data : [];
-                    // Filter posts by this user
                     const userPosts = allPosts.filter(p => {
                         const postUserId = p.userId?._id || p.userId || p.authorId;
                         return String(postUserId) === String(targetUserId);
@@ -104,7 +114,7 @@ export default function ProfilePage() {
                     setPosts([]);
                 }
 
-                // Check if user is currently live using the new endpoint
+                // Check if user is currently live
                 try {
                     const liveRes = await api.get(`/live/user/${targetUserId}/status`);
                     if (liveRes.data?.isLive && liveRes.data?.stream) {
@@ -157,23 +167,31 @@ export default function ProfilePage() {
         try {
             await api.post(`/users/${targetUserId}/follow`);
 
-            // Update localStorage
+            // Update localStorage with safe array handling
             const updatedUser = { ...currentUser };
+            const currentFollowing = Array.isArray(updatedUser.following) ? updatedUser.following : [];
+
             if (wasFollowing) {
-                updatedUser.following = (updatedUser.following || []).filter(id => String(id) !== String(targetUserId));
+                updatedUser.following = currentFollowing.filter(id => String(id) !== String(targetUserId));
             } else {
-                updatedUser.following = [...(updatedUser.following || []), targetUserId];
+                updatedUser.following = [...currentFollowing, targetUserId];
             }
+
             localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
             setCurrentUser(updatedUser);
 
-            // Update profile follower count
-            setProfile(prev => ({
-                ...prev,
-                followers: wasFollowing
-                    ? (prev.followers || []).filter(id => String(id) !== String(currentUser._id || currentUser.id))
-                    : [...(prev.followers || []), currentUser._id || currentUser.id]
-            }));
+            // Update profile follower count with safe array handling
+            setProfile(prev => {
+                const currentFollowers = Array.isArray(prev.followers) ? prev.followers : [];
+                const myId = currentUser._id || currentUser.id;
+
+                return {
+                    ...prev,
+                    followers: wasFollowing
+                        ? currentFollowers.filter(id => String(id) !== String(myId))
+                        : [...currentFollowers, myId]
+                };
+            });
 
             toast.success(wasFollowing ? "Unfollowed" : `Following ${profile.username}!`);
         } catch (err) {
@@ -197,7 +215,7 @@ export default function ProfilePage() {
         e.preventDefault();
         try {
             const response = await api.put(`/users/${targetUserId}`, editForm);
-            setProfile(response.data);
+            setProfile(prev => ({ ...prev, ...response.data }));
             setIsEditing(false);
 
             const updatedUser = { ...currentUser, ...response.data };
@@ -256,6 +274,7 @@ export default function ProfilePage() {
         }
     };
 
+    // Loading state
     if (loading) {
         return (
             <div className="max-w-2xl mx-auto p-6 text-center">
@@ -265,6 +284,7 @@ export default function ProfilePage() {
         );
     }
 
+    // Not logged in
     if (!currentUser && !paramUserId) {
         return (
             <div className="max-w-2xl mx-auto p-6 text-center">
@@ -282,6 +302,7 @@ export default function ProfilePage() {
         );
     }
 
+    // Error state
     if (error) {
         return (
             <div className="max-w-2xl mx-auto p-6">
@@ -292,6 +313,7 @@ export default function ProfilePage() {
         );
     }
 
+    // No profile
     if (!profile) {
         return (
             <div className="max-w-2xl mx-auto p-6">
@@ -407,7 +429,7 @@ export default function ProfilePage() {
                                 )}
                             </div>
 
-                            <p className="text-white/60 mt-1">{profile.bio || "No bio yet."}</p>
+                            <p className="text-white/60 mt-1">{profile.bio || "New creator on World-Studio"}</p>
 
                             {/* Stats */}
                             <div className="flex gap-6 mt-3 text-sm">
@@ -504,7 +526,10 @@ export default function ProfilePage() {
                                 {(profile.wallet?.balance || 0).toLocaleString()} <span className="text-lg text-yellow-400">WS-Coins</span>
                             </p>
                         </div>
-                        <button className="px-4 py-2 bg-yellow-500 text-black rounded-lg font-semibold hover:bg-yellow-400 transition">
+                        <button
+                            onClick={() => navigate("/wallet")}
+                            className="px-4 py-2 bg-yellow-500 text-black rounded-lg font-semibold hover:bg-yellow-400 transition"
+                        >
                             + Add Coins
                         </button>
                     </div>
@@ -602,7 +627,7 @@ export default function ProfilePage() {
                                             <span className="text-white/50 text-sm ml-2">from {gift.sender.username}</span>
                                         )}
                                     </div>
-                                    <span className="text-yellow-400 font-semibold">{gift.amount} 💰</span>
+                                    <span className="text-yellow-400 font-semibold">{gift.amount || 1}x</span>
                                 </div>
                             ))}
                         </div>

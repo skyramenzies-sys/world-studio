@@ -21,7 +21,7 @@ export default function PostCard({ post, onUpdate }) {
     const [isSaved, setIsSaved] = useState(false);
 
     // Get author ID
-    const authorId = post.userId || post.authorId;
+    const authorId = post.userId?._id || post.userId || post.authorId;
 
     // Load user from localStorage
     useEffect(() => {
@@ -29,17 +29,20 @@ export default function PostCard({ post, onUpdate }) {
         if (storedUser) {
             try {
                 const user = JSON.parse(storedUser);
+                // Ensure arrays exist
+                user.following = Array.isArray(user.following) ? user.following : [];
+                user.followers = Array.isArray(user.followers) ? user.followers : [];
                 setCurrentUser(user);
 
                 // Check if user has liked this post
                 if (Array.isArray(post.likedBy)) {
                     const odId = user._id || user.id;
-                    setHasLiked(post.likedBy.includes(odId));
+                    setHasLiked(post.likedBy.some(id => String(id) === String(odId)));
                 }
 
                 // Check if user is following this author
-                if (Array.isArray(user.following) && authorId) {
-                    setIsFollowing(user.following.includes(authorId));
+                if (authorId) {
+                    setIsFollowing(user.following.some(id => String(id) === String(authorId)));
                 }
             } catch (e) {
                 console.error("Failed to parse user:", e);
@@ -100,7 +103,7 @@ export default function PostCard({ post, onUpdate }) {
         }
 
         const myId = currentUser._id || currentUser.id;
-        if (authorId === myId) return;
+        if (String(authorId) === String(myId)) return;
 
         if (followLoading) return;
         setFollowLoading(true);
@@ -109,16 +112,16 @@ export default function PostCard({ post, onUpdate }) {
         setIsFollowing(!wasFollowing);
 
         try {
-            const token = localStorage.getItem("token");
-            await api.post(`/users/${authorId}/follow`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            await api.post(`/users/${authorId}/follow`);
 
+            // Update localStorage with safe array handling
             const updatedUser = { ...currentUser };
+            const currentFollowing = Array.isArray(updatedUser.following) ? updatedUser.following : [];
+
             if (wasFollowing) {
-                updatedUser.following = updatedUser.following.filter(id => id !== authorId);
+                updatedUser.following = currentFollowing.filter(id => String(id) !== String(authorId));
             } else {
-                updatedUser.following = [...(updatedUser.following || []), authorId];
+                updatedUser.following = [...currentFollowing, authorId];
             }
             localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
             setCurrentUser(updatedUser);
@@ -126,7 +129,8 @@ export default function PostCard({ post, onUpdate }) {
             toast.success(wasFollowing ? "Unfollowed" : `Following ${post.author || post.username}!`);
         } catch (err) {
             setIsFollowing(wasFollowing);
-            toast.error("Failed to follow user");
+            const errMsg = err.response?.data?.error || err.response?.data?.message || "Failed to follow user";
+            toast.error(errMsg);
         } finally {
             setFollowLoading(false);
         }
@@ -157,7 +161,8 @@ export default function PostCard({ post, onUpdate }) {
         } catch (err) {
             setHasLiked(wasLiked);
             setLikes((prev) => wasLiked ? prev + 1 : prev - 1);
-            toast.error("Failed to like post");
+            const errMsg = err.response?.data?.error || err.response?.data?.message || "Failed to like post";
+            toast.error(errMsg);
         } finally {
             setLikeLoading(false);
         }
@@ -218,7 +223,7 @@ export default function PostCard({ post, onUpdate }) {
         if (authorId) navigate(`/profile/${authorId}`);
     };
 
-    const isOwnPost = currentUser && authorId === (currentUser._id || currentUser.id);
+    const isOwnPost = currentUser && String(authorId) === String(currentUser._id || currentUser.id);
 
     return (
         <article className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition">
@@ -229,14 +234,14 @@ export default function PostCard({ post, onUpdate }) {
                     onClick={goToProfile}
                 >
                     <img
-                        src={post.authorPhoto || post.avatar || "/defaults/default-avatar.png"}
+                        src={post.authorPhoto || post.avatar || post.userId?.avatar || "/defaults/default-avatar.png"}
                         alt="avatar"
                         className="w-10 h-10 rounded-full object-cover border border-white/20"
                         onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
                     />
                     <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-white truncate">
-                            {post.author || post.username || "Anonymous"}
+                            {post.author || post.username || post.userId?.username || "Anonymous"}
                         </h3>
                         <p className="text-xs text-white/50">
                             {formatDate(post.timestamp || post.createdAt)}
@@ -250,8 +255,8 @@ export default function PostCard({ post, onUpdate }) {
                         onClick={handleFollow}
                         disabled={followLoading}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-all ${isFollowing
-                                ? "bg-white/10 text-white/70 hover:bg-red-500/20 hover:text-red-400"
-                                : "bg-cyan-500 text-black hover:bg-cyan-400"
+                            ? "bg-white/10 text-white/70 hover:bg-red-500/20 hover:text-red-400"
+                            : "bg-cyan-500 text-black hover:bg-cyan-400"
                             }`}
                     >
                         {followLoading ? (
