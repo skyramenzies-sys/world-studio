@@ -8,7 +8,7 @@ import axios from "axios";
 // ===========================================
 // API CONFIGURATION - ACTIVE SERVER
 // ===========================================
-const API_BASE_URL = "https://world-studio.live";
+const API_BASE_URL = "https://world-studio-production.up.railway.app";
 
 // Create axios instance with auth header
 const api = axios.create({

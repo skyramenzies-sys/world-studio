@@ -18,7 +18,7 @@ import {
 import axios from "axios";
 
 const { width } = Dimensions.get("window");
-const API_BASE_URL = "https://world-studio.live";
+const API_BASE_URL = "https://world-studio-production.up.railway.app";
 
 // ============================================
 // GRADIENT CARD (No external dependency)

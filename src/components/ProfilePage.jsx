@@ -9,7 +9,7 @@ import GiftPanel from "./GiftPanel";
 /* ============================================================
    WORLD STUDIO LIVE CONFIGURATION
    ============================================================ */
-const API_BASE_URL = "https://world-studio.live";
+const API_BASE_URL = "https://world-studio-production.up.railway.app";
 
 // Create API instance
 const api = axios.create({

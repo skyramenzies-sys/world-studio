@@ -17,7 +17,7 @@ import socket from "../api/socket";
 const API_BASE_URL = "https://api.world-studio.live";
 const SOCKET_URL = "https://api.world-studio.live";
 const SITE_NAME = "World-Studio";
-const SITE_URL = "https://world-studio.live";
+const SITE_URL = "https://world-studio-production.up.railway.app";
 
 const TABS = [
     { id: "overview", label: "Overview", icon: BarChart3 },
