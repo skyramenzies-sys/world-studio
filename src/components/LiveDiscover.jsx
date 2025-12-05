@@ -292,7 +292,7 @@ export default function LiveDiscover() {
         async (showToast = false) => {
             try {
                 setError(null);
-                const res = await api.get("/api/live/streams");
+                const res = await api.get("/api/live?isLive=true");
                 const allStreams = Array.isArray(res.data)
                     ? res.data
                     : res.data?.streams || [];
