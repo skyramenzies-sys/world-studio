@@ -1,34 +1,67 @@
-// src/components/ProfilePage.jsx - WORLD STUDIO LIVE EDITION 👤
+// src/components/ProfilePage.jsx - WORLD STUDIO LIVE EDITION 👤 MASTER
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { UserPlus, UserCheck, Radio } from "lucide-react";
-import axios from "axios";
 import GiftPanel from "./GiftPanel";
+import api from "../api/api";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   HELPERS
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
 
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
+const normalizeUserProfile = (raw, fallbackId = null) => {
+    if (!raw) return null;
 
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
+    // In sommige responses zit de user in raw.user
+    const u = raw.user || raw;
+
+    const id = u._id || u.id || fallbackId;
+
+    const followersArray = Array.isArray(u.followers) ? u.followers : [];
+    const followingArray = Array.isArray(u.following) ? u.following : [];
+
+    const followersCount =
+        typeof u.followersCount === "number"
+            ? u.followersCount
+            : followersArray.length;
+
+    const followingCount =
+        typeof u.followingCount === "number"
+            ? u.followingCount
+            : followingArray.length;
+
+    return {
+        _id: id,
+        id,
+        username: u.username || "",
+        displayName: u.displayName || "",
+        bio: u.bio || "",
+        avatar: u.avatar || "/defaults/default-avatar.png",
+        coverImage: u.coverImage || "/defaults/default-cover.jpg",
+        isVerified: !!u.isVerified,
+        role: u.role || "user",
+        isLive: !!u.isLive,
+        currentStreamId: u.currentStreamId || null,
+
+        followers: followersArray,
+        following: followingArray,
+        followersCount,
+        followingCount,
+
+        wallet: u.wallet || null,
+        stats: u.stats || {},
+        unreadNotifications: u.unreadNotifications || 0,
+
+        createdAt: u.createdAt,
+        lastActive: u.lastActive,
+    };
+};
 
 /* ============================================================
    MAIN COMPONENT
    ============================================================ */
+
 export default function ProfilePage() {
     const { userId: paramUserId } = useParams();
     const navigate = useNavigate();
@@ -37,7 +70,6 @@ export default function ProfilePage() {
     const [token, setToken] = useState(null);
     const [profile, setProfile] = useState(null);
     const [posts, setPosts] = useState([]);
-    const [liveStream, setLiveStream] = useState(null);
     const [receivedGifts, setReceivedGifts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -45,12 +77,21 @@ export default function ProfilePage() {
     const [followLoading, setFollowLoading] = useState(false);
     const [activeTab, setActiveTab] = useState("posts");
     const [isEditing, setIsEditing] = useState(false);
-    const [editForm, setEditForm] = useState({ username: "", bio: "", avatar: "" });
+    const [editForm, setEditForm] = useState({
+        username: "",
+        bio: "",
+        avatar: "",
+    });
     const [avatarUploading, setAvatarUploading] = useState(false);
     const avatarInputRef = useRef(null);
 
+    /* ------------------------------------------------------------
+       LOAD TOKEN + CURRENT USER (LOCALSTORAGE)
+       ------------------------------------------------------------ */
     useEffect(() => {
-        const storedToken = localStorage.getItem("token") || localStorage.getItem("ws_token");
+        const storedToken =
+            localStorage.getItem("token") ||
+            localStorage.getItem("ws_token");
         const storedUser = localStorage.getItem("ws_currentUser");
 
         if (storedToken) setToken(storedToken);
@@ -58,16 +99,21 @@ export default function ProfilePage() {
         if (storedUser) {
             try {
                 const parsed = JSON.parse(storedUser);
-                parsed.following = Array.isArray(parsed.following) ? parsed.following : [];
-                parsed.followers = Array.isArray(parsed.followers) ? parsed.followers : [];
+                parsed.following = Array.isArray(parsed.following)
+                    ? parsed.following
+                    : [];
+                parsed.followers = Array.isArray(parsed.followers)
+                    ? parsed.followers
+                    : [];
                 setCurrentUser(parsed);
             } catch (e) {
-                console.error("Failed to parse user:", e);
+                console.error("Failed to parse ws_currentUser:", e);
             }
         }
     }, []);
 
-    const targetUserId = paramUserId || currentUser?._id || currentUser?.id;
+    const targetUserId =
+        paramUserId || currentUser?._id || currentUser?.id;
 
     const isOwnProfile = React.useMemo(() => {
         if (!currentUser || !targetUserId) return false;
@@ -75,12 +121,17 @@ export default function ProfilePage() {
         return String(currentUserId) === String(targetUserId);
     }, [currentUser, targetUserId]);
 
-    // Check if admin
-    const isAdmin = currentUser?.email === "menziesalm@gmail.com" || currentUser?.role === "admin";
+    const isAdmin =
+        currentUser?.email === "menziesalm@gmail.com" ||
+        currentUser?.role === "admin";
 
-    const isLive = !!liveStream;
+    const isLive = !!profile?.isLive && !!profile?.currentStreamId;
 
+    /* ------------------------------------------------------------
+       FETCH PROFILE + POSTS + GIFTS
+       ------------------------------------------------------------ */
     useEffect(() => {
+        // als we nog niet weten wie de user is, even wachten
         if (!targetUserId) {
             if (currentUser === null) return;
             setLoading(false);
@@ -93,70 +144,99 @@ export default function ProfilePage() {
 
         const fetchAll = async () => {
             try {
-                const profileRes = await api.get(`/api/users/${targetUserId}`);
-                if (cancelled) return;
+                // 1) PROFIEL
+                let res;
+                if (isOwnProfile && token) {
+                    // /me bevat wallet!
+                    res = await api.get("/api/users/me");
+                } else {
+                    res = await api.get(`/api/users/${targetUserId}`);
+                }
 
-                const profileData = profileRes.data;
-                if (!profileData) {
-                    setError("User not found");
-                    setLoading(false);
+                const normalized = normalizeUserProfile(
+                    res.data,
+                    targetUserId
+                );
+
+                if (!normalized) {
+                    if (!cancelled) {
+                        setError("User not found");
+                        setLoading(false);
+                    }
                     return;
                 }
 
-                profileData.followers = Array.isArray(profileData.followers) ? profileData.followers : [];
-                profileData.following = Array.isArray(profileData.following) ? profileData.following : [];
+                if (cancelled) return;
 
-                setProfile(profileData);
+                setProfile(normalized);
                 setEditForm({
-                    username: profileData.username || "",
-                    bio: profileData.bio || "",
-                    avatar: profileData.avatar || "",
+                    username: normalized.username || "",
+                    bio: normalized.bio || "",
+                    avatar: normalized.avatar || "",
                 });
 
+                // 2) FOLLOW-STATUS
                 if (currentUser) {
-                    const userFollowing = Array.isArray(currentUser.following) ? currentUser.following : [];
-                    const targetId = String(profileData._id || profileData.id);
-                    setIsFollowing(userFollowing.some(id => String(id) === targetId));
-                }
+                    const myId =
+                        currentUser._id || currentUser.id;
+                    let following = false;
 
-                // Fetch posts
-                try {
-                    const postsRes = await api.get("/api/posts");
-                    const allPosts = Array.isArray(postsRes.data) ? postsRes.data : postsRes.data.posts || [];
-                    const userPosts = allPosts.filter(p => {
-                        const postUserId = p.userId?._id || p.userId || p.authorId;
-                        return String(postUserId) === String(targetUserId);
-                    });
-                    setPosts(userPosts);
-                } catch (e) {
-                    setPosts([]);
-                }
-
-                // Check live status
-                try {
-                    const liveRes = await api.get(`/api/live/user/${targetUserId}/status`);
-                    if (liveRes.data?.isLive && liveRes.data?.stream) {
-                        setLiveStream(liveRes.data.stream);
-                    } else {
-                        setLiveStream(null);
+                    if (typeof res.data?.user?.isFollowing === "boolean") {
+                        following = res.data.user.isFollowing;
+                    } else if (normalized.followers?.length) {
+                        following = normalized.followers.some(
+                            (id) => String(id) === String(myId)
+                        );
                     }
-                } catch (e) {
-                    setLiveStream(null);
+
+                    setIsFollowing(following);
+                } else {
+                    setIsFollowing(false);
                 }
 
-                // Fetch received gifts if own profile
-                if (token && isOwnProfile) {
+                // 3) POSTS VAN DEZE USER
+                try {
+                    const postsRes = await api.get(
+                        `/api/users/${normalized._id}/posts`
+                    );
+                    const postsData = Array.isArray(
+                        postsRes.data?.posts
+                    )
+                        ? postsRes.data.posts
+                        : Array.isArray(postsRes.data)
+                            ? postsRes.data
+                            : [];
+                    if (!cancelled) setPosts(postsData);
+                } catch (e) {
+                    if (!cancelled) setPosts([]);
+                }
+
+                // 4) GIFTS (alleen eigen profiel)
+                if (isOwnProfile && token && !cancelled) {
                     try {
-                        const giftsRes = await api.get("/api/gifts/received");
-                        setReceivedGifts(Array.isArray(giftsRes.data) ? giftsRes.data : giftsRes.data.gifts || []);
+                        const giftsRes = await api.get(
+                            "/api/gifts/received"
+                        );
+                        const giftsData = Array.isArray(
+                            giftsRes.data?.gifts
+                        )
+                            ? giftsRes.data.gifts
+                            : Array.isArray(giftsRes.data)
+                                ? giftsRes.data
+                                : [];
+                        setReceivedGifts(giftsData);
                     } catch (e) {
                         setReceivedGifts([]);
                     }
                 }
-
             } catch (err) {
+                console.error("Profile fetch error:", err);
                 if (!cancelled) {
-                    setError(err.response?.data?.error || "Failed to load profile");
+                    const msg =
+                        err.response?.data?.error ||
+                        err.response?.data?.message ||
+                        "Failed to load profile";
+                    setError(msg);
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -164,18 +244,22 @@ export default function ProfilePage() {
         };
 
         fetchAll();
-        return () => { cancelled = true; };
+
+        return () => {
+            cancelled = true;
+        };
     }, [targetUserId, token, isOwnProfile, currentUser]);
 
+    /* ------------------------------------------------------------
+       FOLLOW / UNFOLLOW
+       ------------------------------------------------------------ */
     const handleFollow = async () => {
         if (!currentUser) {
             toast.error("Please log in to follow users");
             navigate("/login");
             return;
         }
-
-        if (!targetUserId || isOwnProfile) return;
-        if (followLoading) return;
+        if (!targetUserId || isOwnProfile || followLoading) return;
 
         setFollowLoading(true);
         const wasFollowing = isFollowing;
@@ -184,81 +268,122 @@ export default function ProfilePage() {
         try {
             await api.post(`/api/users/${targetUserId}/follow`);
 
+            // update local currentUser
             const updatedUser = { ...currentUser };
-            const currentFollowing = Array.isArray(updatedUser.following) ? updatedUser.following : [];
+            const currentFollowing = Array.isArray(
+                updatedUser.following
+            )
+                ? updatedUser.following
+                : [];
 
             if (wasFollowing) {
-                updatedUser.following = currentFollowing.filter(id => String(id) !== String(targetUserId));
+                updatedUser.following = currentFollowing.filter(
+                    (id) => String(id) !== String(targetUserId)
+                );
             } else {
-                updatedUser.following = [...currentFollowing, targetUserId];
+                updatedUser.following = [
+                    ...currentFollowing,
+                    targetUserId,
+                ];
             }
 
-            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
+            localStorage.setItem(
+                "ws_currentUser",
+                JSON.stringify(updatedUser)
+            );
             setCurrentUser(updatedUser);
 
-            setProfile(prev => {
-                const currentFollowers = Array.isArray(prev.followers) ? prev.followers : [];
+            // update profiel followers-lijst / count
+            setProfile((prev) => {
+                if (!prev) return prev;
                 const myId = currentUser._id || currentUser.id;
+                const followersArray = Array.isArray(prev.followers)
+                    ? prev.followers
+                    : [];
+
+                const newFollowers = wasFollowing
+                    ? followersArray.filter(
+                        (id) => String(id) !== String(myId)
+                    )
+                    : [...followersArray, myId];
 
                 return {
                     ...prev,
-                    followers: wasFollowing
-                        ? currentFollowers.filter(id => String(id) !== String(myId))
-                        : [...currentFollowers, myId]
+                    followers: newFollowers,
+                    followersCount: newFollowers.length,
                 };
             });
 
-            toast.success(wasFollowing ? "Unfollowed" : `Following ${profile.username}!`);
+            toast.success(
+                wasFollowing
+                    ? "Unfollowed"
+                    : `Following ${profile.username}!`
+            );
         } catch (err) {
+            console.error("Follow error:", err);
             setIsFollowing(wasFollowing);
-            const errMsg = err.response?.data?.error || err.response?.data?.message || "Failed to follow user";
-            toast.error(errMsg);
+            const msg =
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to follow user";
+            toast.error(msg);
         } finally {
             setFollowLoading(false);
         }
     };
 
-    const joinLiveStream = () => {
-        if (liveStream) {
-            navigate(`/live/${liveStream._id || liveStream.roomId}`);
-        }
-    };
-
+    /* ------------------------------------------------------------
+       EDIT PROFILE
+       ------------------------------------------------------------ */
     const handleUpdateProfile = async (e) => {
         e.preventDefault();
+        if (!profile?._id) return;
+
         try {
-            const response = await api.put(`/api/users/${targetUserId}`, editForm);
-            setProfile(prev => ({ ...prev, ...response.data }));
+            const res = await api.put(
+                `/api/users/${profile._id}`,
+                editForm
+            );
+            const updated = normalizeUserProfile(
+                res.data,
+                profile._id
+            );
+
+            setProfile(updated);
             setIsEditing(false);
 
-            const updatedUser = { ...currentUser, ...response.data };
-            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
-            setCurrentUser(updatedUser);
+            // Ook localStorage user updaten als dit je eigen profiel is
+            if (isOwnProfile && currentUser) {
+                const merged = {
+                    ...currentUser,
+                    ...updated,
+                };
+                localStorage.setItem(
+                    "ws_currentUser",
+                    JSON.stringify(merged)
+                );
+                setCurrentUser(merged);
+            }
 
             toast.success("Profile updated! ✨");
         } catch (err) {
-            toast.error(err.response?.data?.error || "Failed to update profile");
+            console.error("Update profile error:", err);
+            const msg =
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to update profile";
+            toast.error(msg);
         }
     };
 
-    const handleLogout = () => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("ws_token");
-        localStorage.removeItem("ws_currentUser");
-        window.dispatchEvent(new Event("authChange"));
-        toast.success("Logged out successfully");
-        navigate("/login");
-    };
-
     const handleAvatarUpload = async (e) => {
-        const file = e.target.files[0];
+        const file = e.target.files?.[0];
         if (!file) return;
 
         if (!file.type.startsWith("image/")) {
             toast.error("Please select an image file");
             return;
         }
-
         if (file.size > 5 * 1024 * 1024) {
             toast.error("Image must be less than 5MB");
             return;
@@ -269,31 +394,87 @@ export default function ProfilePage() {
             const formData = new FormData();
             formData.append("avatar", file);
 
-            const response = await api.post("/api/users/avatar", formData, {
-                headers: { "Content-Type": "multipart/form-data" },
-            });
+            const res = await api.post(
+                "/api/users/avatar",
+                formData,
+                {
+                    headers: {
+                        "Content-Type": "multipart/form-data",
+                    },
+                }
+            );
 
-            const newAvatarUrl = response.data.avatar || response.data.url;
-            setEditForm(prev => ({ ...prev, avatar: newAvatarUrl }));
-            setProfile(prev => ({ ...prev, avatar: newAvatarUrl }));
+            const updated = normalizeUserProfile(
+                res.data.user || res.data,
+                profile?._id
+            );
+            const newAvatar =
+                res.data.avatar ||
+                res.data.url ||
+                updated?.avatar ||
+                "";
 
-            const updatedUser = { ...currentUser, avatar: newAvatarUrl };
-            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
-            setCurrentUser(updatedUser);
+            setEditForm((prev) => ({
+                ...prev,
+                avatar: newAvatar,
+            }));
+            setProfile((prev) =>
+                prev ? { ...prev, avatar: newAvatar } : prev
+            );
+
+            if (currentUser) {
+                const merged = {
+                    ...currentUser,
+                    avatar: newAvatar,
+                };
+                localStorage.setItem(
+                    "ws_currentUser",
+                    JSON.stringify(merged)
+                );
+                setCurrentUser(merged);
+            }
 
             toast.success("Profile photo updated! 📸");
         } catch (err) {
-            toast.error(err.response?.data?.error || "Failed to upload avatar");
+            console.error("Avatar upload error:", err);
+            const msg =
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to upload avatar";
+            toast.error(msg);
         } finally {
             setAvatarUploading(false);
         }
     };
 
+    /* ------------------------------------------------------------
+       OTHER HANDLERS
+       ------------------------------------------------------------ */
+    const handleLogout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("ws_token");
+        localStorage.removeItem("ws_currentUser");
+        window.dispatchEvent(new Event("authChange"));
+        toast.success("Logged out successfully");
+        navigate("/login");
+    };
+
+    const joinLiveStream = () => {
+        if (isLive && profile.currentStreamId) {
+            navigate(`/live/${profile.currentStreamId}`);
+        }
+    };
+
+    /* ============================================================
+       RENDER STATES
+       ============================================================ */
     if (loading) {
         return (
             <div className="max-w-2xl mx-auto p-6 text-center">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
-                <p className="mt-2 text-white/70">Loading profile...</p>
+                <p className="mt-2 text-white/70">
+                    Loading profile...
+                </p>
             </div>
         );
     }
@@ -302,8 +483,12 @@ export default function ProfilePage() {
         return (
             <div className="max-w-2xl mx-auto p-6 text-center">
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
-                    <h2 className="text-2xl font-bold text-white mb-4">👤 Profile</h2>
-                    <p className="text-white/60 mb-6">Please log in to view your profile</p>
+                    <h2 className="text-2xl font-bold text-white mb-4">
+                        👤 Profile
+                    </h2>
+                    <p className="text-white/60 mb-6">
+                        Please log in to view your profile
+                    </p>
                     <button
                         onClick={() => navigate("/login")}
                         className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl text-white font-semibold"
@@ -335,30 +520,46 @@ export default function ProfilePage() {
         );
     }
 
+    /* ============================================================
+       MAIN RENDER
+       ============================================================ */
     return (
         <div className="max-w-2xl mx-auto p-4 md:p-6 text-white">
             {/* PROFILE HEADER */}
             <div className="bg-white/5 p-6 rounded-2xl border border-white/10 mb-6">
                 {isEditing ? (
-                    <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    <form
+                        onSubmit={handleUpdateProfile}
+                        className="space-y-4"
+                    >
                         <div className="flex items-start gap-4">
                             <div className="relative group">
                                 <img
-                                    src={editForm.avatar || "/defaults/default-avatar.png"}
+                                    src={
+                                        editForm.avatar ||
+                                        "/defaults/default-avatar.png"
+                                    }
                                     alt="avatar"
                                     className="w-24 h-24 rounded-full border-2 border-cyan-400 object-cover"
-                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                    onError={(e) => {
+                                        e.target.src =
+                                            "/defaults/default-avatar.png";
+                                    }}
                                 />
                                 <button
                                     type="button"
-                                    onClick={() => avatarInputRef.current?.click()}
+                                    onClick={() =>
+                                        avatarInputRef.current?.click()
+                                    }
                                     disabled={avatarUploading}
                                     className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                                 >
                                     {avatarUploading ? (
                                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
                                     ) : (
-                                        <span className="text-2xl">📷</span>
+                                        <span className="text-2xl">
+                                            📷
+                                        </span>
                                     )}
                                 </button>
                                 <input
@@ -372,25 +573,42 @@ export default function ProfilePage() {
 
                             <div className="flex-1 space-y-3">
                                 <div>
-                                    <label className="text-xs text-white/50 block mb-1">Username</label>
+                                    <label className="text-xs text-white/50 block mb-1">
+                                        Username
+                                    </label>
                                     <input
                                         type="text"
                                         value={editForm.username}
-                                        onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                                        onChange={(e) =>
+                                            setEditForm({
+                                                ...editForm,
+                                                username: e.target.value,
+                                            })
+                                        }
                                         className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:border-cyan-400 outline-none"
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-white/50 block mb-1">Bio</label>
+                                    <label className="text-xs text-white/50 block mb-1">
+                                        Bio
+                                    </label>
                                     <textarea
                                         value={editForm.bio}
-                                        onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                                        onChange={(e) =>
+                                            setEditForm({
+                                                ...editForm,
+                                                bio: e.target.value,
+                                            })
+                                        }
                                         placeholder="Tell something about yourself..."
                                         rows={3}
                                         maxLength={200}
                                         className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white resize-none focus:border-cyan-400 outline-none"
                                     />
-                                    <p className="text-xs text-white/40 mt-1">{editForm.bio?.length || 0}/200</p>
+                                    <p className="text-xs text-white/40 mt-1">
+                                        {editForm.bio?.length || 0}
+                                        /200
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -415,10 +633,19 @@ export default function ProfilePage() {
                     <div className="flex flex-col sm:flex-row items-start gap-4">
                         <div className="relative">
                             <img
-                                src={profile.avatar || "/defaults/default-avatar.png"}
+                                src={
+                                    profile.avatar ||
+                                    "/defaults/default-avatar.png"
+                                }
                                 alt={profile.username}
-                                className={`w-24 h-24 rounded-full object-cover border-4 ${isLive ? 'border-red-500' : 'border-cyan-400'}`}
-                                onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                className={`w-24 h-24 rounded-full object-cover border-4 ${isLive
+                                        ? "border-red-500"
+                                        : "border-cyan-400"
+                                    }`}
+                                onError={(e) => {
+                                    e.target.src =
+                                        "/defaults/default-avatar.png";
+                                }}
                             />
                             {isLive && (
                                 <button
@@ -433,26 +660,49 @@ export default function ProfilePage() {
 
                         <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-2xl font-bold">{profile.username}</h2>
+                                <h2 className="text-2xl font-bold">
+                                    {profile.username}
+                                </h2>
                                 {isOwnProfile && (
-                                    <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-1 rounded">You</span>
+                                    <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-1 rounded">
+                                        You
+                                    </span>
                                 )}
                             </div>
 
-                            <p className="text-white/60 mt-1">{profile.bio || "New creator on World-Studio"}</p>
+                            <p className="text-white/60 mt-1">
+                                {profile.bio ||
+                                    "New creator on World-Studio"}
+                            </p>
 
                             <div className="flex gap-6 mt-3 text-sm">
                                 <div className="text-center">
-                                    <span className="font-bold text-lg">{posts.length}</span>
-                                    <span className="text-white/50 block text-xs">Posts</span>
+                                    <span className="font-bold text-lg">
+                                        {posts.length}
+                                    </span>
+                                    <span className="text-white/50 block text-xs">
+                                        Posts
+                                    </span>
                                 </div>
                                 <div className="text-center">
-                                    <span className="font-bold text-lg">{profile.followers?.length || 0}</span>
-                                    <span className="text-white/50 block text-xs">Followers</span>
+                                    <span className="font-bold text-lg">
+                                        {profile.followersCount ||
+                                            profile.followers?.length ||
+                                            0}
+                                    </span>
+                                    <span className="text-white/50 block text-xs">
+                                        Followers
+                                    </span>
                                 </div>
                                 <div className="text-center">
-                                    <span className="font-bold text-lg">{profile.following?.length || 0}</span>
-                                    <span className="text-white/50 block text-xs">Following</span>
+                                    <span className="font-bold text-lg">
+                                        {profile.followingCount ||
+                                            profile.following?.length ||
+                                            0}
+                                    </span>
+                                    <span className="text-white/50 block text-xs">
+                                        Following
+                                    </span>
                                 </div>
                             </div>
 
@@ -460,7 +710,9 @@ export default function ProfilePage() {
                                 {isOwnProfile ? (
                                     <>
                                         <button
-                                            onClick={() => setIsEditing(true)}
+                                            onClick={() =>
+                                                setIsEditing(true)
+                                            }
                                             className="px-4 py-2 bg-white/10 rounded-lg hover:bg-white/20 text-sm font-semibold transition"
                                         >
                                             ✏️ Edit Profile
@@ -468,7 +720,9 @@ export default function ProfilePage() {
 
                                         {isAdmin && (
                                             <button
-                                                onClick={() => navigate("/admin")}
+                                                onClick={() =>
+                                                    navigate("/admin")
+                                                }
                                                 className="px-4 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-lg text-sm font-bold transition hover:scale-105"
                                             >
                                                 👑 Admin Dashboard
@@ -518,7 +772,9 @@ export default function ProfilePage() {
                                         )}
 
                                         <button
-                                            onClick={() => setActiveTab("gift")}
+                                            onClick={() =>
+                                                setActiveTab("gift")
+                                            }
                                             className="px-4 py-2.5 bg-purple-500/20 text-purple-400 rounded-xl font-semibold hover:bg-purple-500/30 transition"
                                         >
                                             🎁 Send Gift
@@ -531,14 +787,21 @@ export default function ProfilePage() {
                 )}
             </div>
 
-            {/* WALLET */}
+            {/* WALLET (ALLEEN EIGEN PROFIEL) */}
             {isOwnProfile && (
                 <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 p-4 rounded-xl border border-yellow-500/30 mb-6">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h3 className="font-semibold text-yellow-400">💰 Wallet Balance</h3>
+                            <h3 className="font-semibold text-yellow-400">
+                                💰 Wallet Balance
+                            </h3>
                             <p className="text-3xl font-bold text-white mt-1">
-                                {(profile.wallet?.balance || 0).toLocaleString()} <span className="text-lg text-yellow-400">WS-Coins</span>
+                                {(
+                                    profile.wallet?.balance || 0
+                                ).toLocaleString()}{" "}
+                                <span className="text-lg text-yellow-400">
+                                    WS-Coins
+                                </span>
                             </p>
                         </div>
                         <button
@@ -551,13 +814,17 @@ export default function ProfilePage() {
                 </div>
             )}
 
-            {/* TABS */}
+            {/* TABS (BIJ ANDEREN) */}
             {!isOwnProfile && (
                 <div className="flex border-b border-white/10 mb-6">
                     {[
                         { id: "posts", label: "Posts", icon: "📷" },
-                        { id: "gift", label: "Send Gift", icon: "🎁" },
-                    ].map(tab => (
+                        {
+                            id: "gift",
+                            label: "Send Gift",
+                            icon: "🎁",
+                        },
+                    ].map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
@@ -572,41 +839,66 @@ export default function ProfilePage() {
                 </div>
             )}
 
-            {/* CONTENT */}
+            {/* POSTS */}
             {(isOwnProfile || activeTab === "posts") && (
                 <section className="mb-6">
-                    <h3 className="text-xl font-semibold mb-3">📷 Posts</h3>
+                    <h3 className="text-xl font-semibold mb-3">
+                        📷 Posts
+                    </h3>
                     {posts.length === 0 ? (
                         <div className="bg-white/5 p-8 rounded-xl border border-white/10 text-center">
-                            <p className="text-white/50">No posts yet.</p>
+                            <p className="text-white/50">
+                                No posts yet.
+                            </p>
                         </div>
                     ) : (
                         <div className="grid grid-cols-3 gap-2">
                             {posts.map((post) => (
                                 <div
                                     key={post._id || post.id}
-                                    onClick={() => navigate(`/post/${post._id || post.id}`)}
+                                    onClick={() =>
+                                        navigate(
+                                            `/post/${post._id || post.id
+                                            }`
+                                        )
+                                    }
                                     className="aspect-square bg-white/10 rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition relative"
                                 >
-                                    {post.type === "image" || post.mediaType === "image" ? (
+                                    {post.type === "image" ||
+                                        post.mediaType === "image" ? (
                                         <img
-                                            src={post.fileUrl || post.mediaUrl || post.thumbnail}
+                                            src={
+                                                post.fileUrl ||
+                                                post.mediaUrl ||
+                                                post.thumbnail
+                                            }
                                             alt={post.title}
                                             className="w-full h-full object-cover"
                                         />
-                                    ) : post.type === "video" || post.mediaType === "video" ? (
+                                    ) : post.type === "video" ||
+                                        post.mediaType === "video" ? (
                                         <div className="w-full h-full bg-black flex items-center justify-center">
-                                            <span className="text-4xl">🎬</span>
+                                            <span className="text-4xl">
+                                                🎬
+                                            </span>
                                         </div>
                                     ) : (
                                         <div className="w-full h-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
-                                            <span className="text-4xl">📝</span>
+                                            <span className="text-4xl">
+                                                📝
+                                            </span>
                                         </div>
                                     )}
 
                                     <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition flex items-center justify-center gap-4 text-sm">
-                                        <span>❤️ {post.likes || 0}</span>
-                                        <span>💬 {post.comments?.length || 0}</span>
+                                        <span>
+                                            ❤️ {post.likes || 0}
+                                        </span>
+                                        <span>
+                                            💬{" "}
+                                            {post.comments?.length ||
+                                                0}
+                                        </span>
                                     </div>
                                 </div>
                             ))}
@@ -615,33 +907,56 @@ export default function ProfilePage() {
                 </section>
             )}
 
+            {/* GIFTS TAB VOOR ANDEREN */}
             {!isOwnProfile && activeTab === "gift" && (
                 <section className="mb-6">
                     <GiftPanel recipient={profile} />
                 </section>
             )}
 
+            {/* GIFTS OVERZICHT EIGEN PROFIEL */}
             {isOwnProfile && (
                 <section>
-                    <h3 className="text-xl font-semibold mb-3">🎁 Gifts Received</h3>
+                    <h3 className="text-xl font-semibold mb-3">
+                        🎁 Gifts Received
+                    </h3>
                     {receivedGifts.length === 0 ? (
                         <div className="bg-white/5 p-8 rounded-xl border border-white/10 text-center">
-                            <p className="text-white/50">No gifts yet.</p>
+                            <p className="text-white/50">
+                                No gifts yet.
+                            </p>
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            {receivedGifts.slice(0, 10).map((gift) => (
-                                <div key={gift._id} className="flex items-center gap-3 bg-white/5 p-3 rounded-lg border border-white/10">
-                                    <span className="text-2xl">{gift.itemIcon || "🎁"}</span>
-                                    <div className="flex-1">
-                                        <span className="font-semibold">{gift.item}</span>
-                                        {gift.sender?.username && (
-                                            <span className="text-white/50 text-sm ml-2">from {gift.sender.username}</span>
-                                        )}
+                            {receivedGifts
+                                .slice(0, 10)
+                                .map((gift) => (
+                                    <div
+                                        key={gift._id}
+                                        className="flex items-center gap-3 bg-white/5 p-3 rounded-lg border border-white/10"
+                                    >
+                                        <span className="text-2xl">
+                                            {gift.itemIcon || "🎁"}
+                                        </span>
+                                        <div className="flex-1">
+                                            <span className="font-semibold">
+                                                {gift.item}
+                                            </span>
+                                            {gift.sender?.username && (
+                                                <span className="text-white/50 text-sm ml-2">
+                                                    from{" "}
+                                                    {
+                                                        gift.sender
+                                                            .username
+                                                    }
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className="text-yellow-400 font-semibold">
+                                            {gift.amount || 1}x
+                                        </span>
                                     </div>
-                                    <span className="text-yellow-400 font-semibold">{gift.amount || 1}x</span>
-                                </div>
-                            ))}
+                                ))}
                         </div>
                     )}
                 </section>
