@@ -1,48 +1,22 @@
-// src/components/HomePage.jsx - WORLD STUDIO LIVE EDITION 🏠
+// src/components/HomePage.jsx - WORLD STUDIO LIVE EDITION 🏠 (MASTER)
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, RefreshCw, TrendingUp, Users, Zap, Search, Radio, Heart, MessageCircle, Share2, Bookmark } from "lucide-react";
+import {
+    Plus,
+    RefreshCw,
+    TrendingUp,
+    Users,
+    Radio,
+    Search,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 import useSWR from "swr";
-import axios from "axios";
-import { io } from "socket.io-client";
 import PostCard from "./PostCard";
 
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
-   ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// Socket connection (singleton)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
+// Gebruik centrale API + socket
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 // SWR Fetcher
 const fetcher = (url) => api.get(url).then((r) => r.data);
@@ -51,7 +25,8 @@ const fetcher = (url) => api.get(url).then((r) => r.data);
    LIVE STORIES COMPONENT
    ============================================================ */
 const LiveStories = ({ lives, onWatch }) => {
-    if (!lives || lives.length === 0) return null;
+    const list = Array.isArray(lives) ? lives : [];
+    if (list.length === 0) return null;
 
     return (
         <div className="mb-6">
@@ -63,19 +38,25 @@ const LiveStories = ({ lives, onWatch }) => {
                 Live Now
             </h3>
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                {lives.map((live) => (
+                {list.map((live) => (
                     <button
-                        key={live._id}
+                        key={live._id || live.roomId}
                         onClick={() => onWatch(live)}
                         className="flex-shrink-0 flex flex-col items-center gap-2 group"
                     >
                         <div className="relative">
                             <div className="w-16 h-16 rounded-full p-[3px] bg-gradient-to-tr from-red-500 via-pink-500 to-purple-500 group-hover:scale-105 transition">
                                 <img
-                                    src={live.host?.avatar || live.streamerAvatar || "/defaults/default-avatar.png"}
-                                    alt={live.host?.username || live.streamerName}
+                                    src={
+                                        live.host?.avatar ||
+                                        live.streamerAvatar ||
+                                        "/defaults/default-avatar.png"
+                                    }
+                                    alt={live.host?.username || live.streamerName || "Live"}
                                     className="w-full h-full rounded-full object-cover border-2 border-gray-900"
-                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                    onError={(e) => {
+                                        e.target.src = "/defaults/default-avatar.png";
+                                    }}
                                 />
                             </div>
                             <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shadow-lg">
@@ -83,25 +64,29 @@ const LiveStories = ({ lives, onWatch }) => {
                             </span>
                             {live.viewers > 0 && (
                                 <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-black/80 text-white text-[9px] rounded-full">
-                                    {live.viewers > 999 ? `${(live.viewers / 1000).toFixed(1)}k` : live.viewers}
+                                    {live.viewers > 999
+                                        ? `${(live.viewers / 1000).toFixed(1)}k`
+                                        : live.viewers}
                                 </span>
                             )}
                         </div>
                         <span className="text-xs text-white/70 truncate max-w-[70px] group-hover:text-white transition">
-                            {live.host?.username || live.streamerName}
+                            {live.host?.username || live.streamerName || "Creator"}
                         </span>
                     </button>
                 ))}
 
                 {/* Go Live Button */}
                 <button
-                    onClick={() => window.location.href = "/go-live"}
+                    onClick={() => (window.location.href = "/go-live")}
                     className="flex-shrink-0 flex flex-col items-center gap-2 group"
                 >
                     <div className="w-16 h-16 rounded-full border-2 border-dashed border-white/30 flex items-center justify-center group-hover:border-cyan-400 transition">
                         <Plus className="w-6 h-6 text-white/40 group-hover:text-cyan-400 transition" />
                     </div>
-                    <span className="text-xs text-white/50 group-hover:text-cyan-400 transition">Go Live</span>
+                    <span className="text-xs text-white/50 group-hover:text-cyan-400 transition">
+                        Go Live
+                    </span>
                 </button>
             </div>
         </div>
@@ -115,12 +100,16 @@ const QuickStats = ({ stats }) => (
     <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-xl p-4 border border-cyan-500/20 hover:border-cyan-500/40 transition">
             <TrendingUp className="w-5 h-5 text-cyan-400 mb-2" />
-            <p className="text-2xl font-bold text-white">{stats.posts?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-white">
+                {stats.posts?.toLocaleString() || 0}
+            </p>
             <p className="text-xs text-white/50">Total Posts</p>
         </div>
         <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl p-4 border border-purple-500/20 hover:border-purple-500/40 transition">
             <Users className="w-5 h-5 text-purple-400 mb-2" />
-            <p className="text-2xl font-bold text-white">{stats.users?.toLocaleString() || 0}</p>
+            <p className="text-2xl font-bold text-white">
+                {stats.users?.toLocaleString() || 0}
+            </p>
             <p className="text-xs text-white/50">Creators</p>
         </div>
         <div className="bg-gradient-to-br from-red-500/10 to-orange-500/10 rounded-xl p-4 border border-red-500/20 hover:border-red-500/40 transition">
@@ -132,10 +121,11 @@ const QuickStats = ({ stats }) => (
 );
 
 /* ============================================================
-   SUGGESTED USERS COMPONENT
+   SUGGESTED USERS COMPONENT  (SAFE .slice)
    ============================================================ */
 const SuggestedUsers = ({ users, onFollow }) => {
-    if (!users || users.length === 0) return null;
+    const list = Array.isArray(users) ? users : [];
+    if (list.length === 0) return null;
 
     return (
         <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-6">
@@ -144,18 +134,24 @@ const SuggestedUsers = ({ users, onFollow }) => {
                 Suggested Creators
             </h3>
             <div className="space-y-3">
-                {users.slice(0, 3).map((user) => (
+                {list.slice(0, 3).map((user) => (
                     <div key={user._id} className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <img
                                 src={user.avatar || "/defaults/default-avatar.png"}
                                 alt={user.username}
                                 className="w-10 h-10 rounded-full object-cover"
-                                onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                onError={(e) => {
+                                    e.target.src = "/defaults/default-avatar.png";
+                                }}
                             />
                             <div>
-                                <p className="text-sm font-semibold text-white">{user.username}</p>
-                                <p className="text-xs text-white/50">{user.followers || 0} followers</p>
+                                <p className="text-sm font-semibold text-white">
+                                    {user.username}
+                                </p>
+                                <p className="text-xs text-white/50">
+                                    {user.followers || 0} followers
+                                </p>
                             </div>
                         </div>
                         <button
@@ -194,7 +190,7 @@ export default function HomePage() {
     useEffect(() => {
         socketRef.current = getSocket();
         return () => {
-            // Don't disconnect - singleton
+            // singleton: niet disconnecten
         };
     }, []);
 
@@ -204,15 +200,23 @@ export default function HomePage() {
         if (storedUser) {
             try {
                 const user = JSON.parse(storedUser);
-                user.following = Array.isArray(user.following) ? user.following : [];
+                user.following = Array.isArray(user.following)
+                    ? user.following
+                    : [];
                 setCurrentUser(user);
-            } catch (e) { }
+            } catch (e) {
+                // ignore
+            }
         }
 
         const handleAuthChange = () => {
             const updated = localStorage.getItem("ws_currentUser");
             if (updated) {
-                try { setCurrentUser(JSON.parse(updated)); } catch (e) { }
+                try {
+                    setCurrentUser(JSON.parse(updated));
+                } catch (e) {
+                    setCurrentUser(null);
+                }
             } else {
                 setCurrentUser(null);
             }
@@ -223,27 +227,30 @@ export default function HomePage() {
     }, []);
 
     // Fetch posts
-    const { data, error, isLoading, mutate } = useSWR(
-        `/api/posts?page=${page}&limit=20`,
-        fetcher,
-        {
-            refreshInterval: 30000,
-            revalidateOnFocus: true,
-            onSuccess: (newData) => {
-                const posts = Array.isArray(newData) ? newData : newData?.posts || [];
-                if (page === 1) {
-                    setAllPosts(posts);
-                } else {
-                    setAllPosts(prev => {
-                        const existingIds = new Set(prev.map(p => p._id));
-                        const newPosts = posts.filter(p => !existingIds.has(p._id));
-                        return [...prev, ...newPosts];
-                    });
-                }
-                setHasMore(posts.length === 20);
+    const {
+        data,
+        error,
+        isLoading,
+        mutate,
+    } = useSWR(`/api/posts?page=${page}&limit=20`, fetcher, {
+        refreshInterval: 30000,
+        revalidateOnFocus: true,
+        onSuccess: (newData) => {
+            const posts = Array.isArray(newData)
+                ? newData
+                : newData?.posts || [];
+            if (page === 1) {
+                setAllPosts(posts);
+            } else {
+                setAllPosts((prev) => {
+                    const existingIds = new Set(prev.map((p) => p._id));
+                    const newPosts = posts.filter((p) => !existingIds.has(p._id));
+                    return [...prev, ...newPosts];
+                });
             }
-        }
-    );
+            setHasMore(posts.length === 20);
+        },
+    });
 
     // Fetch live streams
     const { data: liveData } = useSWR("/api/live?isLive=true", fetcher, {
@@ -252,11 +259,27 @@ export default function HomePage() {
 
     // Fetch suggested users
     useEffect(() => {
-        if (currentUser) {
-            api.get("/api/users/suggested?limit=5")
-                .then(res => setSuggestedUsers(Array.isArray(res.data?.users) ? res.data.users : Array.isArray(res.data) ? res.data : []))
-                .catch(() => { });
-        }
+        if (!currentUser) return;
+
+        api
+            .get("/api/users/suggested?limit=5")
+            .then((res) => {
+                const payload = res.data;
+                let list = [];
+
+                if (Array.isArray(payload?.users)) {
+                    list = payload.users;
+                } else if (Array.isArray(payload)) {
+                    list = payload;
+                } else {
+                    list = [];
+                }
+
+                setSuggestedUsers(list);
+            })
+            .catch(() => {
+                setSuggestedUsers([]);
+            });
     }, [currentUser]);
 
     // Socket events
@@ -265,24 +288,28 @@ export default function HomePage() {
         if (!socket) return;
 
         socket.on("post_created", (newPost) => {
-            setAllPosts(prev => [newPost, ...prev]);
+            setAllPosts((prev) => [newPost, ...prev]);
             toast.success("🆕 New post in feed!");
         });
 
         socket.on("post_deleted", ({ postId }) => {
-            setAllPosts(prev => prev.filter(p => p._id !== postId));
+            setAllPosts((prev) => prev.filter((p) => p._id !== postId));
         });
 
         socket.on("update_likes", ({ postId, likes, likedBy }) => {
-            setAllPosts(prev => prev.map(p =>
-                p._id === postId ? { ...p, likes, likedBy } : p
-            ));
+            setAllPosts((prev) =>
+                prev.map((p) =>
+                    p._id === postId ? { ...p, likes, likedBy } : p
+                )
+            );
         });
 
         socket.on("update_comments", ({ postId, comments }) => {
-            setAllPosts(prev => prev.map(p =>
-                p._id === postId ? { ...p, comments } : p
-            ));
+            setAllPosts((prev) =>
+                prev.map((p) =>
+                    p._id === postId ? { ...p, comments } : p
+                )
+            );
         });
 
         socket.on("live_started", (stream) => {
@@ -306,7 +333,7 @@ export default function HomePage() {
         const observer = new IntersectionObserver(
             (entries) => {
                 if (entries[0].isIntersecting && hasMore && !isLoading) {
-                    setPage(prev => prev + 1);
+                    setPage((prev) => prev + 1);
                 }
             },
             { threshold: 0.1 }
@@ -325,14 +352,14 @@ export default function HomePage() {
     };
 
     const handleDeletePost = useCallback((postId) => {
-        setAllPosts(prev => prev.filter(p => p._id !== postId));
+        setAllPosts((prev) => prev.filter((p) => p._id !== postId));
         socketRef.current?.emit("post_deleted", { postId });
     }, []);
 
     const handleUpdatePost = useCallback((updatedPost) => {
-        setAllPosts(prev => prev.map(p =>
-            p._id === updatedPost._id ? updatedPost : p
-        ));
+        setAllPosts((prev) =>
+            prev.map((p) => (p._id === updatedPost._id ? updatedPost : p))
+        );
     }, []);
 
     const handleWatchLive = (live) => {
@@ -348,12 +375,11 @@ export default function HomePage() {
         try {
             await api.post(`/api/users/${user._id}/follow`);
             toast.success(`Following ${user.username}!`);
-            setSuggestedUsers(prev => prev.filter(u => u._id !== user._id));
+            setSuggestedUsers((prev) => prev.filter((u) => u._id !== user._id));
 
-            // Update local user
             const updatedUser = {
                 ...currentUser,
-                following: [...(currentUser.following || []), user._id]
+                following: [...(currentUser.following || []), user._id],
             };
             localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
             setCurrentUser(updatedUser);
@@ -363,7 +389,7 @@ export default function HomePage() {
     };
 
     // Filter posts
-    const filteredPosts = allPosts.filter(post => {
+    const filteredPosts = allPosts.filter((post) => {
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             const matchesSearch =
@@ -375,19 +401,31 @@ export default function HomePage() {
         }
 
         if (filter === "following" && currentUser) {
-            const authorId = post.userId?._id || post.userId || post.authorId;
-            return currentUser.following.some(id => String(id) === String(authorId));
+            const authorId =
+                post.userId?._id || post.userId || post.authorId;
+            return (currentUser.following || []).some(
+                (id) => String(id) === String(authorId)
+            );
         }
 
         return true;
     });
 
-    const sortedPosts = filter === "trending"
-        ? [...filteredPosts].sort((a, b) => (b.likes || 0) - (a.likes || 0))
-        : filteredPosts;
+    const sortedPosts =
+        filter === "trending"
+            ? [...filteredPosts].sort(
+                (a, b) => (b.likes || 0) - (a.likes || 0)
+            )
+            : filteredPosts;
 
-    const lives = Array.isArray(liveData) ? liveData : liveData?.streams || [];
-    const stats = { posts: allPosts.length, users: suggestedUsers.length, live: lives.length };
+    const lives = Array.isArray(liveData)
+        ? liveData
+        : liveData?.streams || [];
+    const stats = {
+        posts: allPosts.length,
+        users: suggestedUsers.length,
+        live: lives.length,
+    };
 
     // Loading state
     if (isLoading && page === 1) {
@@ -408,7 +446,10 @@ export default function HomePage() {
                 <div className="text-center p-8 bg-white/5 rounded-2xl border border-white/10">
                     <p className="text-6xl mb-4">😕</p>
                     <p className="text-red-400 mb-4">Failed to load feed</p>
-                    <button onClick={() => mutate()} className="px-6 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400 transition">
+                    <button
+                        onClick={() => mutate()}
+                        className="px-6 py-2 bg-cyan-500 rounded-lg hover:bg-cyan-400 transition"
+                    >
                         Try Again
                     </button>
                 </div>
@@ -419,7 +460,6 @@ export default function HomePage() {
     return (
         <div className="text-white min-h-screen">
             <div className="max-w-2xl mx-auto py-6 px-4" ref={feedRef}>
-
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
@@ -428,7 +468,10 @@ export default function HomePage() {
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => setShowSearch(!showSearch)}
-                            className={`p-2 rounded-xl transition ${showSearch ? 'bg-cyan-500 text-white' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+                            className={`p-2 rounded-xl transition ${showSearch
+                                    ? "bg-cyan-500 text-white"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                }`}
                         >
                             <Search size={20} />
                         </button>
@@ -437,7 +480,10 @@ export default function HomePage() {
                             disabled={isRefreshing}
                             className="p-2 bg-white/10 rounded-xl text-white/70 hover:bg-white/20 transition disabled:opacity-50"
                         >
-                            <RefreshCw size={20} className={isRefreshing ? "animate-spin" : ""} />
+                            <RefreshCw
+                                size={20}
+                                className={isRefreshing ? "animate-spin" : ""}
+                            />
                         </button>
                     </div>
                 </div>
@@ -456,7 +502,10 @@ export default function HomePage() {
                                 autoFocus
                             />
                             {searchQuery && (
-                                <button onClick={() => setSearchQuery("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white">
+                                <button
+                                    onClick={() => setSearchQuery("")}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                                >
                                     ✕
                                 </button>
                             )}
@@ -470,21 +519,40 @@ export default function HomePage() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <img
-                                    src={currentUser.avatar || "/defaults/default-avatar.png"}
+                                    src={
+                                        currentUser.avatar ||
+                                        "/defaults/default-avatar.png"
+                                    }
                                     alt=""
                                     className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/50"
-                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                    onError={(e) => {
+                                        e.target.src =
+                                            "/defaults/default-avatar.png";
+                                    }}
                                 />
-                                <div>
-                                    <p className="text-white/80">
-                                        Welcome back, <span className="text-cyan-400 font-semibold">{currentUser.username}</span>! 👋
-                                    </p>
-                                    <p className="text-xs text-white/50 flex items-center gap-2">
-                                        <span>💰 {currentUser.wallet?.balance?.toLocaleString() || 0} coins</span>
-                                        <span>•</span>
-                                        <span>👥 {currentUser.followers?.length || 0} followers</span>
-                                    </p>
-                                </div>
+                            </div>
+                            <div className="flex-1 ml-3">
+                                <p className="text-white/80">
+                                    Welcome back,{" "}
+                                    <span className="text-cyan-400 font-semibold">
+                                        {currentUser.username}
+                                    </span>
+                                    ! 👋
+                                </p>
+                                <p className="text-xs text-white/50 flex items-center gap-2">
+                                    <span>
+                                        💰{" "}
+                                        {currentUser.wallet?.balance?.toLocaleString() ||
+                                            0}{" "}
+                                        coins
+                                    </span>
+                                    <span>•</span>
+                                    <span>
+                                        👥{" "}
+                                        {currentUser.followers?.length || 0}{" "}
+                                        followers
+                                    </span>
+                                </p>
                             </div>
                             <button
                                 onClick={() => navigate("/upload")}
@@ -500,7 +568,9 @@ export default function HomePage() {
                 {/* Not logged in */}
                 {!currentUser && (
                     <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 p-6 rounded-xl border border-purple-500/20 mb-6 text-center">
-                        <p className="text-white/80 mb-4">Join World Studio to connect with creators!</p>
+                        <p className="text-white/80 mb-4">
+                            Join World Studio to connect with creators!
+                        </p>
                         <div className="flex justify-center gap-3">
                             <button
                                 onClick={() => navigate("/login")}
@@ -525,7 +595,10 @@ export default function HomePage() {
                 <LiveStories lives={lives} onWatch={handleWatchLive} />
 
                 {/* Suggested Users */}
-                <SuggestedUsers users={suggestedUsers} onFollow={handleFollowUser} />
+                <SuggestedUsers
+                    users={suggestedUsers}
+                    onFollow={handleFollowUser}
+                />
 
                 {/* Filter Tabs */}
                 <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
@@ -536,10 +609,13 @@ export default function HomePage() {
                     ].map((tab) => (
                         <button
                             key={tab.id}
-                            onClick={() => { setFilter(tab.id); setPage(1); }}
+                            onClick={() => {
+                                setFilter(tab.id);
+                                setPage(1);
+                            }}
                             className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${filter === tab.id
-                                ? "bg-cyan-500 text-white"
-                                : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    ? "bg-cyan-500 text-white"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
                                 }`}
                         >
                             <span>{tab.icon}</span>
@@ -551,21 +627,32 @@ export default function HomePage() {
                 {/* Posts */}
                 {sortedPosts.length === 0 ? (
                     <div className="text-center py-20">
-                        <p className="text-6xl mb-4">{filter === "following" ? "👥" : searchQuery ? "🔍" : "📭"}</p>
+                        <p className="text-6xl mb-4">
+                            {filter === "following"
+                                ? "👥"
+                                : searchQuery
+                                    ? "🔍"
+                                    : "📭"}
+                        </p>
                         <p className="text-white/60 mb-2">
                             {filter === "following"
                                 ? "No posts from people you follow"
                                 : searchQuery
                                     ? `No results for "${searchQuery}"`
-                                    : "No posts yet"
-                            }
+                                    : "No posts yet"}
                         </p>
                         {!searchQuery && (
                             <button
-                                onClick={() => filter === "following" ? navigate("/discover") : navigate("/upload")}
+                                onClick={() =>
+                                    filter === "following"
+                                        ? navigate("/discover")
+                                        : navigate("/upload")
+                                }
                                 className="mt-4 px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold hover:shadow-lg transition"
                             >
-                                {filter === "following" ? "Discover Creators" : "Create First Post"}
+                                {filter === "following"
+                                    ? "Discover Creators"
+                                    : "Create First Post"}
                             </button>
                         )}
                     </div>
@@ -589,7 +676,9 @@ export default function HomePage() {
                         )}
 
                         {!hasMore && sortedPosts.length > 0 && (
-                            <p className="text-center text-white/40 text-sm py-8">You're all caught up! 🎉</p>
+                            <p className="text-center text-white/40 text-sm py-8">
+                                You're all caught up! 🎉
+                            </p>
                         )}
                     </div>
                 )}

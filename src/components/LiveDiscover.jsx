@@ -1,5 +1,11 @@
 // src/components/LiveDiscover.jsx - WORLD STUDIO LIVE EDITION 🌍 (MASTER)
-import React, { useState, useEffect, useRef, useCallback } from "react";
+
+import React, {
+    useState,
+    useEffect,
+    useRef,
+    useCallback,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
@@ -13,62 +19,10 @@ import {
     Play,
     Eye,
     Clock,
-    TrendingUp
+    TrendingUp,
 } from "lucide-react";
-import axios from "axios";
-import { io } from "socket.io-client";
-
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
-   ============================================================ */
-
-// Gebruik dezelfde env vars als de rest van de app
-const RAW_API_URL =
-    import.meta.env.VITE_API_URL ||
-    "https://world-studio-production.up.railway.app";
-
-const RAW_SOCKET_URL =
-    import.meta.env.VITE_SOCKET_URL ||
-    RAW_API_URL;
-
-// API base zonder trailing slash
-const API_BASE_URL = RAW_API_URL.replace(/\/$/, "");
-
-// Socket URL zonder /api
-const SOCKET_URL = RAW_SOCKET_URL
-    .replace(/\/api\/?$/, "")
-    .replace(/\/$/, "");
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token =
-        localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// Socket connection (singleton)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 /* ============================================================
    CONSTANTS
@@ -96,8 +50,6 @@ const SORT_OPTIONS = [
 
 // Stream Card Component
 const StreamCard = ({ stream, onClick }) => {
-    if (!stream) return null;
-
     const viewers = stream.viewers || stream.viewerCount || 0;
     const username =
         stream.streamerName ||
@@ -113,7 +65,7 @@ const StreamCard = ({ stream, onClick }) => {
     const category = stream.category || "Other";
 
     const getStreamDuration = () => {
-        const start = new Date(stream.startedAt || stream.createdAt || Date.now());
+        const start = new Date(stream.startedAt || stream.createdAt);
         const diff = Date.now() - start.getTime();
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor(
@@ -145,7 +97,7 @@ const StreamCard = ({ stream, onClick }) => {
                 )}
                 <div className="absolute top-3 left-3 flex items-center gap-2">
                     <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500 text-white text-xs font-bold rounded-full shadow-lg">
-                        <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                        <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
                         LIVE
                     </div>
                     <div className="px-2 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full flex items-center gap-1">
@@ -156,12 +108,11 @@ const StreamCard = ({ stream, onClick }) => {
                 <div className="absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-sm rounded-full">
                     <Eye size={14} />
                     <span className="font-semibold">
-                        {Number(viewers || 0).toLocaleString()}
+                        {viewers.toLocaleString()}
                     </span>
                 </div>
                 <div className="absolute top-3 right-3 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full">
-                    {(CATEGORIES || []).find((c) => c.id === category)?.icon ||
-                        "✨"}{" "}
+                    {CATEGORIES.find((c) => c.id === category)?.icon || "✨"}{" "}
                     {category}
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
@@ -189,7 +140,7 @@ const StreamCard = ({ stream, onClick }) => {
                             {username}
                         </p>
                         <p className="text-white/40 text-xs">
-                            {Number(viewers || 0)} watching
+                            {viewers} watching
                         </p>
                     </div>
                 </div>
@@ -201,7 +152,6 @@ const StreamCard = ({ stream, onClick }) => {
 // Featured Stream Component
 const FeaturedStream = ({ stream, onClick }) => {
     if (!stream) return null;
-
     const viewers = stream.viewers || 0;
     const username =
         stream.streamerName ||
@@ -235,12 +185,12 @@ const FeaturedStream = ({ stream, onClick }) => {
                 <div className="absolute inset-0 p-6 md:p-8 flex flex-col justify-end">
                     <div className="flex items-center gap-3 mb-3">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-sm font-bold rounded-full">
-                            <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                            <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
                             FEATURED
                         </div>
                         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 backdrop-blur-sm text-white text-sm rounded-full">
                             <Eye size={14} />
-                            {Number(viewers || 0).toLocaleString()} watching
+                            {viewers.toLocaleString()} watching
                         </div>
                     </div>
                     <h2 className="text-2xl md:text-3xl font-bold text-white mb-3 max-w-2xl">
@@ -279,9 +229,7 @@ const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
     <div className="flex items-center gap-4 mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
         <div className="flex items-center gap-2">
             <div
-                className={`w-3 h-3 rounded-full ${isConnected
-                        ? "bg-green-500 animate-pulse"
-                        : "bg-red-500"
+                className={`w-3 h-3 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
                     }`}
             />
             <span className="text-white/60 text-sm">
@@ -291,16 +239,14 @@ const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
         <div className="h-4 w-px bg-white/20" />
         <div className="flex items-center gap-2">
             <Radio size={16} className="text-red-400" />
-            <span className="text-white font-semibold">
-                {Number(totalStreams || 0)}
-            </span>
+            <span className="text-white font-semibold">{totalStreams}</span>
             <span className="text-white/60 text-sm">Streams</span>
         </div>
         <div className="h-4 w-px bg-white/20" />
         <div className="flex items-center gap-2">
             <Users size={16} className="text-cyan-400" />
             <span className="text-white font-semibold">
-                {Number(totalViewers || 0).toLocaleString()}
+                {totalViewers.toLocaleString()}
             </span>
             <span className="text-white/60 text-sm">Watching</span>
         </div>
@@ -326,20 +272,18 @@ export default function LiveDiscover() {
     const [showFilters, setShowFilters] = useState(false);
     const hasFetched = useRef(false);
 
-    // Init socket
     useEffect(() => {
         socketRef.current = getSocket();
         return () => { };
     }, []);
 
-    // Load current user
     useEffect(() => {
         const storedUser = localStorage.getItem("ws_currentUser");
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
             } catch (e) {
-                console.error("Failed to parse current user", e);
+                // ignore
             }
         }
     }, []);
@@ -348,32 +292,20 @@ export default function LiveDiscover() {
         async (showToast = false) => {
             try {
                 setError(null);
-
                 const res = await api.get("/api/live/streams");
-
-                // Zorg dat we áltijd een array krijgen
-                let raw = res.data;
-                let allStreams;
-
-                if (Array.isArray(raw)) {
-                    allStreams = raw;
-                } else if (raw && Array.isArray(raw.streams)) {
-                    allStreams = raw.streams;
-                } else {
-                    allStreams = [];
-                }
+                const allStreams = Array.isArray(res.data)
+                    ? res.data
+                    : res.data?.streams || [];
 
                 const verifiedStreams = allStreams.filter((stream) => {
-                    if (!stream || !stream.isLive) return false;
-
+                    if (!stream.isLive) return false;
                     const streamDate = new Date(
-                        stream.startedAt || stream.createdAt || Date.now()
+                        stream.startedAt || stream.createdAt
                     );
                     const hoursSinceStart =
                         (Date.now() - streamDate.getTime()) /
                         (1000 * 60 * 60);
 
-                    // Auto-end na 12 uur
                     if (hoursSinceStart > 12) {
                         api.post(`/api/live/${stream._id}/end`).catch(() => { });
                         return false;
@@ -382,12 +314,10 @@ export default function LiveDiscover() {
                     const lastActivity = stream.updatedAt
                         ? new Date(stream.updatedAt)
                         : streamDate;
-
                     const hoursSinceActivity =
                         (Date.now() - lastActivity.getTime()) /
                         (1000 * 60 * 60);
 
-                    // Auto-end als geen activity > 2 uur en stream > 2 uur oud
                     if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
                         api.post(`/api/live/${stream._id}/end`).catch(() => { });
                         return false;
@@ -397,12 +327,10 @@ export default function LiveDiscover() {
                 });
 
                 setStreams(verifiedStreams);
-
-                if (showToast) {
+                if (showToast)
                     toast.success(
                         `Found ${verifiedStreams.length} live streams`
                     );
-                }
             } catch (err) {
                 console.error("Failed to fetch streams:", err);
                 setError("Failed to load streams");
@@ -414,7 +342,6 @@ export default function LiveDiscover() {
         []
     );
 
-    // Initial fetch
     useEffect(() => {
         if (!hasFetched.current) {
             hasFetched.current = true;
@@ -422,7 +349,6 @@ export default function LiveDiscover() {
         }
     }, [fetchStreams]);
 
-    // Socket connect state
     useEffect(() => {
         const socket = socketRef.current;
         if (!socket) return;
@@ -440,24 +366,17 @@ export default function LiveDiscover() {
         };
     }, []);
 
-    // Socket stream events
     useEffect(() => {
         const socket = socketRef.current;
         if (!socket) return;
 
         const handleStreamStarted = (data) => {
-            if (!data) return;
-
             toast.success(
                 `🔴 ${data.streamerName || data.username || "Someone"
                 } went live!`,
-                {
-                    duration: 5000,
-                    icon: "📺",
-                }
+                { duration: 5000, icon: "📺" }
             );
-
-            setStreams((prev = []) => {
+            setStreams((prev) => {
                 const exists = prev.some(
                     (s) =>
                         s._id === data._id ||
@@ -465,87 +384,71 @@ export default function LiveDiscover() {
                         s.streamId === data.streamId
                 );
                 if (exists) return prev;
-
-                const base = {
-                    ...data,
-                    _id: data._id || data.streamId,
-                    isLive: true,
-                    viewers: data.viewers || 0,
-                    startedAt: data.startedAt || new Date().toISOString(),
-                };
-
-                return [base, ...prev];
+                return [
+                    {
+                        ...data,
+                        _id: data._id || data.streamId,
+                        isLive: true,
+                        viewers: data.viewers || 0,
+                        startedAt: new Date().toISOString(),
+                    },
+                    ...prev,
+                ];
             });
         };
 
         const handleStreamEnded = (data) => {
-            if (!data) return;
             const endedId = data._id || data.streamId;
-            setStreams((prev = []) =>
+            setStreams((prev) =>
                 prev.filter(
-                    (s) =>
-                        s._id !== endedId &&
-                        s.streamId !== endedId &&
-                        s.roomId !== endedId
+                    (s) => s._id !== endedId && s.streamId !== endedId
                 )
             );
         };
 
         const handleViewerUpdate = (data) => {
-            if (!data) return;
-            setStreams((prev = []) =>
-                prev.map((s) => {
-                    if (
-                        s._id === data.streamId ||
+            setStreams((prev) =>
+                prev.map((s) =>
+                    s._id === data.streamId ||
                         s._id === data._id ||
                         s.streamId === data.streamId
-                    ) {
-                        return {
+                        ? {
                             ...s,
                             viewers:
                                 data.viewers ||
                                 data.count ||
-                                s.viewers ||
-                                0,
-                        };
-                    }
-                    return s;
-                })
+                                s.viewers,
+                        }
+                        : s
+                )
             );
         };
 
         socket.on("stream_started", handleStreamStarted);
         socket.on("new_stream", handleStreamStarted);
         socket.on("live_started", handleStreamStarted);
-
         socket.on("stream_ended", handleStreamEnded);
         socket.on("stream_stopped", handleStreamEnded);
         socket.on("live_stopped", handleStreamEnded);
         socket.on("live_ended", handleStreamEnded);
-
         socket.on("viewer_update", handleViewerUpdate);
         socket.on("viewer_count", handleViewerUpdate);
-
         socket.emit("join_discover");
 
         return () => {
             socket.off("stream_started", handleStreamStarted);
             socket.off("new_stream", handleStreamStarted);
             socket.off("live_started", handleStreamStarted);
-
             socket.off("stream_ended", handleStreamEnded);
             socket.off("stream_stopped", handleStreamEnded);
             socket.off("live_stopped", handleStreamEnded);
             socket.off("live_ended", handleStreamEnded);
-
             socket.off("viewer_update", handleViewerUpdate);
             socket.off("viewer_count", handleViewerUpdate);
-
             socket.emit("leave_discover");
         };
     }, []);
 
-    // Periodic refresh
     useEffect(() => {
         const interval = setInterval(() => fetchStreams(), 30000);
         return () => clearInterval(interval);
@@ -556,17 +459,13 @@ export default function LiveDiscover() {
         await fetchStreams(true);
     };
 
-    // Filters & sorting
-    const filteredStreams = (streams || [])
+    const filteredStreams = streams
         .filter((stream) => {
-            if (!stream) return false;
-
             if (
                 selectedCategory !== "All" &&
                 stream.category !== selectedCategory
             )
                 return false;
-
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 const title = (stream.title || "").toLowerCase();
@@ -576,33 +475,36 @@ export default function LiveDiscover() {
                     stream.host?.username ||
                     ""
                 ).toLowerCase();
-
                 if (!title.includes(query) && !username.includes(query))
                     return false;
             }
-
             return true;
         })
         .sort((a, b) => {
-            const aViewers = a?.viewers || 0;
-            const bViewers = b?.viewers || 0;
-            const aDate = new Date(a?.startedAt || a?.createdAt || 0);
-            const bDate = new Date(b?.startedAt || b?.createdAt || 0);
-
             switch (sortBy) {
                 case "viewers":
-                    return bViewers - aViewers;
+                    return (b.viewers || 0) - (a.viewers || 0);
                 case "recent":
-                    return bDate - aDate;
-                case "trending": {
+                    return (
+                        new Date(b.startedAt || b.createdAt) -
+                        new Date(a.startedAt || a.createdAt)
+                    );
+                case "trending":
                     const aScore =
-                        aViewers * 2 -
-                        (Date.now() - aDate.getTime()) / 3600000;
+                        (a.viewers || 0) * 2 -
+                        (Date.now() -
+                            new Date(
+                                a.startedAt || a.createdAt
+                            ).getTime()) /
+                        3600000;
                     const bScore =
-                        bViewers * 2 -
-                        (Date.now() - bDate.getTime()) / 3600000;
+                        (b.viewers || 0) * 2 -
+                        (Date.now() -
+                            new Date(
+                                b.startedAt || b.createdAt
+                            ).getTime()) /
+                        3600000;
                     return bScore - aScore;
-                }
                 default:
                     return 0;
             }
@@ -611,18 +513,16 @@ export default function LiveDiscover() {
     const featuredStream =
         filteredStreams.length > 1
             ? [...filteredStreams].sort(
-                (a, b) => (b?.viewers || 0) - (a?.viewers || 0)
+                (a, b) => (b.viewers || 0) - (a.viewers || 0)
             )[0]
             : null;
 
     const otherStreams = featuredStream
-        ? filteredStreams.filter(
-            (s) => s && s._id !== featuredStream._id
-        )
+        ? filteredStreams.filter((s) => s._id !== featuredStream._id)
         : filteredStreams;
 
-    const totalViewers = (streams || []).reduce(
-        (sum, s) => sum + (s?.viewers || 0),
+    const totalViewers = streams.reduce(
+        (sum, s) => sum + (s.viewers || 0),
         0
     );
 
@@ -638,12 +538,11 @@ export default function LiveDiscover() {
         navigate("/go-live");
     };
 
-    // Loading & error states
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4" />
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
                     <p className="text-white/70">Discovering streams...</p>
                 </div>
             </div>
@@ -692,7 +591,9 @@ export default function LiveDiscover() {
                             type="text"
                             placeholder="Search streams..."
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) =>
+                                setSearchQuery(e.target.value)
+                            }
                             className="w-full pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:border-cyan-400 outline-none transition"
                         />
                         {searchQuery && (
@@ -705,7 +606,9 @@ export default function LiveDiscover() {
                         )}
                     </div>
                     <button
-                        onClick={() => setShowFilters(!showFilters)}
+                        onClick={() =>
+                            setShowFilters((prev) => !prev)
+                        }
                         className={`p-2.5 rounded-xl border transition ${showFilters
                                 ? "bg-cyan-500 border-cyan-500"
                                 : "bg-white/10 border-white/20 hover:bg-white/20"
@@ -727,7 +630,7 @@ export default function LiveDiscover() {
             </div>
 
             <StatsBar
-                totalStreams={(streams || []).length}
+                totalStreams={streams.length}
                 totalViewers={totalViewers}
                 isConnected={isConnected}
             />
@@ -735,7 +638,9 @@ export default function LiveDiscover() {
             {showFilters && (
                 <div className="mb-6 p-4 bg-white/5 rounded-xl border border-white/10 animate-fadeIn">
                     <div className="mb-4">
-                        <p className="text-white/60 text-sm mb-2">Sort by</p>
+                        <p className="text-white/60 text-sm mb-2">
+                            Sort by
+                        </p>
                         <div className="flex flex-wrap gap-2">
                             {SORT_OPTIONS.map((option) => (
                                 <button
@@ -757,7 +662,7 @@ export default function LiveDiscover() {
                             Categories
                         </p>
                         <div className="flex flex-wrap gap-2">
-                            {(CATEGORIES || []).map((category) => (
+                            {CATEGORIES.map((category) => (
                                 <button
                                     key={category.id}
                                     onClick={() =>
@@ -779,30 +684,31 @@ export default function LiveDiscover() {
 
             {!showFilters && (
                 <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
-                    {(CATEGORIES || [])
-                        .slice(0, 8)
-                        .map((category) => (
-                            <button
-                                key={category.id}
-                                onClick={() =>
-                                    setSelectedCategory(category.id)
-                                }
-                                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === category.id
-                                        ? "bg-cyan-500 text-white"
-                                        : "bg-white/10 text-white/70 hover:bg-white/20"
-                                    }`}
-                            >
-                                <span>{category.icon}</span>
-                                {category.label}
-                            </button>
-                        ))}
+                    {CATEGORIES.slice(0, 8).map((category) => (
+                        <button
+                            key={category.id}
+                            onClick={() =>
+                                setSelectedCategory(category.id)
+                            }
+                            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === category.id
+                                    ? "bg-cyan-500 text-white"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                }`}
+                        >
+                            <span>{category.icon}</span>
+                            {category.label}
+                        </button>
+                    ))}
                 </div>
             )}
 
             {filteredStreams.length === 0 ? (
                 <div className="text-center py-20">
                     <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
-                        <Radio size={40} className="text-white/30" />
+                        <Radio
+                            size={40}
+                            className="text-white/30"
+                        />
                     </div>
                     <h3 className="text-xl font-semibold mb-2">
                         No Live Streams
@@ -828,13 +734,11 @@ export default function LiveDiscover() {
                                 onClick={handleJoinStream}
                             />
                         )}
-
                     <p className="text-white/60 mb-4 flex items-center gap-2">
                         <TrendingUp size={16} />
                         {filteredStreams.length} stream
                         {filteredStreams.length !== 1 ? "s" : ""} live
                     </p>
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
                         {(featuredStream &&
                             filteredStreams.length > 1
