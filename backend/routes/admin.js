@@ -1,0 +1,1283 @@
+// backend/routes/admin.js
+// World-Studio.live - Admin Routes
+// Comprehensive admin panel API endpoints
+
+const express = require("express");
+const router = express.Router();
+
+const auth = require("../middleware/auth");
+const requireAdmin = require("../middleware/requireAdmin");
+
+const User = require("../models/User");
+const Stream = require("../models/Stream");
+const Post = require("../models/Post");
+const Gift = require("../models/Gift");
+const PK = require("../models/PK");
+const PlatformWallet = require("../models/PlatformWallet");
+
+// ===========================================
+// HELPER FUNCTIONS
+// ===========================================
+
+/**
+ * Get start of today
+ */
+const startOfToday = () => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+/**
+ * Get start of this week (Monday)
+ */
+const startOfWeek = () => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    d.setDate(diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+/**
+ * Get start of this month
+ */
+const startOfMonth = () => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+};
+
+/**
+ * Safe model query (returns 0 if model doesn't exist)
+ */
+const safeCount = async (Model, query = {}) => {
+    try {
+        if (!Model) return 0;
+        return await Model.countDocuments(query);
+    } catch (err) {
+        return 0;
+    }
+};
+
+/**
+ * Safe aggregate sum
+ */
+const safeSum = async (Model, field, query = {}) => {
+    try {
+        if (!Model) return 0;
+        const result = await Model.aggregate([
+            { $match: query },
+            { $group: { _id: null, total: { $sum: `$${field}` } } }
+        ]);
+        return result[0]?.total || 0;
+    } catch (err) {
+        return 0;
+    }
+};
+
+// ===========================================
+// DASHBOARD STATS
+// ===========================================
+
+/**
+ * GET /api/admin/stats
+ * Main dashboard statistics
+ */
+router.get("/stats", auth, requireAdmin, async (req, res) => {
+    try {
+        const today = startOfToday();
+        const thisWeek = startOfWeek();
+        const thisMonth = startOfMonth();
+
+        // User stats
+        const totalUsers = await User.countDocuments();
+        const newUsersToday = await User.countDocuments({ createdAt: { $gte: today } });
+        const newUsersThisWeek = await User.countDocuments({ createdAt: { $gte: thisWeek } });
+        const newUsersThisMonth = await User.countDocuments({ createdAt: { $gte: thisMonth } });
+        const bannedUsers = await User.countDocuments({ isBanned: true });
+        const verifiedUsers = await User.countDocuments({ isVerified: true });
+        const premiumUsers = await User.countDocuments({ isPremium: true });
+
+        // Stream stats
+        const activeStreams = await safeCount(Stream, { isLive: true });
+        const totalStreamsToday = await safeCount(Stream, { startedAt: { $gte: today } });
+        const totalStreams = await safeCount(Stream);
+
+        // Post stats
+        const totalPosts = await safeCount(Post);
+        const postsToday = await safeCount(Post, { createdAt: { $gte: today } });
+        const paidPosts = await safeCount(Post, { isFree: false });
+
+        // Gift stats
+        const totalGiftsToday = await safeSum(Gift, "amount", { createdAt: { $gte: today } });
+        const totalGiftsThisMonth = await safeSum(Gift, "amount", { createdAt: { $gte: thisMonth } });
+        const totalGiftsAllTime = await safeSum(Gift, "amount");
+
+        // PK Battle stats
+        const activePKs = await safeCount(PK, { status: "active" });
+        const totalPKsToday = await safeCount(PK, { createdAt: { $gte: today } });
+
+        // Platform revenue (if PlatformWallet exists)
+        let platformRevenue = { today: 0, thisMonth: 0, total: 0 };
+        try {
+            if (PlatformWallet) {
+                const wallet = await PlatformWallet.getWallet();
+                if (wallet) {
+                    platformRevenue = {
+                        today: wallet.monthlyStats?.revenue || 0,
+                        thisMonth: wallet.monthlyStats?.revenue || 0,
+                        total: wallet.lifetimeStats?.totalRevenue || 0,
+                        balance: wallet.balance || 0
+                    };
+                }
+            }
+        } catch (err) {
+            console.log("PlatformWallet not available");
+        }
+
+        // User growth last 7 days
+        const userGrowth = [];
+        for (let i = 6; i >= 0; i--) {
+            const day = new Date();
+            day.setHours(0, 0, 0, 0);
+            day.setDate(day.getDate() - i);
+
+            const nextDay = new Date(day);
+            nextDay.setDate(day.getDate() + 1);
+
+            const count = await User.countDocuments({
+                createdAt: { $gte: day, $lt: nextDay },
+            });
+
+            userGrowth.push({
+                date: day.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                fullDate: day.toISOString().split("T")[0],
+                count,
+            });
+        }
+
+        // Stream growth last 7 days
+        const streamGrowth = [];
+        for (let i = 6; i >= 0; i--) {
+            const day = new Date();
+            day.setHours(0, 0, 0, 0);
+            day.setDate(day.getDate() - i);
+
+            const nextDay = new Date(day);
+            nextDay.setDate(day.getDate() + 1);
+
+            const count = await safeCount(Stream, {
+                startedAt: { $gte: day, $lt: nextDay },
+            });
+
+            streamGrowth.push({
+                date: day.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                count,
+            });
+        }
+
+        // Top earners
+        const topEarnersRaw = await User.find({
+            "wallet.totalReceived": { $gt: 0 },
+        })
+            .select("username avatar wallet.totalReceived wallet.balance isVerified")
+            .sort({ "wallet.totalReceived": -1 })
+            .limit(10)
+            .lean();
+
+        const topEarners = topEarnersRaw.map((u) => ({
+            _id: u._id,
+            username: u.username,
+            avatar: u.avatar,
+            isVerified: u.isVerified,
+            earnings: u.wallet?.totalReceived || 0,
+            balance: u.wallet?.balance || 0,
+        }));
+
+        // Top streamers by followers
+        const topStreamers = await User.find({
+            followersCount: { $gt: 0 }
+        })
+            .select("username avatar followersCount isVerified isLive")
+            .sort({ followersCount: -1 })
+            .limit(10)
+            .lean();
+
+        // Top categories (from streams)
+        let topCategories = [];
+        try {
+            if (Stream) {
+                topCategories = await Stream.aggregate([
+                    { $match: { isLive: true } },
+                    { $group: { _id: "$category", count: { $sum: 1 }, viewers: { $sum: "$viewers" } } },
+                    { $sort: { viewers: -1 } },
+                    { $limit: 10 }
+                ]);
+                topCategories = topCategories.map(c => ({
+                    name: c._id || "General",
+                    count: c.count,
+                    viewers: c.viewers
+                }));
+            }
+        } catch (err) {
+            topCategories = [
+                { name: "General", count: 0, viewers: 0 },
+            ];
+        }
+
+        // Recent activity
+        const recentUsers = await User.find()
+            .select("username avatar createdAt")
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .lean();
+
+        res.json({
+            success: true,
+            stats: {
+                users: {
+                    total: totalUsers,
+                    today: newUsersToday,
+                    thisWeek: newUsersThisWeek,
+                    thisMonth: newUsersThisMonth,
+                    banned: bannedUsers,
+                    verified: verifiedUsers,
+                    premium: premiumUsers
+                },
+                streams: {
+                    active: activeStreams,
+                    today: totalStreamsToday,
+                    total: totalStreams
+                },
+                posts: {
+                    total: totalPosts,
+                    today: postsToday,
+                    paid: paidPosts
+                },
+                gifts: {
+                    today: totalGiftsToday,
+                    thisMonth: totalGiftsThisMonth,
+                    total: totalGiftsAllTime
+                },
+                pk: {
+                    active: activePKs,
+                    today: totalPKsToday
+                },
+                revenue: platformRevenue
+            },
+            charts: {
+                userGrowth,
+                streamGrowth
+            },
+            leaderboards: {
+                topEarners,
+                topStreamers,
+                topCategories
+            },
+            recent: {
+                users: recentUsers
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error in /admin/stats:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to load stats",
+            message: err.message
+        });
+    }
+});
+
+// ===========================================
+// USER MANAGEMENT
+// ===========================================
+
+/**
+ * GET /api/admin/users
+ * Get all users with pagination and filters
+ */
+router.get("/users", auth, requireAdmin, async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 50,
+            sort = "createdAt",
+            order = "desc",
+            search,
+            role,
+            status,
+            verified
+        } = req.query;
+
+        const query = {};
+
+        // Search filter
+        if (search) {
+            query.$or = [
+                { username: { $regex: search, $options: "i" } },
+                { email: { $regex: search, $options: "i" } },
+                { displayName: { $regex: search, $options: "i" } }
+            ];
+        }
+
+        // Role filter
+        if (role && role !== "all") {
+            query.role = role;
+        }
+
+        // Status filter
+        if (status === "banned") {
+            query.isBanned = true;
+        } else if (status === "active") {
+            query.isBanned = false;
+        } else if (status === "live") {
+            query.isLive = true;
+        }
+
+        // Verified filter
+        if (verified === "true") {
+            query.isVerified = true;
+        } else if (verified === "false") {
+            query.isVerified = false;
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const sortOrder = order === "desc" ? -1 : 1;
+        const sortField = sort === "earnings" ? "wallet.totalReceived" : sort;
+
+        const [users, total] = await Promise.all([
+            User.find(query)
+                .select("-password -notifications -wallet.transactions")
+                .sort({ [sortField]: sortOrder })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+            User.countDocuments(query)
+        ]);
+
+        res.json({
+            success: true,
+            users,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error in /admin/users:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to load users"
+        });
+    }
+});
+
+/**
+ * GET /api/admin/users/:userId
+ * Get single user details
+ */
+router.get("/users/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.userId)
+            .select("-password")
+            .lean();
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        // Get additional stats
+        const [postsCount, streamsCount, giftsReceived, giftsSent] = await Promise.all([
+            safeCount(Post, { userId: user._id }),
+            safeCount(Stream, { streamerId: user._id }),
+            safeSum(Gift, "amount", { recipientId: user._id }),
+            safeSum(Gift, "amount", { senderId: user._id })
+        ]);
+
+        res.json({
+            success: true,
+            user: {
+                ...user,
+                stats: {
+                    ...user.stats,
+                    postsCount,
+                    streamsCount,
+                    giftsReceived,
+                    giftsSent
+                }
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error getting user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get user"
+        });
+    }
+});
+
+/**
+ * PUT /api/admin/users/:userId
+ * Update user details
+ */
+router.put("/users/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const { role, isVerified, isPremium, premiumTier, bio } = req.body;
+
+        const updateData = {};
+        if (role !== undefined) updateData.role = role;
+        if (isVerified !== undefined) {
+            updateData.isVerified = isVerified;
+            if (isVerified) updateData.verifiedAt = new Date();
+        }
+        if (isPremium !== undefined) updateData.isPremium = isPremium;
+        if (premiumTier !== undefined) updateData.premiumTier = premiumTier;
+        if (bio !== undefined) updateData.bio = bio;
+
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            updateData,
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error updating user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to update user"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/make-admin/:userId
+ * Make user an admin
+ */
+router.post("/make-admin/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            { role: "admin" },
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        console.log(`👑 User ${user.username} promoted to admin by ${req.user.username}`);
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error in make-admin:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to make user admin"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/remove-admin/:userId
+ * Remove admin role
+ */
+router.post("/remove-admin/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        // Prevent removing own admin role
+        if (req.params.userId === req.user._id.toString()) {
+            return res.status(400).json({
+                success: false,
+                error: "Cannot remove your own admin role"
+            });
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            { role: "creator" },
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        console.log(`⬇️ User ${user.username} demoted from admin by ${req.user.username}`);
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error in remove-admin:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to remove admin role"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/verify-user/:userId
+ * Verify a user
+ */
+router.post("/verify-user/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const { badge = "creator" } = req.body;
+
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            {
+                isVerified: true,
+                verifiedAt: new Date(),
+                verificationBadge: badge
+            },
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        // Send notification to user
+        await user.addNotification({
+            message: "Congratulations! Your account has been verified! ✓",
+            type: "system",
+            icon: "✓"
+        });
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error verifying user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to verify user"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/unverify-user/:userId
+ * Remove verification
+ */
+router.post("/unverify-user/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            {
+                isVerified: false,
+                verificationBadge: "none"
+            },
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error unverifying user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to unverify user"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/ban-user/:userId
+ * Ban a user
+ */
+router.post("/ban-user/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const { reason, duration } = req.body; // duration in hours, null = permanent
+
+        // Prevent banning yourself
+        if (req.params.userId === req.user._id.toString()) {
+            return res.status(400).json({
+                success: false,
+                error: "Cannot ban yourself"
+            });
+        }
+
+        const updateData = {
+            isBanned: true,
+            banReason: reason || "Violation of terms of service",
+            bannedAt: new Date()
+        };
+
+        if (duration) {
+            updateData.bannedUntil = new Date(Date.now() + duration * 60 * 60 * 1000);
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            updateData,
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        // End any active streams
+        if (Stream) {
+            await Stream.updateMany(
+                { streamerId: user._id, isLive: true },
+                { isLive: false, status: "ended", endedAt: new Date() }
+            );
+        }
+
+        console.log(`🚫 User ${user.username} banned by ${req.user.username}. Reason: ${reason}`);
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error in ban-user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to ban user"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/unban-user/:userId
+ * Unban a user
+ */
+router.post("/unban-user/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            {
+                isBanned: false,
+                banReason: null,
+                bannedAt: null,
+                bannedUntil: null
+            },
+            { new: true }
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        // Send notification
+        await user.addNotification({
+            message: "Your account has been unbanned. Welcome back!",
+            type: "system"
+        });
+
+        console.log(`✅ User ${user.username} unbanned by ${req.user.username}`);
+
+        res.json({ success: true, user });
+    } catch (err) {
+        console.error("❌ Error in unban-user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to unban user"
+        });
+    }
+});
+
+/**
+ * DELETE /api/admin/delete-user/:userId
+ * Delete a user permanently
+ */
+router.delete("/delete-user/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        // Prevent deleting yourself
+        if (req.params.userId === req.user._id.toString()) {
+            return res.status(400).json({
+                success: false,
+                error: "Cannot delete your own account"
+            });
+        }
+
+        const user = await User.findById(req.params.userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        // Delete related data
+        if (Post) await Post.deleteMany({ userId: user._id });
+        if (Stream) await Stream.deleteMany({ streamerId: user._id });
+        // Add more cleanup as needed
+
+        await User.findByIdAndDelete(req.params.userId);
+
+        console.log(`🗑️ User ${user.username} deleted by ${req.user.username}`);
+
+        res.json({
+            success: true,
+            message: "User deleted successfully"
+        });
+    } catch (err) {
+        console.error("❌ Error in delete-user:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to delete user"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/add-coins/:userId
+ * Add coins to user wallet
+ */
+router.post("/add-coins/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const { amount, reason } = req.body;
+
+        if (!amount || amount <= 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Invalid amount"
+            });
+        }
+
+        const user = await User.findById(req.params.userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        await user.addTransaction({
+            type: "bonus",
+            amount,
+            description: reason || `Admin bonus from ${req.user.username}`,
+            meta: { addedBy: req.user._id }
+        });
+
+        // Notify user
+        await user.addNotification({
+            message: `You received ${amount} coins! ${reason || ""}`,
+            type: "system",
+            amount,
+            icon: "🎁"
+        });
+
+        console.log(`💰 Added ${amount} coins to ${user.username} by ${req.user.username}`);
+
+        res.json({
+            success: true,
+            user: {
+                _id: user._id,
+                username: user.username,
+                wallet: { balance: user.wallet.balance }
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error adding coins:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to add coins"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/remove-coins/:userId
+ * Remove coins from user wallet
+ */
+router.post("/remove-coins/:userId", auth, requireAdmin, async (req, res) => {
+    try {
+        const { amount, reason } = req.body;
+
+        if (!amount || amount <= 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Invalid amount"
+            });
+        }
+
+        const user = await User.findById(req.params.userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found"
+            });
+        }
+
+        if (user.wallet.balance < amount) {
+            return res.status(400).json({
+                success: false,
+                error: "User doesn't have enough coins"
+            });
+        }
+
+        await user.addTransaction({
+            type: "adjustment",
+            amount: -amount,
+            description: reason || `Admin adjustment by ${req.user.username}`,
+            meta: { removedBy: req.user._id }
+        });
+
+        console.log(`💸 Removed ${amount} coins from ${user.username} by ${req.user.username}`);
+
+        res.json({
+            success: true,
+            user: {
+                _id: user._id,
+                username: user.username,
+                wallet: { balance: user.wallet.balance }
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error removing coins:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to remove coins"
+        });
+    }
+});
+
+// ===========================================
+// REVENUE & TRANSACTIONS
+// ===========================================
+
+/**
+ * GET /api/admin/revenue
+ * Get revenue statistics
+ */
+router.get("/revenue", auth, requireAdmin, async (req, res) => {
+    try {
+        const today = startOfToday();
+        const thisWeek = startOfWeek();
+        const thisMonth = startOfMonth();
+
+        // Get platform wallet stats
+        let platformStats = null;
+        try {
+            if (PlatformWallet) {
+                platformStats = await PlatformWallet.getDashboardStats();
+            }
+        } catch (err) {
+            console.log("PlatformWallet not available");
+        }
+
+        // Calculate from user transactions if PlatformWallet not available
+        let totalRevenue = 0;
+        let revenueToday = 0;
+        let revenueThisWeek = 0;
+        let revenueThisMonth = 0;
+        const recentTransactions = [];
+
+        if (!platformStats) {
+            const allUsers = await User.find({})
+                .select("username avatar wallet.transactions")
+                .lean();
+
+            for (const user of allUsers) {
+                const txs = user.wallet?.transactions || [];
+                for (const tx of txs) {
+                    // Only count income transactions
+                    if (!["topup", "purchase"].includes(tx.type)) continue;
+
+                    const amount = Math.abs(tx.amount || 0);
+                    const createdAt = tx.createdAt ? new Date(tx.createdAt) : null;
+
+                    totalRevenue += amount;
+
+                    if (createdAt) {
+                        if (createdAt >= today) revenueToday += amount;
+                        if (createdAt >= thisWeek) revenueThisWeek += amount;
+                        if (createdAt >= thisMonth) revenueThisMonth += amount;
+
+                        recentTransactions.push({
+                            username: user.username,
+                            avatar: user.avatar,
+                            type: tx.type,
+                            amount,
+                            description: tx.description,
+                            date: createdAt,
+                        });
+                    }
+                }
+            }
+
+            recentTransactions.sort((a, b) => b.date - a.date);
+        }
+
+        // Revenue by day (last 30 days)
+        const revenueByDay = [];
+        for (let i = 29; i >= 0; i--) {
+            const day = new Date();
+            day.setHours(0, 0, 0, 0);
+            day.setDate(day.getDate() - i);
+
+            const nextDay = new Date(day);
+            nextDay.setDate(day.getDate() + 1);
+
+            // Count gifts for that day as revenue proxy
+            const dayRevenue = await safeSum(Gift, "amount", {
+                createdAt: { $gte: day, $lt: nextDay }
+            }) * 0.15; // 15% platform fee
+
+            revenueByDay.push({
+                date: day.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                revenue: Math.round(dayRevenue)
+            });
+        }
+
+        res.json({
+            success: true,
+            revenue: platformStats ? {
+                total: platformStats.lifetime?.totalRevenue || 0,
+                today: platformStats.today?.revenue || 0,
+                thisWeek: platformStats.thisWeek?.revenue || 0,
+                thisMonth: platformStats.thisMonth?.revenue || 0,
+                balance: platformStats.balance || 0
+            } : {
+                total: totalRevenue,
+                today: revenueToday,
+                thisWeek: revenueThisWeek,
+                thisMonth: revenueThisMonth
+            },
+            chart: revenueByDay,
+            recentTransactions: platformStats ? [] : recentTransactions.slice(0, 50)
+        });
+    } catch (err) {
+        console.error("❌ Error in /admin/revenue:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to load revenue"
+        });
+    }
+});
+
+// ===========================================
+// CONTENT MANAGEMENT
+// ===========================================
+
+/**
+ * GET /api/admin/posts
+ * Get all posts with filters
+ */
+router.get("/posts", auth, requireAdmin, async (req, res) => {
+    try {
+        if (!Post) {
+            return res.json({ success: true, posts: [], total: 0 });
+        }
+
+        const { page = 1, limit = 50, status, type, reported } = req.query;
+
+        const query = {};
+        if (status) query.status = status;
+        if (type) query.type = type;
+        if (reported === "true") query.isReported = true;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const [posts, total] = await Promise.all([
+            Post.find(query)
+                .populate("userId", "username avatar")
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+            Post.countDocuments(query)
+        ]);
+
+        res.json({
+            success: true,
+            posts,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error getting posts:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to load posts"
+        });
+    }
+});
+
+/**
+ * DELETE /api/admin/posts/:postId
+ * Delete a post
+ */
+router.delete("/posts/:postId", auth, requireAdmin, async (req, res) => {
+    try {
+        if (!Post) {
+            return res.status(404).json({
+                success: false,
+                error: "Posts not available"
+            });
+        }
+
+        const post = await Post.findByIdAndDelete(req.params.postId);
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                error: "Post not found"
+            });
+        }
+
+        console.log(`🗑️ Post ${post._id} deleted by admin ${req.user.username}`);
+
+        res.json({
+            success: true,
+            message: "Post deleted"
+        });
+    } catch (err) {
+        console.error("❌ Error deleting post:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to delete post"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/posts/:postId/feature
+ * Feature a post
+ */
+router.post("/posts/:postId/feature", auth, requireAdmin, async (req, res) => {
+    try {
+        const { duration = 24 } = req.body; // hours
+
+        const post = await Post.findByIdAndUpdate(
+            req.params.postId,
+            {
+                isFeatured: true,
+                featuredUntil: new Date(Date.now() + duration * 60 * 60 * 1000)
+            },
+            { new: true }
+        );
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                error: "Post not found"
+            });
+        }
+
+        res.json({ success: true, post });
+    } catch (err) {
+        console.error("❌ Error featuring post:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to feature post"
+        });
+    }
+});
+
+// ===========================================
+// STREAMS MANAGEMENT
+// ===========================================
+
+/**
+ * GET /api/admin/streams
+ * Get all streams
+ */
+router.get("/streams", auth, requireAdmin, async (req, res) => {
+    try {
+        if (!Stream) {
+            return res.json({ success: true, streams: [], total: 0 });
+        }
+
+        const { page = 1, limit = 50, live } = req.query;
+
+        const query = {};
+        if (live === "true") query.isLive = true;
+        if (live === "false") query.isLive = false;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        const [streams, total] = await Promise.all([
+            Stream.find(query)
+                .populate("streamerId", "username avatar")
+                .sort({ startedAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+            Stream.countDocuments(query)
+        ]);
+
+        res.json({
+            success: true,
+            streams,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error getting streams:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to load streams"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/streams/:streamId/end
+ * Force end a stream
+ */
+router.post("/streams/:streamId/end", auth, requireAdmin, async (req, res) => {
+    try {
+        const stream = await Stream.findByIdAndUpdate(
+            req.params.streamId,
+            {
+                isLive: false,
+                status: "ended",
+                endedAt: new Date()
+            },
+            { new: true }
+        );
+
+        if (!stream) {
+            return res.status(404).json({
+                success: false,
+                error: "Stream not found"
+            });
+        }
+
+        // Update user's live status
+        await User.findByIdAndUpdate(stream.streamerId, {
+            isLive: false,
+            currentStreamId: null
+        });
+
+        console.log(`⏹️ Stream ${stream._id} force-ended by admin ${req.user.username}`);
+
+        res.json({ success: true, stream });
+    } catch (err) {
+        console.error("❌ Error ending stream:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to end stream"
+        });
+    }
+});
+
+// ===========================================
+// SYSTEM
+// ===========================================
+
+/**
+ * GET /api/admin/system
+ * Get system information
+ */
+router.get("/system", auth, requireAdmin, async (req, res) => {
+    try {
+        const uptime = process.uptime();
+        const memoryUsage = process.memoryUsage();
+
+        res.json({
+            success: true,
+            system: {
+                nodeVersion: process.version,
+                platform: process.platform,
+                uptime: {
+                    seconds: Math.floor(uptime),
+                    formatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`
+                },
+                memory: {
+                    heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + " MB",
+                    heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + " MB",
+                    rss: Math.round(memoryUsage.rss / 1024 / 1024) + " MB"
+                },
+                env: process.env.NODE_ENV || "development"
+            }
+        });
+    } catch (err) {
+        console.error("❌ Error getting system info:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get system info"
+        });
+    }
+});
+
+/**
+ * POST /api/admin/broadcast
+ * Send system notification to all users
+ */
+router.post("/broadcast", auth, requireAdmin, async (req, res) => {
+    try {
+        const { message, type = "system" } = req.body;
+
+        if (!message) {
+            return res.status(400).json({
+                success: false,
+                error: "Message is required"
+            });
+        }
+
+        // Add notification to all users (in batches)
+        const batchSize = 100;
+        let processed = 0;
+
+        const cursor = User.find({}).cursor();
+
+        for await (const user of cursor) {
+            user.notifications.unshift({
+                message,
+                type,
+                createdAt: new Date()
+            });
+            user.unreadNotifications += 1;
+            await user.save();
+            processed++;
+        }
+
+        console.log(`📢 Broadcast sent to ${processed} users by ${req.user.username}`);
+
+        res.json({
+            success: true,
+            message: `Notification sent to ${processed} users`
+        });
+    } catch (err) {
+        console.error("❌ Error broadcasting:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to broadcast"
+        });
+    }
+});
+
+module.exports = router;

@@ -1,0 +1,129 @@
+/* =========================================
+   1. COLOR VARIABLES (LIGHT + DARK)
+   ========================================= */
+:root {
+  --color-bg: #f6f7fb;
+  --color-text: #15161a;
+  --color-primary: #66e0ff;
+  --color-neutral: #25262b;
+  --color-border: #23242b;
+  --color-card: #fff;
+  --color-heading: #08090b;
+}
+
+[data-theme="dark"] {
+  --color-bg: #0e0f12;
+  --color-text: #f6f7fb;
+  --color-primary: #66e0ff;
+  --color-neutral: #1c1d22;
+  --color-border: #2c2d34;
+  --color-card: #15161a;
+  --color-heading: #fff;
+}
+
+/* =========================================
+   2. BASE RESET
+   ========================================= */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', 'Roboto', Arial, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* =========================================
+   3. UTILITY HELPERS
+   ========================================= */
+.text-center { text-align: center; }
+.mt-20 { margin-top: 5rem; }
+.py-20 { padding-top: 5rem; padding-bottom: 5rem; }
+.max-w-3xl { max-width: 48rem; margin: 0 auto; }
+.space-y-8 > * + * { margin-top: 2rem; }
+
+/* Fixed custom utility (Tailwind compatible) */
+.text-white-60 { color: rgba(255, 255, 255, 0.6); }
+
+/* =========================================
+   4. HEADINGS
+   ========================================= */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-heading);
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 0.5em;
+}
+
+/* =========================================
+   5. CARDS
+   ========================================= */
+.card {
+  background: var(--color-card);
+  border-radius: 12px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.08);
+  padding: 1.5em 2em;
+  margin-bottom: 2em;
+}
+
+/* =========================================
+   6. LINKS
+   ========================================= */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color 0.25s ease;
+}
+a:hover {
+  color: #1cc6e6;
+}
+
+/* =========================================
+   7. FORM ELEMENTS
+   ========================================= */
+input, textarea, select {
+  font-family: inherit;
+  padding: 0.5em;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text);
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* =========================================
+   8. BUTTONS
+   (NO OVERRIDE OF TAILWIND)
+   ========================================= */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* =========================================
+   9. IMAGES
+   ========================================= */
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* =========================================
+   10. SCROLLBAR
+   ========================================= */
+::-webkit-scrollbar {
+  width: 8px;
+  background: var(--color-border);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral);
+  border-radius: 4px;
+}
