@@ -70,17 +70,16 @@ router.get("/", async (req, res) => {
         const sort = sortOptions[sortBy] || { viewers: -1 };
 
         const streams = await Stream.find(query)
-            // virtual "host" → komt uit StreamSchema.virtual('host')
+            // virtual "host" komt uit StreamSchema.virtual("host")
             .populate("host", "username avatar isVerified")
+            .populate("streamerId", "username avatar isVerified")
             .select("-viewerList -bannedUsers -blockedWords")
             .sort(sort);
 
         return res.json(Array.isArray(streams) ? streams : []);
     } catch (err) {
         console.error("❌ DISCOVERY ERROR /api/live:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to load streams" });
+        return res.status(500).json({ error: "Failed to load streams" });
     }
 });
 
@@ -96,15 +95,14 @@ router.get("/streams", async (req, res) => {
             status: "live",
         })
             .populate("host", "username avatar isVerified")
+            .populate("streamerId", "username avatar isVerified")
             .select("-viewerList -bannedUsers -blockedWords")
             .sort({ viewers: -1 });
 
         return res.json(Array.isArray(streams) ? streams : []);
     } catch (err) {
         console.error("❌ DISCOVERY ERROR /api/live/streams:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to load streams" });
+        return res.status(500).json({ error: "Failed to load streams" });
     }
 });
 
@@ -132,9 +130,7 @@ router.post("/start", auth, async (req, res) => {
 
         const user = await User.findById(userId);
         if (!user) {
-            return res
-                .status(404)
-                .json({ error: "User not found" });
+            return res.status(404).json({ error: "User not found" });
         }
 
         // Check if user already has an active live
@@ -177,9 +173,7 @@ router.post("/start", auth, async (req, res) => {
         return res.status(201).json(stream);
     } catch (err) {
         console.error("❌ ERROR STARTING STREAM:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to start stream" });
+        return res.status(500).json({ error: "Failed to start stream" });
     }
 });
 
@@ -195,27 +189,22 @@ router.get("/:id", async (req, res) => {
     try {
         const id = safeId(req.params.id);
         if (!id) {
-            return res
-                .status(400)
-                .json({ error: "Invalid stream id" });
+            return res.status(400).json({ error: "Invalid stream id" });
         }
 
         const stream = await Stream.findById(id)
             .populate("host", "username avatar isVerified")
+            .populate("streamerId", "username avatar isVerified")
             .populate("seats.userId", "username avatar");
 
         if (!stream) {
-            return res
-                .status(404)
-                .json({ error: "Stream not found" });
+            return res.status(404).json({ error: "Stream not found" });
         }
 
         return res.json(stream);
     } catch (err) {
         console.error("❌ ERROR GET STREAM:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to fetch stream" });
+        return res.status(500).json({ error: "Failed to fetch stream" });
     }
 });
 
@@ -231,22 +220,17 @@ router.post("/:id/end", auth, async (req, res) => {
     try {
         const id = safeId(req.params.id);
         if (!id) {
-            return res
-                .status(400)
-                .json({ error: "Invalid stream id" });
+            return res.status(400).json({ error: "Invalid stream id" });
         }
 
         const stream = await Stream.findById(id);
         if (!stream) {
-            return res
-                .status(404)
-                .json({ error: "Stream not found" });
+            return res.status(404).json({ error: "Stream not found" });
         }
 
         const userId = String(req.user.id || req.user._id);
 
-        const isOwner =
-            String(stream.streamerId) === userId;
+        const isOwner = String(stream.streamerId) === userId;
         const isAdmin =
             req.user.role === "admin" ||
             req.user.email === "menziesalm@gmail.com";
@@ -262,14 +246,12 @@ router.post("/:id/end", auth, async (req, res) => {
         return res.json({ success: true });
     } catch (err) {
         console.error("❌ ERROR END STREAM:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to end stream" });
+        return res.status(500).json({ error: "Failed to end stream" });
     }
 });
 
 // ===========================================
-// VIEWER TRACKING (OPTIONAL BASIC VERSION)
+// VIEWER TRACKING (BASIC)
 // ===========================================
 
 /**
@@ -279,9 +261,7 @@ router.post("/:id/viewer-join", async (req, res) => {
     try {
         const id = safeId(req.params.id);
         if (!id) {
-            return res
-                .status(400)
-                .json({ error: "Invalid stream id" });
+            return res.status(400).json({ error: "Invalid stream id" });
         }
 
         const { count } = req.body;
@@ -291,17 +271,13 @@ router.post("/:id/viewer-join", async (req, res) => {
         );
 
         if (!stream) {
-            return res
-                .status(404)
-                .json({ error: "Stream not found" });
+            return res.status(404).json({ error: "Stream not found" });
         }
 
         return res.json({ success: true });
     } catch (err) {
         console.error("❌ ERROR VIEWER JOIN:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to update viewers" });
+        return res.status(500).json({ error: "Failed to update viewers" });
     }
 });
 
@@ -312,28 +288,21 @@ router.post("/:id/viewer-leave", async (req, res) => {
     try {
         const id = safeId(req.params.id);
         if (!id) {
-            return res
-                .status(400)
-                .json({ error: "Invalid stream id" });
+            return res.status(400).json({ error: "Invalid stream id" });
         }
 
         const stream = await Stream.findById(id);
         if (!stream) {
-            return res
-                .status(404)
-                .json({ error: "Stream not found" });
+            return res.status(404).json({ error: "Stream not found" });
         }
 
-        const newCount =
-            stream.viewers > 0 ? stream.viewers - 1 : 0;
+        const newCount = stream.viewers > 0 ? stream.viewers - 1 : 0;
         await Stream.updateViewers(id, newCount);
 
         return res.json({ success: true });
     } catch (err) {
         console.error("❌ ERROR VIEWER LEAVE:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to update viewers" });
+        return res.status(500).json({ error: "Failed to update viewers" });
     }
 });
 
@@ -349,9 +318,7 @@ router.post("/:id/gift", auth, async (req, res) => {
     try {
         const id = safeId(req.params.id);
         if (!id) {
-            return res
-                .status(400)
-                .json({ error: "Invalid stream id" });
+            return res.status(400).json({ error: "Invalid stream id" });
         }
 
         const { giftType, icon, amount, coins } = req.body;
@@ -359,9 +326,7 @@ router.post("/:id/gift", auth, async (req, res) => {
         const userId = req.user.id || req.user._id;
         const user = await User.findById(userId);
         if (!user) {
-            return res
-                .status(404)
-                .json({ error: "User not found" });
+            return res.status(404).json({ error: "User not found" });
         }
 
         const gift = {
@@ -386,18 +351,13 @@ router.post("/:id/gift", auth, async (req, res) => {
                 amount: amount || coins,
             });
         } catch (e) {
-            console.warn(
-                "Gift save failed (non-blocking):",
-                e.message
-            );
+            console.warn("Gift save failed (non-blocking):", e.message);
         }
 
         return res.json({ success: true });
     } catch (err) {
         console.error("❌ ERROR ADD GIFT:", err);
-        return res
-            .status(500)
-            .json({ error: "Failed to send gift" });
+        return res.status(500).json({ error: "Failed to send gift" });
     }
 });
 
