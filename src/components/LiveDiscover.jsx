@@ -48,7 +48,9 @@ const SORT_OPTIONS = [
     { id: "trending", label: "Trending", icon: "🔥" },
 ];
 
-// Stream Card Component
+/* ============================================================
+   STREAM CARD
+   ============================================================ */
 const StreamCard = ({ stream, onClick }) => {
     const viewers = stream.viewers || stream.viewerCount || 0;
     const username =
@@ -149,7 +151,9 @@ const StreamCard = ({ stream, onClick }) => {
     );
 };
 
-// Featured Stream Component
+/* ============================================================
+   FEATURED STREAM
+   ============================================================ */
 const FeaturedStream = ({ stream, onClick }) => {
     if (!stream) return null;
     const viewers = stream.viewers || 0;
@@ -224,13 +228,14 @@ const FeaturedStream = ({ stream, onClick }) => {
     );
 };
 
-// Stats Bar Component
+/* ============================================================
+   STATS BAR
+   ============================================================ */
 const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
     <div className="flex items-center gap-4 mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
         <div className="flex items-center gap-2">
             <div
-                className={`w-3 h-3 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
-                    }`}
+                className={`w-3 h-3 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
             />
             <span className="text-white/60 text-sm">
                 {isConnected ? "Connected" : "Reconnecting..."}
@@ -272,75 +277,74 @@ export default function LiveDiscover() {
     const [showFilters, setShowFilters] = useState(false);
     const hasFetched = useRef(false);
 
+    // Socket init
     useEffect(() => {
         socketRef.current = getSocket();
         return () => { };
     }, []);
 
+    // Load current user
     useEffect(() => {
         const storedUser = localStorage.getItem("ws_currentUser");
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
-            } catch (e) {
-                // ignore
+            } catch {
+                /* ignore */
             }
         }
     }, []);
 
-    const fetchStreams = useCallback(
-        async (showToast = false) => {
-            try {
-                setError(null);
-                const res = await api.get("/api/live?isLive=true");
-                const allStreams = Array.isArray(res.data)
-                    ? res.data
-                    : res.data?.streams || [];
+    // Fetch streams
+    const fetchStreams = useCallback(async (showToast = false) => {
+        try {
+            setError(null);
 
-                const verifiedStreams = allStreams.filter((stream) => {
-                    if (!stream.isLive) return false;
-                    const streamDate = new Date(
-                        stream.startedAt || stream.createdAt
-                    );
-                    const hoursSinceStart =
-                        (Date.now() - streamDate.getTime()) /
-                        (1000 * 60 * 60);
+            const res = await api.get("/api/live?isLive=true");
+            const allStreams = Array.isArray(res.data)
+                ? res.data
+                : res.data?.streams || [];
 
-                    if (hoursSinceStart > 12) {
-                        api.post(`/api/live/${stream._id}/end`).catch(() => { });
-                        return false;
-                    }
+            const verifiedStreams = allStreams.filter((stream) => {
+                if (!stream.isLive) return false;
 
-                    const lastActivity = stream.updatedAt
-                        ? new Date(stream.updatedAt)
-                        : streamDate;
-                    const hoursSinceActivity =
-                        (Date.now() - lastActivity.getTime()) /
-                        (1000 * 60 * 60);
+                const streamDate = new Date(stream.startedAt || stream.createdAt);
+                const hoursSinceStart =
+                    (Date.now() - streamDate.getTime()) / (1000 * 60 * 60);
 
-                    if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
-                        api.post(`/api/live/${stream._id}/end`).catch(() => { });
-                        return false;
-                    }
+                // auto-cleanup zombie streams
+                if (hoursSinceStart > 12) {
+                    api.post(`/api/live/${stream._id}/end`).catch(() => { });
+                    return false;
+                }
 
-                    return true;
-                });
+                const lastActivity = stream.updatedAt
+                    ? new Date(stream.updatedAt)
+                    : streamDate;
+                const hoursSinceActivity =
+                    (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60);
 
-                setStreams(verifiedStreams);
-                if (showToast)
-                    toast.success(
-                        `Found ${verifiedStreams.length} live streams`
-                    );
-            } catch (err) {
-                console.error("Failed to fetch streams:", err);
-                setError("Failed to load streams");
-            } finally {
-                setLoading(false);
-                setIsRefreshing(false);
+                if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
+                    api.post(`/api/live/${stream._id}/end`).catch(() => { });
+                    return false;
+                }
+
+                return true;
+            });
+
+            setStreams(verifiedStreams);
+
+            if (showToast) {
+                toast.success(`Found ${verifiedStreams.length} live streams`);
             }
-        },
-        []
-    );
+        } catch (err) {
+            console.error("Failed to fetch streams:", err);
+            setError("Failed to load streams");
+        } finally {
+            setLoading(false);
+            setIsRefreshing(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (!hasFetched.current) {
@@ -349,6 +353,7 @@ export default function LiveDiscover() {
         }
     }, [fetchStreams]);
 
+    // Socket online/offline indicator
     useEffect(() => {
         const socket = socketRef.current;
         if (!socket) return;
@@ -366,16 +371,17 @@ export default function LiveDiscover() {
         };
     }, []);
 
+    // Socket live events
     useEffect(() => {
         const socket = socketRef.current;
         if (!socket) return;
 
         const handleStreamStarted = (data) => {
             toast.success(
-                `🔴 ${data.streamerName || data.username || "Someone"
-                } went live!`,
+                `🔴 ${data.streamerName || data.username || "Someone"} went live!`,
                 { duration: 5000, icon: "📺" }
             );
+
             setStreams((prev) => {
                 const exists = prev.some(
                     (s) =>
@@ -384,6 +390,7 @@ export default function LiveDiscover() {
                         s.streamId === data.streamId
                 );
                 if (exists) return prev;
+
                 return [
                     {
                         ...data,
@@ -449,6 +456,7 @@ export default function LiveDiscover() {
         };
     }, []);
 
+    // Periodic refresh
     useEffect(() => {
         const interval = setInterval(() => fetchStreams(), 30000);
         return () => clearInterval(interval);
@@ -459,6 +467,7 @@ export default function LiveDiscover() {
         await fetchStreams(true);
     };
 
+    // Filtering & sorting
     const filteredStreams = streams
         .filter((stream) => {
             if (
@@ -466,6 +475,7 @@ export default function LiveDiscover() {
                 stream.category !== selectedCategory
             )
                 return false;
+
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 const title = (stream.title || "").toLowerCase();
@@ -475,6 +485,7 @@ export default function LiveDiscover() {
                     stream.host?.username ||
                     ""
                 ).toLowerCase();
+
                 if (!title.includes(query) && !username.includes(query))
                     return false;
             }
@@ -489,7 +500,7 @@ export default function LiveDiscover() {
                         new Date(b.startedAt || b.createdAt) -
                         new Date(a.startedAt || a.createdAt)
                     );
-                case "trending":
+                case "trending": {
                     const aScore =
                         (a.viewers || 0) * 2 -
                         (Date.now() -
@@ -505,6 +516,7 @@ export default function LiveDiscover() {
                             ).getTime()) /
                         3600000;
                     return bScore - aScore;
+                }
                 default:
                     return 0;
             }
@@ -538,6 +550,9 @@ export default function LiveDiscover() {
         navigate("/go-live");
     };
 
+    /* ======================
+       RENDER STATES
+       ====================== */
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20">
@@ -569,8 +584,12 @@ export default function LiveDiscover() {
         );
     }
 
+    /* ======================
+       MAIN UI
+       ====================== */
     return (
         <div className="max-w-7xl mx-auto p-4 md:p-6 text-white">
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -635,6 +654,7 @@ export default function LiveDiscover() {
                 isConnected={isConnected}
             />
 
+            {/* Filters */}
             {showFilters && (
                 <div className="mb-6 p-4 bg-white/5 rounded-xl border border-white/10 animate-fadeIn">
                     <div className="mb-4">
@@ -702,6 +722,7 @@ export default function LiveDiscover() {
                 </div>
             )}
 
+            {/* Streams */}
             {filteredStreams.length === 0 ? (
                 <div className="text-center py-20">
                     <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
@@ -755,6 +776,7 @@ export default function LiveDiscover() {
                 </>
             )}
 
+            {/* CTA */}
             <div className="text-center py-12 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-blue-500/10 rounded-2xl border border-white/10">
                 <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center">
                     <Radio size={32} />
