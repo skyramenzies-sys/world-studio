@@ -1,6 +1,5 @@
 // backend/models/Stream.js
-// World-Studio.live - Stream Model
-// Core model for live streaming sessions
+// World-Studio.live - Stream Model (MASTER EDITION)
 
 const mongoose = require("mongoose");
 
@@ -9,327 +8,350 @@ const mongoose = require("mongoose");
 // ===========================================
 
 /**
- * Seat Schema - For multi-guest streams
+ * Seat Schema - For multi-guest streams (host, cohost, guests)
  */
-const SeatSchema = new mongoose.Schema({
-    userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
+const SeatSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
+        username: String,
+        avatar: String,
+        role: {
+            type: String,
+            enum: ["host", "cohost", "guest", "speaker"],
+            default: "guest",
+        },
+        isMuted: {
+            type: Boolean,
+            default: false,
+        },
+        isVideoOff: {
+            type: Boolean,
+            default: false,
+        },
+        joinedAt: {
+            type: Date,
+            default: Date.now,
+        },
+        leftAt: Date,
     },
-    username: String,
-    avatar: String,
-    role: {
-        type: String,
-        enum: ["host", "cohost", "guest", "speaker"],
-        default: "guest"
-    },
-    isMuted: {
-        type: Boolean,
-        default: false
-    },
-    isVideoOff: {
-        type: Boolean,
-        default: false
-    },
-    joinedAt: {
-        type: Date,
-        default: Date.now
-    },
-    leftAt: Date
-}, { _id: true });
+    { _id: true }
+);
 
 /**
- * Stream Gift Schema - Quick reference
+ * Stream Gift Schema - Quick reference for latest gifts
  */
-const StreamGiftSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    username: String,
-    giftType: String,
-    icon: String,
-    amount: Number,
-    coins: Number,
-    timestamp: { type: Date, default: Date.now }
-}, { _id: false });
+const StreamGiftSchema = new mongoose.Schema(
+    {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        username: String,
+        giftType: String,
+        icon: String,
+        amount: Number,
+        coins: Number,
+        timestamp: { type: Date, default: Date.now },
+    },
+    { _id: false }
+);
 
 /**
- * Viewer Record Schema
+ * Viewer Record Schema - For analytics and watch time
  */
-const ViewerRecordSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    username: String,
-    joinedAt: { type: Date, default: Date.now },
-    leftAt: Date,
-    watchTime: { type: Number, default: 0 }
-}, { _id: false });
+const ViewerRecordSchema = new mongoose.Schema(
+    {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        username: String,
+        joinedAt: { type: Date, default: Date.now },
+        leftAt: Date,
+        watchTime: { type: Number, default: 0 },
+    },
+    { _id: false }
+);
 
 // ===========================================
 // MAIN STREAM SCHEMA
 // ===========================================
-const StreamSchema = new mongoose.Schema({
-    // Stream Info
-    title: {
-        type: String,
-        required: true,
-        maxLength: 100,
-        trim: true
-    },
-    description: {
-        type: String,
-        maxLength: 500,
-        default: ""
-    },
 
-    // Streamer Info
-    streamerId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true,
-        index: true
-    },
-    streamerName: {
-        type: String,
-        required: true
-    },
-    streamerAvatar: {
-        type: String,
-        default: ""
-    },
-    isVerifiedStreamer: {
-        type: Boolean,
-        default: false
-    },
+const StreamSchema = new mongoose.Schema(
+    {
+        // Stream Info
+        title: {
+            type: String,
+            required: true,
+            maxLength: 100,
+            trim: true,
+        },
+        description: {
+            type: String,
+            maxLength: 500,
+            default: "",
+        },
 
-    // Room/Connection
-    roomId: {
-        type: String,
-        default: "",
-        index: true
-    },
-    streamKey: {
-        type: String,
-        unique: true,
-        sparse: true
-    },
+        // Streamer Info (HOST)
+        streamerId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+            index: true,
+        },
+        streamerName: {
+            type: String,
+            required: true,
+        },
+        streamerAvatar: {
+            type: String,
+            default: "",
+        },
+        isVerifiedStreamer: {
+            type: Boolean,
+            default: false,
+        },
 
-    // Category & Discovery
-    category: {
-        type: String,
-        default: "General",
-        index: true
-    },
-    tags: [{
-        type: String,
-        lowercase: true,
-        trim: true
-    }],
-    language: {
-        type: String,
-        default: "en"
-    },
+        // Room/Connection
+        roomId: {
+            type: String,
+            default: "",
+            index: true,
+        },
+        streamKey: {
+            type: String,
+            unique: true,
+            sparse: true,
+        },
 
-    // Media
-    coverImage: {
-        type: String,
-        default: ""
-    },
-    thumbnail: String,
-    previewGif: String,
+        // Category & Discovery
+        category: {
+            type: String,
+            default: "General",
+            index: true,
+        },
+        tags: [
+            {
+                type: String,
+                lowercase: true,
+                trim: true,
+            },
+        ],
+        language: {
+            type: String,
+            default: "en",
+        },
 
-    // Stream Type
-    type: {
-        type: String,
-        enum: ["solo", "multi", "multi-guest", "audio", "screen", "interview", "podcast"],
-        default: "solo"
-    },
-    mode: {
-        type: String,
-        enum: ["video", "audio", "screen"],
-        default: "video"
-    },
+        // Media
+        coverImage: {
+            type: String,
+            default: "",
+        },
+        thumbnail: String,
+        previewGif: String,
 
-    // Multi-Guest Settings
-    maxSeats: {
-        type: Number,
-        default: 1,
-        min: 1,
-        max: 12
-    },
-    seats: [SeatSchema],
-    guestRequests: [{
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        username: String,
-        avatar: String,
-        requestedAt: { type: Date, default: Date.now },
+        // Stream Type
+        type: {
+            type: String,
+            enum: ["solo", "multi", "multi-guest", "audio", "screen", "interview", "podcast"],
+            default: "solo",
+        },
+        mode: {
+            type: String,
+            enum: ["video", "audio", "screen"],
+            default: "video",
+        },
+
+        // Multi-Guest Settings
+        maxSeats: {
+            type: Number,
+            default: 1,
+            min: 1,
+            max: 12,
+        },
+        seats: [SeatSchema],
+        guestRequests: [
+            {
+                userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                username: String,
+                avatar: String,
+                requestedAt: { type: Date, default: Date.now },
+                status: {
+                    type: String,
+                    enum: ["pending", "accepted", "declined"],
+                    default: "pending",
+                },
+            },
+        ],
+
+        // Viewer Stats
+        viewers: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        peakViewers: {
+            type: Number,
+            default: 0,
+        },
+        totalUniqueViewers: {
+            type: Number,
+            default: 0,
+        },
+        viewerList: [ViewerRecordSchema],
+
+        // Stream Status
+        isLive: {
+            type: Boolean,
+            default: true,
+            index: true,
+        },
         status: {
             type: String,
-            enum: ["pending", "accepted", "declined"],
-            default: "pending"
-        }
-    }],
+            enum: ["preparing", "live", "paused", "ended", "cancelled"],
+            default: "live",
+        },
 
-    // Viewer Stats
-    viewers: {
-        type: Number,
-        default: 0,
-        min: 0
-    },
-    peakViewers: {
-        type: Number,
-        default: 0
-    },
-    totalUniqueViewers: {
-        type: Number,
-        default: 0
-    },
-    viewerList: [ViewerRecordSchema],
+        // Timing
+        startedAt: {
+            type: Date,
+            default: Date.now,
+            index: true,
+        },
+        endedAt: {
+            type: Date,
+        },
+        duration: {
+            type: Number,
+            default: 0, // seconds
+        },
+        scheduledFor: Date,
 
-    // Stream Status
-    isLive: {
-        type: Boolean,
-        default: true,
-        index: true
-    },
-    status: {
-        type: String,
-        enum: ["preparing", "live", "paused", "ended", "cancelled"],
-        default: "live"
-    },
+        // Monetization
+        totalGifts: {
+            type: Number,
+            default: 0,
+        },
+        totalGiftsCount: {
+            type: Number,
+            default: 0,
+        },
+        topGifters: [
+            {
+                userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                username: String,
+                avatar: String,
+                total: Number,
+            },
+        ],
+        recentGifts: [StreamGiftSchema],
+        giftsEnabled: {
+            type: Boolean,
+            default: true,
+        },
 
-    // Timing
-    startedAt: {
-        type: Date,
-        default: Date.now,
-        index: true
-    },
-    endedAt: {
-        type: Date
-    },
-    duration: {
-        type: Number,
-        default: 0 // seconds
-    },
-    scheduledFor: Date,
+        // Chat Settings
+        chatEnabled: {
+            type: Boolean,
+            default: true,
+        },
+        chatSlowMode: {
+            type: Number,
+            default: 0, // seconds, 0 = off
+        },
+        chatFollowersOnly: {
+            type: Boolean,
+            default: false,
+        },
 
-    // Monetization
-    totalGifts: {
-        type: Number,
-        default: 0
-    },
-    totalGiftsCount: {
-        type: Number,
-        default: 0
-    },
-    topGifters: [{
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        username: String,
-        avatar: String,
-        total: Number
-    }],
-    recentGifts: [StreamGiftSchema],
-    giftsEnabled: {
-        type: Boolean,
-        default: true
-    },
+        // Privacy
+        privacy: {
+            type: String,
+            enum: ["public", "followers", "subscribers", "private"],
+            default: "public",
+        },
+        password: String,
+        ageRestricted: {
+            type: Boolean,
+            default: false,
+        },
 
-    // Chat Settings
-    chatEnabled: {
-        type: Boolean,
-        default: true
-    },
-    chatSlowMode: {
-        type: Number,
-        default: 0 // seconds, 0 = off
-    },
-    chatFollowersOnly: {
-        type: Boolean,
-        default: false
-    },
+        // Quality
+        quality: {
+            type: String,
+            enum: ["360p", "480p", "720p", "1080p", "auto"],
+            default: "720p",
+        },
+        bitrate: Number,
 
-    // Privacy
-    privacy: {
-        type: String,
-        enum: ["public", "followers", "subscribers", "private"],
-        default: "public"
-    },
-    password: String,
-    ageRestricted: {
-        type: Boolean,
-        default: false
-    },
+        // Recording
+        isRecording: {
+            type: Boolean,
+            default: false,
+        },
+        recordingUrl: String,
 
-    // Quality
-    quality: {
-        type: String,
-        enum: ["360p", "480p", "720p", "1080p", "auto"],
-        default: "720p"
-    },
-    bitrate: Number,
+        // PK Battle
+        pkBattle: {
+            isInPK: { type: Boolean, default: false },
+            pkId: { type: mongoose.Schema.Types.ObjectId, ref: "PK" },
+            opponentId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+            opponentName: String,
+            myScore: { type: Number, default: 0 },
+            opponentScore: { type: Number, default: 0 },
+        },
 
-    // Recording
-    isRecording: {
-        type: Boolean,
-        default: false
-    },
-    recordingUrl: String,
+        // Moderation
+        moderators: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
+        bannedUsers: [
+            {
+                userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                username: String,
+                reason: String,
+                bannedAt: { type: Date, default: Date.now },
+                expiresAt: Date,
+            },
+        ],
+        blockedWords: [String],
 
-    // PK Battle
-    pkBattle: {
-        isInPK: { type: Boolean, default: false },
-        pkId: { type: mongoose.Schema.Types.ObjectId, ref: "PK" },
-        opponentId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        opponentName: String,
-        myScore: { type: Number, default: 0 },
-        opponentScore: { type: Number, default: 0 }
-    },
+        // Featured
+        isFeatured: {
+            type: Boolean,
+            default: false,
+            index: true,
+        },
+        featuredUntil: Date,
 
-    // Moderation
-    moderators: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    }],
-    bannedUsers: [{
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        username: String,
-        reason: String,
-        bannedAt: { type: Date, default: Date.now },
-        expiresAt: Date
-    }],
-    blockedWords: [String],
+        // Analytics
+        likes: {
+            type: Number,
+            default: 0,
+        },
+        shares: {
+            type: Number,
+            default: 0,
+        },
+        avgWatchTime: {
+            type: Number,
+            default: 0,
+        },
 
-    // Featured
-    isFeatured: {
-        type: Boolean,
-        default: false,
-        index: true
+        // Technical
+        hlsUrl: String,
+        rtmpUrl: String,
+        webrtcEnabled: {
+            type: Boolean,
+            default: true,
+        },
     },
-    featuredUntil: Date,
-
-    // Analytics
-    likes: {
-        type: Number,
-        default: 0
-    },
-    shares: {
-        type: Number,
-        default: 0
-    },
-    avgWatchTime: {
-        type: Number,
-        default: 0
-    },
-
-    // Technical
-    hlsUrl: String,
-    rtmpUrl: String,
-    webrtcEnabled: {
-        type: Boolean,
-        default: true
+    {
+        timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true },
     }
-}, {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
-});
+);
 
 // ===========================================
 // INDEXES
@@ -347,12 +369,24 @@ StreamSchema.index({ "pkBattle.isInPK": 1 });
 StreamSchema.index({
     title: "text",
     streamerName: "text",
-    tags: "text"
+    tags: "text",
 });
 
 // ===========================================
 // VIRTUALS
 // ===========================================
+
+/**
+ * Host virtual (for .populate("host"))
+ * This fixes StrictPopulateError for path `host`
+ * by mapping it to streamerId -> User.
+ */
+StreamSchema.virtual("host", {
+    ref: "User",
+    localField: "streamerId",
+    foreignField: "_id",
+    justOne: true,
+});
 
 // Stream URL
 StreamSchema.virtual("streamUrl").get(function () {
@@ -367,7 +401,9 @@ StreamSchema.virtual("durationFormatted").get(function () {
     const seconds = duration % 60;
 
     if (hours > 0) {
-        return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+        return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds
+            .toString()
+            .padStart(2, "0")}`;
     }
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 });
@@ -381,7 +417,7 @@ StreamSchema.virtual("liveDuration").get(function () {
 
 // Seats available
 StreamSchema.virtual("seatsAvailable").get(function () {
-    const occupied = this.seats?.filter(s => !s.leftAt).length || 0;
+    const occupied = this.seats?.filter((s) => !s.leftAt).length || 0;
     return this.maxSeats - occupied;
 });
 
@@ -422,7 +458,7 @@ StreamSchema.pre("save", function (next) {
 // ===========================================
 
 /**
- * Get live streams
+ * Get live streams for discovery
  */
 StreamSchema.statics.getLiveStreams = async function (options = {}) {
     const {
@@ -431,7 +467,7 @@ StreamSchema.statics.getLiveStreams = async function (options = {}) {
         limit = 20,
         skip = 0,
         sortBy = "viewers",
-        featured = false
+        featured = false,
     } = options;
 
     const query = { isLive: true, status: "live" };
@@ -443,7 +479,7 @@ StreamSchema.statics.getLiveStreams = async function (options = {}) {
     const sortOptions = {
         viewers: { viewers: -1 },
         recent: { startedAt: -1 },
-        gifts: { totalGifts: -1 }
+        gifts: { totalGifts: -1 },
     };
 
     return this.find(query)
@@ -470,7 +506,7 @@ StreamSchema.statics.getByRoomId = async function (roomId) {
 StreamSchema.statics.getUserActiveStream = async function (userId) {
     return this.findOne({
         streamerId: userId,
-        isLive: true
+        isLive: true,
     });
 };
 
@@ -498,14 +534,14 @@ StreamSchema.statics.addGift = async function (streamId, gift) {
         {
             $inc: {
                 totalGifts: gift.coins || gift.amount,
-                totalGiftsCount: 1
+                totalGiftsCount: 1,
             },
             $push: {
                 recentGifts: {
                     $each: [gift],
-                    $slice: -50 // Keep last 50
-                }
-            }
+                    $slice: -50, // Keep last 50
+                },
+            },
         },
         { new: true }
     );
@@ -525,8 +561,13 @@ StreamSchema.statics.endStream = async function (streamId) {
 
     // Calculate avg watch time
     if (stream.viewerList?.length > 0) {
-        const totalWatchTime = stream.viewerList.reduce((sum, v) => sum + (v.watchTime || 0), 0);
-        stream.avgWatchTime = Math.floor(totalWatchTime / stream.viewerList.length);
+        const totalWatchTime = stream.viewerList.reduce(
+            (sum, v) => sum + (v.watchTime || 0),
+            0
+        );
+        stream.avgWatchTime = Math.floor(
+            totalWatchTime / stream.viewerList.length
+        );
     }
 
     return stream.save();
@@ -538,8 +579,14 @@ StreamSchema.statics.endStream = async function (streamId) {
 StreamSchema.statics.getCategoryCounts = async function () {
     return this.aggregate([
         { $match: { isLive: true } },
-        { $group: { _id: "$category", count: { $sum: 1 }, viewers: { $sum: "$viewers" } } },
-        { $sort: { viewers: -1 } }
+        {
+            $group: {
+                _id: "$category",
+                count: { $sum: 1 },
+                viewers: { $sum: "$viewers" },
+            },
+        },
+        { $sort: { viewers: -1 } },
     ]);
 };
 
@@ -549,7 +596,7 @@ StreamSchema.statics.getCategoryCounts = async function () {
 StreamSchema.statics.searchStreams = async function (query, limit = 20) {
     return this.find({
         $text: { $search: query },
-        isLive: true
+        isLive: true,
     })
         .sort({ score: { $meta: "textScore" } })
         .limit(limit)
@@ -597,7 +644,7 @@ StreamSchema.methods.addGuest = async function (userId, username, avatar) {
         username,
         avatar,
         role: "guest",
-        joinedAt: new Date()
+        joinedAt: new Date(),
     });
 
     return this.save();
@@ -607,8 +654,9 @@ StreamSchema.methods.addGuest = async function (userId, username, avatar) {
  * Remove guest from seat
  */
 StreamSchema.methods.removeGuest = async function (userId) {
-    const seat = this.seats.find(s =>
-        s.userId?.toString() === userId.toString() && !s.leftAt
+    const seat = this.seats.find(
+        (s) =>
+            s.userId?.toString() === userId.toString() && !s.leftAt
     );
 
     if (seat) {
@@ -621,13 +669,20 @@ StreamSchema.methods.removeGuest = async function (userId) {
 /**
  * Ban user from stream
  */
-StreamSchema.methods.banUser = async function (userId, username, reason, duration = null) {
+StreamSchema.methods.banUser = async function (
+    userId,
+    username,
+    reason,
+    duration = null
+) {
     this.bannedUsers.push({
         userId,
         username,
         reason,
         bannedAt: new Date(),
-        expiresAt: duration ? new Date(Date.now() + duration * 1000) : null
+        expiresAt: duration
+            ? new Date(Date.now() + duration * 1000)
+            : null,
     });
     return this.save();
 };
@@ -636,8 +691,8 @@ StreamSchema.methods.banUser = async function (userId, username, reason, duratio
  * Check if user is banned
  */
 StreamSchema.methods.isUserBanned = function (userId) {
-    const ban = this.bannedUsers.find(b =>
-        b.userId?.toString() === userId.toString()
+    const ban = this.bannedUsers.find(
+        (b) => b.userId?.toString() === userId.toString()
     );
 
     if (!ban) return false;
@@ -660,7 +715,9 @@ StreamSchema.methods.addModerator = async function (userId) {
  * Check if user is moderator
  */
 StreamSchema.methods.isModerator = function (userId) {
-    return this.moderators.some(m => m.toString() === userId.toString());
+    return this.moderators.some(
+        (m) => m.toString() === userId.toString()
+    );
 };
 
 // ===========================================
