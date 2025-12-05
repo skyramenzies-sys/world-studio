@@ -37,10 +37,10 @@ app.use(
     })
 );
 
-// Rate limiting (iets strenger in productie)
+// Rate limiting
 app.use(
     rateLimit({
-        windowMs: 15 * 60 * 1000,     // 15 minutes
+        windowMs: 15 * 60 * 1000, // 15 minutes
         max: isProduction ? 500 : 2000,
         standardHeaders: true,
         legacyHeaders: false,
@@ -93,10 +93,10 @@ const io = new Server(server, {
 app.set("io", io);
 
 // Socket state management
-io.broadcasters = new Map();     // roomId -> socketId
-io.viewerCounts = new Map();     // roomId -> count
-io.multiRooms = new Map();       // roomId -> room data
-io.userSockets = new Map();      // userId -> socketId
+io.broadcasters = new Map(); // roomId -> socketId
+io.viewerCounts = new Map(); // roomId -> count
+io.multiRooms = new Map();   // roomId -> room data
+io.userSockets = new Map();  // userId -> socketId
 
 // ============================================
 // 4. HEALTH & BASIC ROUTES
@@ -105,7 +105,9 @@ app.get("/healthz", (req, res) =>
     res.status(200).json({ status: "ok" })
 );
 app.get("/health", (req, res) =>
-    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
+    res
+        .status(200)
+        .json({ status: "ok", timestamp: new Date().toISOString() })
 );
 app.get("/", (req, res) =>
     res.json({
@@ -140,16 +142,36 @@ app.use("/api/live-analytics", require("./routes/LiveAnalytics"));
 app.use("/api/pk", require("./routes/pk"));
 
 // Admin & Utilities
-app.use("/api/admin", require("./routes/admin"));
+const adminRoutes = require("./routes/admin");
+app.use("/api/admin", adminRoutes);
+// Compat voor frontend-calls zoals /admin/users, /admin/stats, etc.
+app.use("/admin", adminRoutes);
+
 app.use("/api/stocks", require("./routes/stocks"));
 app.use("/api/cleanup", require("./routes/cleanupRoutes"));
 
-// Optional routes (wrap in try-catch for missing files)
-try { app.use("/api/stream-cleanup", require("./routes/streamCleanupRoutes")); } catch (e) { }
-try { app.use("/api/admin-dashboard", require("./routes/adminDashboard")); } catch (e) { }
-try { app.use("/api/notifications", require("./routes/notifications")); } catch (e) { }
-try { app.use("/api/search", require("./routes/search")); } catch (e) { }
-try { app.use("/api/predictions", require("./routes/predictions")); } catch (e) { }
+// Optional routes (misschien nog niet aanwezig)
+try {
+    app.use(
+        "/api/stream-cleanup",
+        require("./routes/streamCleanupRoutes")
+    );
+} catch (e) { }
+try {
+    app.use(
+        "/api/admin-dashboard",
+        require("./routes/adminDashboard")
+    );
+} catch (e) { }
+try {
+    app.use("/api/notifications", require("./routes/notifications"));
+} catch (e) { }
+try {
+    app.use("/api/search", require("./routes/search"));
+} catch (e) { }
+try {
+    app.use("/api/predictions", require("./routes/predictions"));
+} catch (e) { }
 
 // 404 handler for API routes
 app.use((req, res, next) => {
@@ -173,24 +195,45 @@ app.use((err, req, res, next) => {
 
 /**
  * End a stream in the database
+ * - Mark stream as ended
+ * - Mark streamer user as offline (isLive=false, currentStreamId=null)
  */
 const endStreamInDB = async (streamId) => {
     if (!streamId || !Stream) return;
+
     try {
-        const query = mongoose.Types.ObjectId.isValid(streamId)
+        const baseQuery = mongoose.Types.ObjectId.isValid(streamId)
             ? { $or: [{ _id: streamId }, { roomId: streamId }] }
             : { roomId: streamId };
 
-        await Stream.updateOne(
-            { ...query, isLive: true },
-            {
-                $set: {
-                    isLive: false,
-                    status: "ended",
-                    endedAt: new Date(),
-                },
-            }
-        );
+        // Actieve stream zoeken
+        const stream = await Stream.findOne({
+            ...baseQuery,
+            isLive: true,
+            status: { $in: ["live", "scheduled"] },
+        });
+
+        if (!stream) return;
+
+        // 1️⃣ Stream beëindigen
+        stream.isLive = false;
+        stream.status = "ended";
+        stream.endedAt = new Date();
+        await stream.save();
+
+        // 2️⃣ Streamer offline zetten
+        if (User && stream.streamerId) {
+            await User.updateOne(
+                { _id: stream.streamerId },
+                {
+                    $set: {
+                        isLive: false,
+                        currentStreamId: null,
+                        lastStreamedAt: new Date(),
+                    },
+                }
+            );
+        }
     } catch (err) {
         console.error("❌ End stream error:", err);
     }
@@ -199,7 +242,7 @@ const endStreamInDB = async (streamId) => {
 /**
  * Get room by ID from any collection
  */
-const getRoom = (roomId) => io.multiRooms.get(roomId); // (nu nog niet gebruikt, maar netjes gehouden)
+const getRoom = (roomId) => io.multiRooms.get(roomId); // (nu nog niet gebruikt)
 
 // ============================================
 // 7. SOCKET HANDLERS
@@ -239,53 +282,63 @@ io.on("connection", (socket) => {
 
     // ========== BROADCASTING ==========
 
-    socket.on("start_broadcast", async ({ roomId, streamer, title, category, streamerId }) => {
-        if (!roomId) return;
+    socket.on(
+        "start_broadcast",
+        async ({ roomId, streamer, title, category, streamerId }) => {
+            if (!roomId) return;
 
-        io.broadcasters.set(roomId, socket.id);
-        socket.join(roomId);
-        socket.currentStreamId = roomId;
-        io.viewerCounts.set(roomId, 0);
+            io.broadcasters.set(roomId, socket.id);
+            socket.join(roomId);
+            socket.currentStreamId = roomId;
+            io.viewerCounts.set(roomId, 0);
 
-        console.log(`📺 Broadcast started: ${title} by ${streamer}`);
+            console.log(`📺 Broadcast started: ${title} by ${streamer}`);
 
-        try {
-            if (streamerId) {
-                const user = await User.findById(streamerId)
-                    .select("followers username avatar")
-                    .lean();
+            try {
+                if (streamerId) {
+                    const user = await User.findById(streamerId)
+                        .select("followers username avatar")
+                        .lean();
 
-                if (user?.followers?.length > 0) {
-                    // Notify followers
-                    user.followers.forEach((fid) => {
-                        io.to(`user_${fid}`).emit("followed_user_live", {
-                            streamId: roomId,
-                            username: streamer,
-                            avatar: user.avatar,
-                            title,
-                            category,
-                            streamerId,
+                    if (user?.followers?.length > 0) {
+                        // Notify followers
+                        user.followers.forEach((fid) => {
+                            io.to(`user_${fid}`).emit(
+                                "followed_user_live",
+                                {
+                                    streamId: roomId,
+                                    username: streamer,
+                                    avatar: user.avatar,
+                                    title,
+                                    category,
+                                    streamerId,
+                                }
+                            );
                         });
+                    }
+
+                    // Broadcast naar alle clients
+                    io.emit("live_started", {
+                        _id: roomId,
+                        roomId,
+                        title,
+                        category,
+                        streamerId,
+                        streamerName: streamer,
+                        host: {
+                            _id: streamerId,
+                            username: streamer,
+                            avatar: user?.avatar,
+                        },
+                        viewers: 0,
+                        isLive: true,
                     });
                 }
-
-                // Broadcast to all
-                io.emit("live_started", {
-                    _id: roomId,
-                    roomId,
-                    title,
-                    category,
-                    streamerId,
-                    streamerName: streamer,
-                    host: { _id: streamerId, username: streamer, avatar: user?.avatar },
-                    viewers: 0,
-                    isLive: true,
-                });
+            } catch (err) {
+                console.error("❌ Notify followers error:", err);
             }
-        } catch (err) {
-            console.error("❌ Notify followers error:", err);
         }
-    });
+    );
 
     socket.on("stop_broadcast", async ({ roomId }) => {
         if (!roomId) return;
@@ -318,7 +371,10 @@ io.on("connection", (socket) => {
         if (!roomId) return;
 
         socket.leave(roomId);
-        const count = Math.max(0, (io.viewerCounts.get(roomId) || 1) - 1);
+        const count = Math.max(
+            0,
+            (io.viewerCounts.get(roomId) || 1) - 1
+        );
         io.viewerCounts.set(roomId, count);
         io.to(roomId).emit("viewer_count", { viewers: count, count });
     });
@@ -382,40 +438,45 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("viewers_list", { viewers: room.viewers });
     });
 
-    socket.on("start_multi_live", ({ roomId, streamId, host, title, maxSeats }) => {
-        if (!roomId) return;
+    socket.on(
+        "start_multi_live",
+        ({ roomId, streamId, host, title, maxSeats }) => {
+            if (!roomId) return;
 
-        io.multiRooms.set(roomId, {
-            hostId: socket.id,
-            host,
-            title,
-            maxSeats: maxSeats || 6,
-            seats: [
-                {
-                    seatId: 0,
-                    user: host,
-                    socketId: socket.id,
-                },
-            ],
-            streamId,
-            viewers: [
-                {
-                    _id: host._id,
-                    username: host.username,
-                    avatar: host.avatar,
-                },
-            ],
-        });
+            io.multiRooms.set(roomId, {
+                hostId: socket.id,
+                host,
+                title,
+                maxSeats: maxSeats || 6,
+                seats: [
+                    {
+                        seatId: 0,
+                        user: host,
+                        socketId: socket.id,
+                    },
+                ],
+                streamId,
+                viewers: [
+                    {
+                        _id: host._id,
+                        username: host.username,
+                        avatar: host.avatar,
+                    },
+                ],
+            });
 
-        socket.join(roomId);
-        socket.roomId = roomId;
-        socket.userData = host;
-        socket.currentStreamId = streamId;
-        io.viewerCounts.set(roomId, 1);
+            socket.join(roomId);
+            socket.roomId = roomId;
+            socket.userData = host;
+            socket.currentStreamId = streamId;
+            io.viewerCounts.set(roomId, 1);
 
-        io.to(roomId).emit("viewers_list", { viewers: [host] });
-        console.log(`🎭 Multi-live started: ${title} by ${host.username}`);
-    });
+            io.to(roomId).emit("viewers_list", { viewers: [host] });
+            console.log(
+                `🎭 Multi-live started: ${title} by ${host.username}`
+            );
+        }
+    );
 
     socket.on("request_seat", ({ roomId, seatId, user, odId }) => {
         const room = io.multiRooms.get(roomId);
@@ -454,7 +515,9 @@ io.on("connection", (socket) => {
     socket.on("leave_seat", ({ roomId, odId }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
-            room.seats = room.seats.filter((s) => s.user?._id !== odId);
+            room.seats = room.seats.filter(
+                (s) => s.user?._id !== odId
+            );
             io.to(roomId).emit("user_left_seat", { roomId, odId });
             io.to(roomId).emit("seats_update", { seats: room.seats });
         }
@@ -463,7 +526,9 @@ io.on("connection", (socket) => {
     socket.on("kick_from_seat", ({ roomId, odId }) => {
         const room = io.multiRooms.get(roomId);
         if (room) {
-            room.seats = room.seats.filter((s) => s.user?._id !== odId);
+            room.seats = room.seats.filter(
+                (s) => s.user?._id !== odId
+            );
             io.to(roomId).emit("user_left_seat", { roomId, odId });
 
             for (const [, s] of io.sockets.sockets) {
@@ -506,14 +571,21 @@ io.on("connection", (socket) => {
         }
     });
 
-    socket.on("multi_ice_candidate", ({ roomId, targetId, candidate, fromId }) => {
-        for (const [, s] of io.sockets.sockets) {
-            if (s.userData?._id === targetId) {
-                s.emit("multi_ice_candidate", { roomId, candidate, fromId });
-                break;
+    socket.on(
+        "multi_ice_candidate",
+        ({ roomId, targetId, candidate, fromId }) => {
+            for (const [, s] of io.sockets.sockets) {
+                if (s.userData?._id === targetId) {
+                    s.emit("multi_ice_candidate", {
+                        roomId,
+                        candidate,
+                        fromId,
+                    });
+                    break;
+                }
             }
         }
-    });
+    );
 
     socket.on("end_multi_live", async ({ roomId }) => {
         const room = io.multiRooms.get(roomId);
@@ -531,18 +603,27 @@ io.on("connection", (socket) => {
         if (!roomId) return;
 
         socket.leave(roomId);
-        const count = Math.max(0, (io.viewerCounts.get(roomId) || 1) - 1);
+        const count = Math.max(
+            0,
+            (io.viewerCounts.get(roomId) || 1) - 1
+        );
         io.viewerCounts.set(roomId, count);
         io.to(roomId).emit("viewer_count", { count });
 
         const room = io.multiRooms.get(roomId);
         if (room) {
             if (room.viewers && odId) {
-                room.viewers = room.viewers.filter((v) => v._id !== odId);
-                io.to(roomId).emit("viewers_list", { viewers: room.viewers });
+                room.viewers = room.viewers.filter(
+                    (v) => v._id !== odId
+                );
+                io.to(roomId).emit("viewers_list", {
+                    viewers: room.viewers,
+                });
             }
             if (odId && room.seats?.some((s) => s.user?._id === odId)) {
-                room.seats = room.seats.filter((s) => s.user?._id !== odId);
+                room.seats = room.seats.filter(
+                    (s) => s.user?._id !== odId
+                );
                 io.to(roomId).emit("user_left_seat", { roomId, odId });
             }
         }
@@ -652,7 +733,9 @@ io.on("connection", (socket) => {
                         (io.viewerCounts.get(socket.roomId) || 1) - 1
                     );
                     io.viewerCounts.set(socket.roomId, count);
-                    io.to(socket.roomId).emit("viewer_count", { count });
+                    io.to(socket.roomId).emit("viewer_count", {
+                        count,
+                    });
                 }
             }
         }
@@ -689,8 +772,10 @@ mongoose
             console.log("╔════════════════════════════════════════╗");
             console.log("║  🚀 WORLD-STUDIO SERVER                ║");
             console.log("╠════════════════════════════════════════╣");
-            console.log(`║  Port: ${PORT}                            ║`);
-            console.log(`║  Mode: ${process.env.NODE_ENV || "development"}                   ║`);
+            console.log(`║  Port: ${PORT}                          ║`);
+            console.log(
+                `║  Mode: ${process.env.NODE_ENV || "development"}                   ║`
+            );
             console.log("║  URL:  https://world-studio.live       ║");
             console.log("╚════════════════════════════════════════╝");
         });
@@ -723,7 +808,7 @@ const gracefulShutdown = async (signal) => {
             });
         });
 
-        // 3️⃣ Close MongoDB (NO CALLBACK — NEW STYLE)
+        // 3️⃣ Close MongoDB
         await mongoose.connection.close();
         console.log("✅ MongoDB connection closed");
 

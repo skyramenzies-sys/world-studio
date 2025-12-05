@@ -1,5 +1,5 @@
 // backend/routes/Live.js
-// World-Studio.live - Live Streaming Routes (MASTER)
+// World-Studio.live - Live Streaming Routes (UNIVERSE EDITION)
 // Handles stream creation, discovery, management and analytics
 
 const express = require("express");
@@ -14,9 +14,7 @@ const auth = require("../middleware/authMiddleware");
 // HELPERS
 // ===========================================
 
-/**
- * Safe ObjectId creation
- */
+
 const safeId = (id) => {
     if (!id) return null;
     return mongoose.Types.ObjectId.isValid(id)
@@ -24,16 +22,12 @@ const safeId = (id) => {
         : null;
 };
 
-/**
- * Generate unique room ID
- */
+
 const generateRoomId = () => {
     return `stream_${new mongoose.Types.ObjectId().toString()}_${Date.now()}`;
 };
 
-/**
- * Generate stream key
- */
+
 const generateStreamKey = (userId) => {
     const random = Math.random().toString(36).substring(2, 15);
     return `sk_live_${userId}_${random}`;
@@ -70,7 +64,7 @@ router.get("/", async (req, res) => {
         const sort = sortOptions[sortBy] || { viewers: -1 };
 
         const streams = await Stream.find(query)
-            // virtual "host" komt uit StreamSchema.virtual("host")
+
             .populate("host", "username avatar isVerified")
             .populate("streamerId", "username avatar isVerified")
             .select("-viewerList -bannedUsers -blockedWords")
@@ -86,7 +80,7 @@ router.get("/", async (req, res) => {
 /**
  * BACKWARDS COMPAT ENDPOINT
  * GET /api/live/streams
- * Voor oude frontend / oude bundles die nog /streams gebruiken
+ * Deprecated: use /api/live/?islive=true&sortBy=vievers
  */
 router.get("/streams", async (req, res) => {
     try {
@@ -103,6 +97,66 @@ router.get("/streams", async (req, res) => {
     } catch (err) {
         console.error("❌ DISCOVERY ERROR /api/live/streams:", err);
         return res.status(500).json({ error: "Failed to load streams" });
+    }
+});
+
+// ===========================================
+// USER LIVE STATUS
+// Frontend call: GET /api/live/user/:userId/status
+// ===========================================
+
+router.get("/user/:userId/status", async (req, res) => {
+    try {
+        const userId = safeId(req.params.userId);
+        if (!userId) {
+            return res.status(400).json({ error: "Invalid user id" });
+        }
+
+        // Zoek actieve stream voor deze user
+        const stream = await Stream.findOne({
+            streamerId: userId,
+            isLive: true,
+            status: "live",
+        })
+            .select("title category roomId viewers startedAt thumbnail coverImage")
+            .lean();
+
+        if (!stream) {
+            // Optioneel: user info erbij
+            const user = await User.findById(userId)
+                .select("isLive currentStreamId lastStreamedAt username avatar")
+                .lean();
+
+            return res.json({
+                isLive: !!user?.isLive && !!user?.currentStreamId, // maar geen echte actieve stream gevonden
+                live: false,
+                stream: null,
+                user: user || null,
+            });
+        }
+
+        // Als er een actieve stream is
+        const user = await User.findById(userId)
+            .select("username avatar isVerified")
+            .lean();
+
+        return res.json({
+            isLive: true,
+            live: true,
+            stream: {
+                streamId: stream._id,
+                roomId: stream.roomId,
+                title: stream.title,
+                category: stream.category,
+                viewers: stream.viewers || 0,
+                startedAt: stream.startedAt,
+                coverImage: stream.coverImage || stream.thumbnail || "",
+            },
+            user: user || null,
+        });
+    } catch (err) {
+        console.error("❌ ERROR /api/live/user/:userId/status:", err);
+        return res.status(500).json({ error: "Failed to get live status" });
     }
 });
 
@@ -141,6 +195,13 @@ router.post("/start", auth, async (req, res) => {
         });
 
         if (existing) {
+            // Zorg dat user flags in sync zijn
+            if (!user.isLive || !user.currentStreamId) {
+                user.isLive = true;
+                user.currentStreamId = existing._id;
+                user.lastStreamedAt = user.lastStreamedAt || new Date();
+                await user.save();
+            }
             return res.json(existing);
         }
 
@@ -169,6 +230,12 @@ router.post("/start", auth, async (req, res) => {
         });
 
         await stream.save();
+
+        // User live-status updaten
+        user.isLive = true;
+        user.currentStreamId = stream._id;
+        user.lastStreamedAt = new Date();
+        await user.save();
 
         return res.status(201).json(stream);
     } catch (err) {
@@ -241,7 +308,24 @@ router.post("/:id/end", auth, async (req, res) => {
                 .json({ error: "Not allowed to end this stream" });
         }
 
-        await Stream.endStream(stream._id);
+        stream.isLive = false;
+        stream.status = "ended";
+        stream.endedAt = new Date();
+        await stream.save();
+
+        // User live-status resetten
+        if (stream.streamerId) {
+            await User.updateOne(
+                { _id: stream.streamerId },
+                {
+                    $set: {
+                        isLive: false,
+                        currentStreamId: null,
+                        lastStreamedAt: new Date(),
+                    },
+                }
+            );
+        }
 
         return res.json({ success: true });
     } catch (err) {
