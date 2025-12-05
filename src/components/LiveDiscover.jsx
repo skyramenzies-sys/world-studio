@@ -48,9 +48,9 @@ const SORT_OPTIONS = [
     { id: "trending", label: "Trending", icon: "🔥" },
 ];
 
-/* ============================================================
-   STREAM CARD
-   ============================================================ */
+// ------------------------------------------------------------
+// Stream Card Component
+// ------------------------------------------------------------
 const StreamCard = ({ stream, onClick }) => {
     const viewers = stream.viewers || stream.viewerCount || 0;
     const username =
@@ -114,7 +114,8 @@ const StreamCard = ({ stream, onClick }) => {
                     </span>
                 </div>
                 <div className="absolute top-3 right-3 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full">
-                    {CATEGORIES.find((c) => c.id === category)?.icon || "✨"}{" "}
+                    {CATEGORIES.find((c) => c.id === category)?.icon ||
+                        "✨"}{" "}
                     {category}
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
@@ -151,9 +152,9 @@ const StreamCard = ({ stream, onClick }) => {
     );
 };
 
-/* ============================================================
-   FEATURED STREAM
-   ============================================================ */
+// ------------------------------------------------------------
+// Featured Stream Component
+// ------------------------------------------------------------
 const FeaturedStream = ({ stream, onClick }) => {
     if (!stream) return null;
     const viewers = stream.viewers || 0;
@@ -228,14 +229,15 @@ const FeaturedStream = ({ stream, onClick }) => {
     );
 };
 
-/* ============================================================
-   STATS BAR
-   ============================================================ */
+// ------------------------------------------------------------
+// Stats Bar Component
+// ------------------------------------------------------------
 const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
     <div className="flex items-center gap-4 mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
         <div className="flex items-center gap-2">
             <div
-                className={`w-3 h-3 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
+                className={`w-3 h-3 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
+                    }`}
             />
             <span className="text-white/60 text-sm">
                 {isConnected ? "Connected" : "Reconnecting..."}
@@ -280,17 +282,19 @@ export default function LiveDiscover() {
     // Socket init
     useEffect(() => {
         socketRef.current = getSocket();
-        return () => { };
+        return () => {
+            // singleton: niet disconnecten
+        };
     }, []);
 
-    // Load current user
+    // Load user
     useEffect(() => {
         const storedUser = localStorage.getItem("ws_currentUser");
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
-            } catch {
-                /* ignore */
+            } catch (e) {
+                // ignore
             }
         }
     }, []);
@@ -299,7 +303,7 @@ export default function LiveDiscover() {
     const fetchStreams = useCallback(async (showToast = false) => {
         try {
             setError(null);
-
+            // Nieuwe backend endpoint:
             const res = await api.get("/api/live?isLive=true");
             const allStreams = Array.isArray(res.data)
                 ? res.data
@@ -308,11 +312,14 @@ export default function LiveDiscover() {
             const verifiedStreams = allStreams.filter((stream) => {
                 if (!stream.isLive) return false;
 
-                const streamDate = new Date(stream.startedAt || stream.createdAt);
+                const streamDate = new Date(
+                    stream.startedAt || stream.createdAt
+                );
                 const hoursSinceStart =
-                    (Date.now() - streamDate.getTime()) / (1000 * 60 * 60);
+                    (Date.now() - streamDate.getTime()) /
+                    (1000 * 60 * 60);
 
-                // auto-cleanup zombie streams
+                // Auto-clean oude zombie streams
                 if (hoursSinceStart > 12) {
                     api.post(`/api/live/${stream._id}/end`).catch(() => { });
                     return false;
@@ -322,7 +329,8 @@ export default function LiveDiscover() {
                     ? new Date(stream.updatedAt)
                     : streamDate;
                 const hoursSinceActivity =
-                    (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60);
+                    (Date.now() - lastActivity.getTime()) /
+                    (1000 * 60 * 60);
 
                 if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
                     api.post(`/api/live/${stream._id}/end`).catch(() => { });
@@ -333,9 +341,10 @@ export default function LiveDiscover() {
             });
 
             setStreams(verifiedStreams);
-
             if (showToast) {
-                toast.success(`Found ${verifiedStreams.length} live streams`);
+                toast.success(
+                    `Found ${verifiedStreams.length} live streams`
+                );
             }
         } catch (err) {
             console.error("Failed to fetch streams:", err);
@@ -353,7 +362,7 @@ export default function LiveDiscover() {
         }
     }, [fetchStreams]);
 
-    // Socket online/offline indicator
+    // Socket connection status
     useEffect(() => {
         const socket = socketRef.current;
         if (!socket) return;
@@ -378,10 +387,10 @@ export default function LiveDiscover() {
 
         const handleStreamStarted = (data) => {
             toast.success(
-                `🔴 ${data.streamerName || data.username || "Someone"} went live!`,
+                `🔴 ${data.streamerName || data.username || "Someone"
+                } went live!`,
                 { duration: 5000, icon: "📺" }
             );
-
             setStreams((prev) => {
                 const exists = prev.some(
                     (s) =>
@@ -390,7 +399,6 @@ export default function LiveDiscover() {
                         s.streamId === data.streamId
                 );
                 if (exists) return prev;
-
                 return [
                     {
                         ...data,
@@ -408,7 +416,8 @@ export default function LiveDiscover() {
             const endedId = data._id || data.streamId;
             setStreams((prev) =>
                 prev.filter(
-                    (s) => s._id !== endedId && s.streamId !== endedId
+                    (s) =>
+                        s._id !== endedId && s.streamId !== endedId
                 )
             );
         };
@@ -434,29 +443,34 @@ export default function LiveDiscover() {
         socket.on("stream_started", handleStreamStarted);
         socket.on("new_stream", handleStreamStarted);
         socket.on("live_started", handleStreamStarted);
+
         socket.on("stream_ended", handleStreamEnded);
         socket.on("stream_stopped", handleStreamEnded);
         socket.on("live_stopped", handleStreamEnded);
         socket.on("live_ended", handleStreamEnded);
+
         socket.on("viewer_update", handleViewerUpdate);
         socket.on("viewer_count", handleViewerUpdate);
+
         socket.emit("join_discover");
 
         return () => {
             socket.off("stream_started", handleStreamStarted);
             socket.off("new_stream", handleStreamStarted);
             socket.off("live_started", handleStreamStarted);
+
             socket.off("stream_ended", handleStreamEnded);
             socket.off("stream_stopped", handleStreamEnded);
             socket.off("live_stopped", handleStreamEnded);
             socket.off("live_ended", handleStreamEnded);
+
             socket.off("viewer_update", handleViewerUpdate);
             socket.off("viewer_count", handleViewerUpdate);
             socket.emit("leave_discover");
         };
     }, []);
 
-    // Periodic refresh
+    // Periodiek refresh
     useEffect(() => {
         const interval = setInterval(() => fetchStreams(), 30000);
         return () => clearInterval(interval);
@@ -467,7 +481,6 @@ export default function LiveDiscover() {
         await fetchStreams(true);
     };
 
-    // Filtering & sorting
     const filteredStreams = streams
         .filter((stream) => {
             if (
@@ -475,7 +488,6 @@ export default function LiveDiscover() {
                 stream.category !== selectedCategory
             )
                 return false;
-
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 const title = (stream.title || "").toLowerCase();
@@ -485,7 +497,6 @@ export default function LiveDiscover() {
                     stream.host?.username ||
                     ""
                 ).toLowerCase();
-
                 if (!title.includes(query) && !username.includes(query))
                     return false;
             }
@@ -550,15 +561,14 @@ export default function LiveDiscover() {
         navigate("/go-live");
     };
 
-    /* ======================
-       RENDER STATES
-       ====================== */
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
-                    <p className="text-white/70">Discovering streams...</p>
+                    <p className="text-white/70">
+                        Discovering streams...
+                    </p>
                 </div>
             </div>
         );
@@ -584,12 +594,8 @@ export default function LiveDiscover() {
         );
     }
 
-    /* ======================
-       MAIN UI
-       ====================== */
     return (
         <div className="max-w-7xl mx-auto p-4 md:p-6 text-white">
-            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -654,7 +660,6 @@ export default function LiveDiscover() {
                 isConnected={isConnected}
             />
 
-            {/* Filters */}
             {showFilters && (
                 <div className="mb-6 p-4 bg-white/5 rounded-xl border border-white/10 animate-fadeIn">
                     <div className="mb-4">
@@ -711,7 +716,7 @@ export default function LiveDiscover() {
                                 setSelectedCategory(category.id)
                             }
                             className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === category.id
-                                    ? "bg-cyan-500 text-white"
+                                    ? "bg-cyan-500 text.white"
                                     : "bg-white/10 text-white/70 hover:bg-white/20"
                                 }`}
                         >
@@ -722,7 +727,6 @@ export default function LiveDiscover() {
                 </div>
             )}
 
-            {/* Streams */}
             {filteredStreams.length === 0 ? (
                 <div className="text-center py-20">
                     <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
@@ -776,7 +780,6 @@ export default function LiveDiscover() {
                 </>
             )}
 
-            {/* CTA */}
             <div className="text-center py-12 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-blue-500/10 rounded-2xl border border-white/10">
                 <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center">
                     <Radio size={32} />
@@ -789,7 +792,7 @@ export default function LiveDiscover() {
                 </p>
                 <button
                     onClick={handleStartStream}
-                    className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-xl hover:scale-105 transition-all"
+                    className="px-8 py-4 bg-gradient.to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-xl.hover:scale-105 transition-all"
                 >
                     🎥 Start My Live Stream
                 </button>
