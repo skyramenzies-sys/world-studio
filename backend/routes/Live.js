@@ -343,7 +343,7 @@ router.get("/:streamId", async (req, res) => {
                 { roomId: streamId }
             ]
         })
-            .populate("host", "username avatar isVerified followersCount bio")
+            
             .populate("streamerId", "username avatar isVerified followersCount bio")
             .lean();
 
@@ -416,7 +416,7 @@ router.get("/", async (req, res) => {
                 .sort(sortOptions[sortBy] || sortOptions.viewers)
                 .skip(parseInt(skip))
                 .limit(parseInt(limit))
-                .populate("host", "username avatar isVerified")
+                
                 .populate("streamerId", "username avatar isVerified")
                 .select("-streamKey -viewerList -bannedUsers -blockedWords")
                 .lean(),
@@ -626,7 +626,7 @@ router.get("/data/featured", async (req, res) => {
         })
             .sort({ viewers: -1 })
             .limit(parseInt(limit))
-            .populate("host", "username avatar isVerified")
+            
             .populate("streamerId", "username avatar isVerified")
             .select("-streamKey -viewerList -bannedUsers")
             .lean();
@@ -912,7 +912,7 @@ router.get("/search/:query", async (req, res) => {
         })
             .sort({ viewers: -1 })
             .limit(parseInt(limit))
-            .populate("host", "username avatar")
+            
             .populate("streamerId", "username avatar")
             .select("-streamKey -viewerList -bannedUsers")
             .lean();
