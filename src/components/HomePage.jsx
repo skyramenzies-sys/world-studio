@@ -254,7 +254,7 @@ export default function HomePage() {
     useEffect(() => {
         if (currentUser) {
             api.get("/api/users/suggested?limit=5")
-                .then(res => setSuggestedUsers(res.data?.users || res.data || []))
+                .then(res => setSuggestedUsers(Array.isArray(res.data?.users) ? res.data.users : Array.isArray(res.data) ? res.data : []))
                 .catch(() => { });
         }
     }, [currentUser]);
