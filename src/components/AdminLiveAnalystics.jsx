@@ -14,8 +14,8 @@ import socket from "../api/socket";
 // ============================================
 // CONSTANTS - WORLD-STUDIO.LIVE
 // ============================================
-const API_BASE_URL = "https://api.world-studio.live";
-const SOCKET_URL = "https://api.world-studio.live";
+const API_BASE_URL = "https://world-studio-production.up.railway.app";
+const SOCKET_URL = "https://world-studio-production.up.railway.app";
 const SITE_NAME = "World-Studio";
 const SITE_URL = "https://world-studio-production.up.railway.app";
 

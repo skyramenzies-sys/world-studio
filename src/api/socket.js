@@ -7,7 +7,7 @@ import { io } from "socket.io-client";
 const SOCKET_URL =
     process.env.REACT_APP_SOCKET_URL ||
     process.env.NEXT_PUBLIC_SOCKET_URL ||
-    "https://world-studio.live";
+    "https://world-studio-production.up.railway.app";
 
 // ============================================
 // SOCKET INSTANCE

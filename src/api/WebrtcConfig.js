@@ -7,14 +7,14 @@
  * STUN servers: Help peers discover their public IP addresses
  * TURN servers: Relay traffic when direct connection fails (firewall/NAT issues)
  * 
- * @see https://world-studio.live/docs/webrtc
+ * @see https://world-studio-production.up.railway.app/docs/webrtc
  */
 
 // ===========================================
 // API CONFIGURATION
 // ===========================================
-export const API_BASE_URL = "https://world-studio.live";
-export const SOCKET_URL = "https://world-studio.live";
+export const API_BASE_URL = "https://world-studio-production.up.railway.app";
+export const SOCKET_URL = "https://world-studio-production.up.railway.app";
 
 // ===========================================
 // PRIMARY RTC CONFIGURATION
