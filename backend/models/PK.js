@@ -1,5 +1,5 @@
 // backend/models/PK.js
-// World-Studio.live - PK Battle Model
+// World-Studio.live - PK Battle Model (UNIVERSE EDITION 🌌)
 // Handles live PK battles between streamers
 
 const mongoose = require("mongoose");
@@ -12,326 +12,343 @@ const { Schema } = mongoose;
 /**
  * Gift Schema - Gifts sent during PK battle
  */
-const PKGiftSchema = new Schema({
-    from: {
-        type: Schema.Types.ObjectId,
-        ref: "User",
-        required: true
+const PKGiftSchema = new Schema(
+    {
+        from: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+        },
+        fromUsername: String,
+        fromAvatar: String,
+        to: {
+            type: String,
+            enum: ["challenger", "opponent"],
+            required: true,
+        },
+        giftType: {
+            type: String,
+            default: "coins",
+        },
+        giftName: String,
+        icon: {
+            type: String,
+            default: "💰",
+        },
+        amount: {
+            type: Number,
+            default: 1,
+            min: 1,
+        },
+        coins: {
+            type: Number,
+            required: true,
+            min: 1,
+        },
+        message: {
+            type: String,
+            maxLength: 100,
+        },
+        animation: {
+            type: String,
+            enum: ["none", "float", "explode", "rain"],
+            default: "float",
+        },
+        timestamp: {
+            type: Date,
+            default: Date.now,
+        },
     },
-    fromUsername: String,
-    fromAvatar: String,
-    to: {
-        type: String,
-        enum: ["challenger", "opponent"],
-        required: true
-    },
-    giftType: {
-        type: String,
-        default: "coins"
-    },
-    giftName: String,
-    icon: {
-        type: String,
-        default: "💰"
-    },
-    amount: {
-        type: Number,
-        default: 1,
-        min: 1
-    },
-    coins: {
-        type: Number,
-        required: true,
-        min: 1
-    },
-    message: {
-        type: String,
-        maxLength: 100
-    },
-    animation: {
-        type: String,
-        enum: ["none", "float", "explode", "rain"],
-        default: "float"
-    },
-    timestamp: {
-        type: Date,
-        default: Date.now
-    }
-}, { _id: true });
+    { _id: true }
+);
 
 /**
  * Participant Schema - Each side of the battle
  */
-const ParticipantSchema = new Schema({
-    user: {
-        type: Schema.Types.ObjectId,
-        ref: "User",
-        required: true
+const ParticipantSchema = new Schema(
+    {
+        user: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+            required: true,
+        },
+        username: String,
+        avatar: String,
+        streamId: {
+            type: Schema.Types.ObjectId,
+            ref: "LiveStream",
+        },
+        streamTitle: String,
+        score: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        giftsReceived: [PKGiftSchema],
+        giftsCount: {
+            type: Number,
+            default: 0,
+        },
+        uniqueSupporters: {
+            type: Number,
+            default: 0,
+        },
+        viewerCount: {
+            type: Number,
+            default: 0,
+        },
+        peakViewers: {
+            type: Number,
+            default: 0,
+        },
+        isReady: {
+            type: Boolean,
+            default: false,
+        },
+        joinedAt: Date,
+        connectionStatus: {
+            type: String,
+            enum: ["connected", "disconnected", "reconnecting"],
+            default: "connected",
+        },
     },
-    username: String,
-    avatar: String,
-    streamId: {
-        type: Schema.Types.ObjectId,
-        ref: "LiveStream"
-    },
-    streamTitle: String,
-    score: {
-        type: Number,
-        default: 0,
-        min: 0
-    },
-    giftsReceived: [PKGiftSchema],
-    giftsCount: {
-        type: Number,
-        default: 0
-    },
-    uniqueSupporters: {
-        type: Number,
-        default: 0
-    },
-    viewerCount: {
-        type: Number,
-        default: 0
-    },
-    peakViewers: {
-        type: Number,
-        default: 0
-    },
-    isReady: {
-        type: Boolean,
-        default: false
-    },
-    joinedAt: Date,
-    connectionStatus: {
-        type: String,
-        enum: ["connected", "disconnected", "reconnecting"],
-        default: "connected"
-    }
-}, { _id: false });
+    { _id: false }
+);
 
 /**
  * Chat Message Schema - PK-specific chat
  */
-const PKChatSchema = new Schema({
-    userId: { type: Schema.Types.ObjectId, ref: "User" },
-    username: String,
-    avatar: String,
-    text: String,
-    side: {
-        type: String,
-        enum: ["challenger", "opponent", "spectator"]
+const PKChatSchema = new Schema(
+    {
+        userId: { type: Schema.Types.ObjectId, ref: "User" },
+        username: String,
+        avatar: String,
+        text: String,
+        side: {
+            type: String,
+            enum: ["challenger", "opponent", "spectator"],
+        },
+        type: {
+            type: String,
+            enum: ["message", "system", "gift", "cheer"],
+            default: "message",
+        },
+        timestamp: { type: Date, default: Date.now },
     },
-    type: {
-        type: String,
-        enum: ["message", "system", "gift", "cheer"],
-        default: "message"
-    },
-    timestamp: { type: Date, default: Date.now }
-}, { _id: true });
+    { _id: true }
+);
 
 // ===========================================
 // MAIN PK BATTLE SCHEMA
 // ===========================================
-const PKBattleSchema = new Schema({
-    // Participants
-    challenger: {
-        type: ParticipantSchema,
-        required: true
-    },
-    opponent: {
-        type: ParticipantSchema,
-        required: true
-    },
+const PKBattleSchema = new Schema(
+    {
+        // Participants
+        challenger: {
+            type: ParticipantSchema,
+            required: true,
+        },
+        opponent: {
+            type: ParticipantSchema,
+            required: true,
+        },
 
-    // Battle Settings
-    title: {
-        type: String,
-        maxLength: 100,
-        default: "PK Battle"
-    },
-    duration: {
-        type: Number,
-        default: 300, // seconds (5 minutes)
-        min: 60,      // Minimum 1 minute
-        max: 3600     // Maximum 1 hour
-    },
-    durationMinutes: {
-        type: Number,
-        default: 5
-    },
+        // Battle Settings
+        title: {
+            type: String,
+            maxLength: 100,
+            default: "PK Battle",
+        },
+        duration: {
+            type: Number,
+            default: 300, // seconds (5 minutes)
+            min: 60, // Minimum 1 minute
+            max: 3600, // Maximum 1 hour
+        },
+        durationMinutes: {
+            type: Number,
+            default: 5,
+        },
 
-    // Timing
-    scheduledFor: Date,
-    startTime: {
-        type: Date,
-        index: true
-    },
-    endTime: {
-        type: Date
-    },
-    actualDuration: {
-        type: Number, // Actual duration in seconds
-        default: 0
-    },
+        // Timing
+        scheduledFor: Date,
+        startTime: {
+            type: Date,
+            index: true,
+        },
+        endTime: {
+            type: Date,
+        },
+        actualDuration: {
+            type: Number, // Actual duration in seconds
+            default: 0,
+        },
 
-    // Status
-    status: {
-        type: String,
-        enum: ["pending", "accepted", "active", "paused", "finished", "declined", "cancelled", "expired"],
-        default: "pending",
-        index: true
-    },
-    statusReason: String, // Reason for cancellation/decline
+        // Status
+        status: {
+            type: String,
+            enum: [
+                "pending",
+                "accepted",
+                "active",
+                "paused",
+                "finished",
+                "declined",
+                "cancelled",
+                "expired",
+            ],
+            default: "pending",
+            index: true,
+        },
+        statusReason: String, // Reason for cancellation/decline
 
-    // Challenge Message
-    challengeMessage: {
-        type: String,
-        maxLength: 200
-    },
-    challengeSentAt: {
-        type: Date,
-        default: Date.now
-    },
-    challengeExpiresAt: {
-        type: Date,
-        default: () => new Date(Date.now() + 30000) // 30 seconds to accept
-    },
-    respondedAt: Date,
+        // Challenge Message
+        challengeMessage: {
+            type: String,
+            maxLength: 200,
+        },
+        challengeSentAt: {
+            type: Date,
+            default: Date.now,
+        },
+        challengeExpiresAt: {
+            type: Date,
+            default: () => new Date(Date.now() + 30000), // 30 seconds to accept
+        },
+        respondedAt: Date,
 
-    // Results
-    winner: {
-        type: Schema.Types.ObjectId,
-        ref: "User",
-        default: null
-    },
-    winnerUsername: String,
-    winnerSide: {
-        type: String,
-        enum: ["challenger", "opponent", null],
-        default: null
-    },
-    winnerScore: {
-        type: Number,
-        default: 0
-    },
-    loserScore: {
-        type: Number,
-        default: 0
-    },
-    isDraw: {
-        type: Boolean,
-        default: false
-    },
-    scoreDifference: {
-        type: Number,
-        default: 0
-    },
+        // Results
+        winner: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+        },
+        winnerUsername: String,
+        winnerSide: {
+            type: String,
+            enum: ["challenger", "opponent", null],
+            default: null,
+        },
+        winnerScore: {
+            type: Number,
+            default: 0,
+        },
+        loserScore: {
+            type: Number,
+            default: 0,
+        },
+        isDraw: {
+            type: Boolean,
+            default: false,
+        },
+        scoreDifference: {
+            type: Number,
+            default: 0,
+        },
 
-    // Viewers
-    viewers: [{
-        type: Schema.Types.ObjectId,
-        ref: "User"
-    }],
-    currentViewers: {
-        type: Number,
-        default: 0
-    },
-    peakViewers: {
-        type: Number,
-        default: 0
-    },
-    totalUniqueViewers: {
-        type: Number,
-        default: 0
-    },
+        // Viewers
+        viewers: [
+            {
+                type: Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
+        currentViewers: {
+            type: Number,
+            default: 0,
+        },
+        peakViewers: {
+            type: Number,
+            default: 0,
+        },
+        totalUniqueViewers: {
+            type: Number,
+            default: 0,
+        },
 
-    // Chat
-    chat: [PKChatSchema],
-    chatEnabled: {
-        type: Boolean,
-        default: true
-    },
+        // Chat
+        chat: [PKChatSchema],
+        chatEnabled: {
+            type: Boolean,
+            default: true,
+        },
 
-    // Total Stats
-    totalGifts: {
-        type: Number,
-        default: 0
-    },
-    totalCoins: {
-        type: Number,
-        default: 0
-    },
-    totalSupporters: {
-        type: Number,
-        default: 0
-    },
+        // Total Stats
+        totalGifts: {
+            type: Number,
+            default: 0,
+        },
+        totalCoins: {
+            type: Number,
+            default: 0,
+        },
+        totalSupporters: {
+            type: Number,
+            default: 0,
+        },
 
-    // Room/Connection
-    roomId: {
-        type: String,
-        unique: true,
-        sparse: true
-    },
+        // Room/Connection
+        roomId: {
+            type: String,
+            unique: true,
+            sparse: true,
+        },
 
-    // Privacy
-    isPrivate: {
-        type: Boolean,
-        default: false
-    },
-    inviteOnly: {
-        type: Boolean,
-        default: false
-    },
+        // Privacy
+        isPrivate: {
+            type: Boolean,
+            default: false,
+        },
+        inviteOnly: {
+            type: Boolean,
+            default: false,
+        },
 
-    // Moderation
-    isReported: {
-        type: Boolean,
-        default: false
-    },
-    reportReason: String,
+        // Moderation
+        isReported: {
+            type: Boolean,
+            default: false,
+        },
+        reportReason: String,
 
-    // Rematch
-    rematchRequested: {
-        type: Boolean,
-        default: false
+        // Rematch
+        rematchRequested: {
+            type: Boolean,
+            default: false,
+        },
+        rematchRequestedBy: {
+            type: Schema.Types.ObjectId,
+            ref: "User",
+        },
+        previousBattleId: {
+            type: Schema.Types.ObjectId,
+            ref: "PK",
+        },
+        nextBattleId: {
+            type: Schema.Types.ObjectId,
+            ref: "PK",
+        },
     },
-    rematchRequestedBy: {
-        type: Schema.Types.ObjectId,
-        ref: "User"
-    },
-    previousBattleId: {
-        type: Schema.Types.ObjectId,
-        ref: "PK"
-    },
-    nextBattleId: {
-        type: Schema.Types.ObjectId,
-        ref: "PK"
+    {
+        timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true },
     }
-}, {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
-});
+);
 
 // ===========================================
 // INDEXES
 // ===========================================
-PKBattleSchema.index({ status: 1 });
+// status heeft al 'index: true' in het schema, dus geen extra losse index nodig
+
 PKBattleSchema.index({ status: 1, startTime: -1 });
-PKBattleSchema.index({ "challenger.user": 1, status: 1 });
-PKBattleSchema.index({ "opponent.user": 1, status: 1 });
+PKBattleSchema.index({ "challenger.user": 1, status: 1, createdAt: -1 });
+PKBattleSchema.index({ "opponent.user": 1, status: 1, createdAt: -1 });
 PKBattleSchema.index({ winner: 1 });
-PKBattleSchema.index({ createdAt: -1 });
+// createdAt krijgt al index via bovenstaande samengestelde indexes
 PKBattleSchema.index({ startTime: -1 });
 
-// Compound indexes for common queries
-PKBattleSchema.index({
-    $or: [
-        { "challenger.user": 1 },
-        { "opponent.user": 1 }
-    ],
-    status: 1
-});
+
 
 // ===========================================
 // VIRTUALS
@@ -342,7 +359,10 @@ PKBattleSchema.index({
  */
 PKBattleSchema.virtual("timeRemaining").get(function () {
     if (this.status !== "active" || !this.endTime) return 0;
-    const remaining = Math.max(0, Math.floor((this.endTime - Date.now()) / 1000));
+    const remaining = Math.max(
+        0,
+        Math.floor((this.endTime.getTime() - Date.now()) / 1000)
+    );
     return remaining;
 });
 
@@ -361,9 +381,13 @@ PKBattleSchema.virtual("timeRemainingFormatted").get(function () {
  */
 PKBattleSchema.virtual("progressPercentage").get(function () {
     if (this.status !== "active" || !this.startTime || !this.endTime) return 0;
-    const total = this.endTime - this.startTime;
-    const elapsed = Date.now() - this.startTime;
-    return Math.min(100, Math.max(0, Math.floor((elapsed / total) * 100)));
+    const total = this.endTime.getTime() - this.startTime.getTime();
+    if (total <= 0) return 0;
+    const elapsed = Date.now() - this.startTime.getTime();
+    return Math.min(
+        100,
+        Math.max(0, Math.floor((elapsed / total) * 100))
+    );
 });
 
 /**
@@ -385,18 +409,22 @@ PKBattleSchema.virtual("battleUrl").get(function () {
  * Score difference percentage
  */
 PKBattleSchema.virtual("scoreDifferencePercent").get(function () {
-    const total = this.challenger.score + this.opponent.score;
+    const total = (this.challenger.score || 0) + (this.opponent.score || 0);
     if (total === 0) return 0;
-    return Math.abs(this.challenger.score - this.opponent.score) / total * 100;
+    return (
+        (Math.abs((this.challenger.score || 0) - (this.opponent.score || 0)) /
+            total) *
+        100
+    );
 });
 
 /**
  * Challenger percentage of total score
  */
 PKBattleSchema.virtual("challengerPercentage").get(function () {
-    const total = this.challenger.score + this.opponent.score;
+    const total = (this.challenger.score || 0) + (this.opponent.score || 0);
     if (total === 0) return 50;
-    return Math.round((this.challenger.score / total) * 100);
+    return Math.round(((this.challenger.score || 0) / total) * 100);
 });
 
 /**
@@ -421,27 +449,34 @@ PKBattleSchema.pre("save", function (next) {
     }
 
     // Update participant unique supporters
-    if (this.challenger.giftsReceived?.length > 0) {
+    if (this.challenger?.giftsReceived?.length > 0) {
         const uniqueChallengerSupporters = new Set(
-            this.challenger.giftsReceived.map(g => g.from?.toString())
+            this.challenger.giftsReceived
+                .map((g) => g.from && g.from.toString())
+                .filter(Boolean)
         );
         this.challenger.uniqueSupporters = uniqueChallengerSupporters.size;
     }
 
-    if (this.opponent.giftsReceived?.length > 0) {
+    if (this.opponent?.giftsReceived?.length > 0) {
         const uniqueOpponentSupporters = new Set(
-            this.opponent.giftsReceived.map(g => g.from?.toString())
+            this.opponent.giftsReceived
+                .map((g) => g.from && g.from.toString())
+                .filter(Boolean)
         );
         this.opponent.uniqueSupporters = uniqueOpponentSupporters.size;
     }
 
     // Calculate totals
-    this.totalGifts = (this.challenger.giftsReceived?.length || 0) +
-        (this.opponent.giftsReceived?.length || 0);
-    this.totalCoins = this.challenger.score + this.opponent.score;
+    this.totalGifts =
+        (this.challenger?.giftsReceived?.length || 0) +
+        (this.opponent?.giftsReceived?.length || 0);
+    this.totalCoins = (this.challenger.score || 0) + (this.opponent.score || 0);
 
     // Calculate score difference
-    this.scoreDifference = Math.abs(this.challenger.score - this.opponent.score);
+    this.scoreDifference = Math.abs(
+        (this.challenger.score || 0) - (this.opponent.score || 0)
+    );
 
     next();
 });
@@ -546,7 +581,9 @@ PKBattleSchema.methods.end = async function () {
     this.endTime = new Date();
 
     if (this.startTime) {
-        this.actualDuration = Math.floor((this.endTime - this.startTime) / 1000);
+        this.actualDuration = Math.floor(
+            (this.endTime.getTime() - this.startTime.getTime()) / 1000
+        );
     }
 
     this.determineWinner();
@@ -609,10 +646,13 @@ PKBattleSchema.methods.updateViewers = function (count, viewerIds = []) {
         this.peakViewers = count;
     }
 
-    // Add unique viewers
-    viewerIds.forEach(id => {
-        if (!this.viewers.includes(id)) {
+    // Add unique viewers (cast naar string om goed te vergelijken)
+    const existing = new Set(this.viewers.map((v) => v.toString()));
+    viewerIds.forEach((id) => {
+        const idStr = id.toString();
+        if (!existing.has(idStr)) {
             this.viewers.push(id);
+            existing.add(idStr);
         }
     });
 
@@ -640,19 +680,19 @@ PKBattleSchema.methods.getResultSummary = function () {
             username: this.challenger.username,
             score: this.challenger.score,
             giftsCount: this.challenger.giftsCount,
-            supporters: this.challenger.uniqueSupporters
+            supporters: this.challenger.uniqueSupporters,
         },
         opponent: {
             userId: this.opponent.user,
             username: this.opponent.username,
             score: this.opponent.score,
             giftsCount: this.opponent.giftsCount,
-            supporters: this.opponent.uniqueSupporters
+            supporters: this.opponent.uniqueSupporters,
         },
         duration: this.actualDuration,
         peakViewers: this.peakViewers,
         totalGifts: this.totalGifts,
-        totalCoins: this.totalCoins
+        totalCoins: this.totalCoins,
     };
 };
 
@@ -680,10 +720,7 @@ PKBattleSchema.statics.getUserBattles = async function (userId, options = {}) {
     const { limit = 20, skip = 0, status } = options;
 
     const query = {
-        $or: [
-            { "challenger.user": userId },
-            { "opponent.user": userId }
-        ]
+        $or: [{ "challenger.user": userId }, { "opponent.user": userId }],
     };
 
     if (status) {
@@ -706,17 +743,17 @@ PKBattleSchema.statics.getUserBattles = async function (userId, options = {}) {
  */
 PKBattleSchema.statics.getUserStats = async function (userId) {
     const battles = await this.find({
-        $or: [
-            { "challenger.user": userId },
-            { "opponent.user": userId }
-        ],
-        status: "finished"
+        $or: [{ "challenger.user": userId }, { "opponent.user": userId }],
+        status: "finished",
     }).lean();
 
-    let wins = 0, losses = 0, draws = 0;
-    let totalScore = 0, totalCoins = 0;
+    let wins = 0,
+        losses = 0,
+        draws = 0;
+    let totalScore = 0,
+        totalCoins = 0;
 
-    battles.forEach(battle => {
+    battles.forEach((battle) => {
         if (battle.isDraw) {
             draws++;
         } else if (battle.winner?.toString() === userId.toString()) {
@@ -727,12 +764,12 @@ PKBattleSchema.statics.getUserStats = async function (userId) {
 
         // Add score from user's side
         if (battle.challenger.user.toString() === userId.toString()) {
-            totalScore += battle.challenger.score;
+            totalScore += battle.challenger.score || 0;
         } else {
-            totalScore += battle.opponent.score;
+            totalScore += battle.opponent.score || 0;
         }
 
-        totalCoins += battle.totalCoins;
+        totalCoins += battle.totalCoins || 0;
     });
 
     return {
@@ -742,7 +779,8 @@ PKBattleSchema.statics.getUserStats = async function (userId) {
         draws,
         winRate: battles.length > 0 ? Math.round((wins / battles.length) * 100) : 0,
         totalScore,
-        averageScore: battles.length > 0 ? Math.round(totalScore / battles.length) : 0
+        averageScore:
+            battles.length > 0 ? Math.round(totalScore / battles.length) : 0,
     };
 };
 
@@ -753,7 +791,7 @@ PKBattleSchema.statics.getPendingChallenge = async function (userId) {
     return this.findOne({
         "opponent.user": userId,
         status: "pending",
-        challengeExpiresAt: { $gt: new Date() }
+        challengeExpiresAt: { $gt: new Date() },
     }).populate("challenger.user", "username avatar");
 };
 
@@ -764,18 +802,20 @@ PKBattleSchema.statics.cleanupExpired = async function () {
     const result = await this.updateMany(
         {
             status: "pending",
-            challengeExpiresAt: { $lt: new Date() }
+            challengeExpiresAt: { $lt: new Date() },
         },
         {
             $set: {
                 status: "expired",
-                statusReason: "Challenge expired"
-            }
+                statusReason: "Challenge expired",
+            },
         }
     );
 
     if (result.modifiedCount > 0) {
-        console.log(`🧹 Cleaned up ${result.modifiedCount} expired PK challenges`);
+        console.log(
+            `🧹 Cleaned up ${result.modifiedCount} expired PK challenges`
+        );
     }
 
     return result;
@@ -784,7 +824,10 @@ PKBattleSchema.statics.cleanupExpired = async function () {
 /**
  * Get leaderboard
  */
-PKBattleSchema.statics.getLeaderboard = async function (period = "week", limit = 50) {
+PKBattleSchema.statics.getLeaderboard = async function (
+    period = "week",
+    limit = 50
+) {
     const dateFilter = {};
     const now = new Date();
 
@@ -796,15 +839,15 @@ PKBattleSchema.statics.getLeaderboard = async function (period = "week", limit =
         dateFilter.createdAt = { $gte: new Date(now - 30 * 24 * 60 * 60 * 1000) };
     }
 
-    // This is a simplified version - in production, you'd want a dedicated leaderboard collection
+    // Simplified leaderboard
     const battles = await this.find({
         ...dateFilter,
-        status: "finished"
+        status: "finished",
     }).lean();
 
     const userStats = {};
 
-    battles.forEach(battle => {
+    battles.forEach((battle) => {
         // Process challenger
         const cId = battle.challenger.user.toString();
         if (!userStats[cId]) {
@@ -812,11 +855,11 @@ PKBattleSchema.statics.getLeaderboard = async function (period = "week", limit =
                 wins: 0,
                 battles: 0,
                 score: 0,
-                username: battle.challenger.username
+                username: battle.challenger.username,
             };
         }
         userStats[cId].battles++;
-        userStats[cId].score += battle.challenger.score;
+        userStats[cId].score += battle.challenger.score || 0;
         if (battle.winner?.toString() === cId) userStats[cId].wins++;
 
         // Process opponent
@@ -826,11 +869,11 @@ PKBattleSchema.statics.getLeaderboard = async function (period = "week", limit =
                 wins: 0,
                 battles: 0,
                 score: 0,
-                username: battle.opponent.username
+                username: battle.opponent.username,
             };
         }
         userStats[oId].battles++;
-        userStats[oId].score += battle.opponent.score;
+        userStats[oId].score += battle.opponent.score || 0;
         if (battle.winner?.toString() === oId) userStats[oId].wins++;
     });
 
@@ -838,7 +881,7 @@ PKBattleSchema.statics.getLeaderboard = async function (period = "week", limit =
         .map(([id, stats]) => ({
             userId: id,
             ...stats,
-            winRate: Math.round((stats.wins / stats.battles) * 100)
+            winRate: Math.round((stats.wins / stats.battles) * 100),
         }))
         .sort((a, b) => b.wins - a.wins || b.score - a.score)
         .slice(0, limit);

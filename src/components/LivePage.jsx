@@ -1,21 +1,25 @@
-// src/components/LivePage.jsx - WORLD STUDIO LIVE EDITION 🎬
+// src/components/LivePage.jsx - WORLD STUDIO LIVE EDITION 🎬 (U.E.)
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import axios from "axios";
 import { io } from "socket.io-client";
 
-// Import child components (these should also use world-studio.live)
+// Import child components
 import LivePublisher from "./LivePublisher";
 import LiveViewer from "./LiveViewer";
 import MultiGuestLive from "./MultiGuestLive";
 import AudioLive from "./AudioLive";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (U.E.)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+const SOCKET_URL = API_BASE_URL;
 
 // Create API instance
 const api = axios.create({
@@ -141,6 +145,7 @@ export default function LivePage() {
                 console.error("Failed to parse user:", e);
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Start camera preview when entering step 2
@@ -172,9 +177,9 @@ export default function LivePage() {
                 video: {
                     width: { ideal: 1280 },
                     height: { ideal: 720 },
-                    facingMode: "user"
+                    facingMode: "user",
                 },
-                audio: false
+                audio: false,
             });
 
             console.log("✅ Camera access granted:", stream.getTracks());
@@ -184,7 +189,7 @@ export default function LivePage() {
 
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(err => {
+                videoRef.current.play().catch((err) => {
                     console.warn("Video autoplay blocked:", err);
                 });
             }
@@ -214,7 +219,7 @@ export default function LivePage() {
 
     const stopCameraPreview = () => {
         if (previewStreamRef.current) {
-            previewStreamRef.current.getTracks().forEach(track => {
+            previewStreamRef.current.getTracks().forEach((track) => {
                 track.stop();
             });
             previewStreamRef.current = null;
@@ -363,7 +368,7 @@ export default function LivePage() {
             if (socket) {
                 socket.emit("stop_broadcast", {
                     roomId: activeStreamId || roomId,
-                    streamId: activeStreamId
+                    streamId: activeStreamId,
                 });
             }
         } catch (err) {
@@ -388,10 +393,12 @@ export default function LivePage() {
             if (socket) {
                 socket.emit("leave_stream", {
                     roomId: roomId,
-                    streamId: activeStreamId || streamId
+                    streamId: activeStreamId || streamId,
                 });
             }
-        } catch (err) { }
+        } catch (err) {
+            // ignore
+        }
 
         setMode(null);
         setStep(1);
@@ -516,7 +523,12 @@ export default function LivePage() {
                         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
                             <p className="text-yellow-400 text-sm">
                                 ⚠️ Please{" "}
-                                <button onClick={() => navigate("/login")} className="underline font-semibold">log in</button>{" "}
+                                <button
+                                    onClick={() => navigate("/login")}
+                                    className="underline font-semibold"
+                                >
+                                    log in
+                                </button>{" "}
                                 to start streaming
                             </p>
                         </div>
@@ -538,21 +550,30 @@ export default function LivePage() {
                                     </span>
                                 )}
                                 <div className="flex items-center gap-4">
-                                    <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${liveMode.color} flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition`}>
+                                    <div
+                                        className={`w-14 h-14 rounded-xl bg-gradient-to-br ${liveMode.color} flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition`}
+                                    >
                                         {liveMode.icon}
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="font-bold text-lg">{liveMode.name}</h3>
-                                        <p className="text-white/50 text-sm">{liveMode.description}</p>
+                                        <p className="text-white/50 text-sm">
+                                            {liveMode.description}
+                                        </p>
                                         <div className="flex flex-wrap gap-1 mt-2">
                                             {liveMode.features?.map((f, i) => (
-                                                <span key={i} className="text-[10px] px-2 py-0.5 bg-white/10 rounded-full text-white/60">
+                                                <span
+                                                    key={i}
+                                                    className="text-[10px] px-2 py-0.5 bg-white/10 rounded-full text-white/60"
+                                                >
                                                     {f}
                                                 </span>
                                             ))}
                                         </div>
                                     </div>
-                                    <span className="text-white/30 group-hover:text-white transition">→</span>
+                                    <span className="text-white/30 group-hover:text-white transition">
+                                        →
+                                    </span>
                                 </div>
                             </button>
                         ))}
@@ -560,7 +581,9 @@ export default function LivePage() {
 
                     {/* Watch a Stream Section */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-4 mt-8">
-                        <h2 className="text-lg font-semibold flex items-center gap-2">👁 Watch a Stream</h2>
+                        <h2 className="text-lg font-semibold flex items-center gap-2">
+                            👁 Watch a Stream
+                        </h2>
                         <div className="flex gap-2">
                             <input
                                 value={roomId}
@@ -576,26 +599,41 @@ export default function LivePage() {
                                 Join
                             </button>
                         </div>
-                        <p className="text-white/40 text-xs">Or browse streams in the <button onClick={() => navigate("/discover")} className="text-cyan-400 underline">Discover</button> section</p>
+                        <p className="text-white/40 text-xs">
+                            Or browse streams in the{" "}
+                            <button
+                                onClick={() => navigate("/discover")}
+                                className="text-cyan-400 underline"
+                            >
+                                Discover
+                            </button>{" "}
+                            section
+                        </p>
                     </div>
                 </div>
             ) : (
                 /* Step 2: Configure Stream */
                 <div className="max-w-xl mx-auto py-6 px-4 space-y-6">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => { stopCameraPreview(); setStep(1); }} className="p-2 hover:bg-white/10 rounded-full transition">
+                        <button
+                            onClick={() => {
+                                stopCameraPreview();
+                                setStep(1);
+                            }}
+                            className="p-2 hover:bg-white/10 rounded-full transition"
+                        >
                             ← Back
                         </button>
                         <div>
                             <h1 className="text-xl font-bold">
-                                {LIVE_MODES.find(m => m.id === selectedLiveMode)?.icon}{" "}
-                                {LIVE_MODES.find(m => m.id === selectedLiveMode)?.name}
+                                {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.icon}{" "}
+                                {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.name}
                             </h1>
                             <p className="text-white/50 text-sm">Configure your stream</p>
                         </div>
                     </div>
 
-                    {/* Video Preview */}
+                    {/* Video / Audio Preview */}
                     <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-white/10">
                         {selectedLiveMode !== "audio" ? (
                             <>
@@ -604,7 +642,8 @@ export default function LivePage() {
                                     autoPlay
                                     playsInline
                                     muted
-                                    className={`w-full h-full object-cover ${cameraStatus !== "granted" ? "hidden" : ""}`}
+                                    className={`w-full h-full object-cover ${cameraStatus !== "granted" ? "hidden" : ""
+                                        }`}
                                 />
 
                                 {cameraStatus === "pending" && (
@@ -614,25 +653,28 @@ export default function LivePage() {
                                     </div>
                                 )}
 
-                                {(cameraStatus === "denied" || cameraStatus === "error") && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4">
-                                        <span className="text-5xl mb-3">📷❌</span>
-                                        <p className="text-red-400 font-bold text-lg mb-3">Camera Error</p>
-
-                                        <div className="bg-red-900/50 border border-red-500 rounded-lg p-3 mb-4 w-full max-w-sm">
-                                            <p className="text-red-200 text-sm text-center">
-                                                {cameraError || "Unknown error"}
+                                {(cameraStatus === "denied" ||
+                                    cameraStatus === "error") && (
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4">
+                                            <span className="text-5xl mb-3">📷❌</span>
+                                            <p className="text-red-400 font-bold text-lg mb-3">
+                                                Camera Error
                                             </p>
-                                        </div>
 
-                                        <button
-                                            onClick={retryCamera}
-                                            className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 rounded-xl font-bold transition"
-                                        >
-                                            🔄 Try Again
-                                        </button>
-                                    </div>
-                                )}
+                                            <div className="bg-red-900/50 border border-red-500 rounded-lg p-3 mb-4 w-full max-w-sm">
+                                                <p className="text-red-200 text-sm text-center">
+                                                    {cameraError || "Unknown error"}
+                                                </p>
+                                            </div>
+
+                                            <button
+                                                onClick={retryCamera}
+                                                className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 rounded-xl font-bold transition"
+                                            >
+                                                🔄 Try Again
+                                            </button>
+                                        </div>
+                                    )}
                             </>
                         ) : (
                             <div className="w-full h-full bg-gradient-to-br from-orange-500/20 to-red-500/20 flex flex-col items-center justify-center">
@@ -645,7 +687,7 @@ export default function LivePage() {
                                             className="w-1.5 bg-gradient-to-t from-orange-500 to-red-500 rounded-full animate-pulse"
                                             style={{
                                                 height: `${15 + Math.random() * 25}px`,
-                                                animationDelay: `${i * 0.1}s`
+                                                animationDelay: `${i * 0.1}s`,
                                             }}
                                         />
                                     ))}
@@ -655,20 +697,34 @@ export default function LivePage() {
 
                         {/* Mode badge */}
                         <div className="absolute top-3 left-3 px-3 py-1 bg-black/60 backdrop-blur rounded-full text-sm">
-                            {LIVE_MODES.find(m => m.id === selectedLiveMode)?.icon} {LIVE_MODES.find(m => m.id === selectedLiveMode)?.name}
+                            {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.icon}{" "}
+                            {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.name}
                         </div>
 
                         {/* Camera status badge */}
                         {selectedLiveMode !== "audio" && (
-                            <div className={`absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-bold ${cameraStatus === "granted" ? "bg-green-500" : cameraStatus === "pending" ? "bg-yellow-500" : "bg-red-500"}`}>
-                                {cameraStatus === "granted" ? "✓ Camera OK" : cameraStatus === "pending" ? "⏳ Checking" : "✗ Error"}
+                            <div
+                                className={`absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-bold ${cameraStatus === "granted"
+                                        ? "bg-green-500"
+                                        : cameraStatus === "pending"
+                                            ? "bg-yellow-500"
+                                            : "bg-red-500"
+                                    }`}
+                            >
+                                {cameraStatus === "granted"
+                                    ? "✓ Camera OK"
+                                    : cameraStatus === "pending"
+                                        ? "⏳ Checking"
+                                        : "✗ Error"}
                             </div>
                         )}
                     </div>
 
                     {/* Stream Title */}
                     <div className="space-y-2">
-                        <label className="text-sm text-white/70 font-semibold">Stream Title *</label>
+                        <label className="text-sm text-white/70 font-semibold">
+                            Stream Title *
+                        </label>
                         <input
                             value={streamTitle}
                             onChange={(e) => setStreamTitle(e.target.value)}
@@ -676,20 +732,24 @@ export default function LivePage() {
                             maxLength={100}
                             className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl outline-none focus:border-cyan-400 transition"
                         />
-                        <p className="text-xs text-white/40 text-right">{streamTitle.length}/100</p>
+                        <p className="text-xs text-white/40 text-right">
+                            {streamTitle.length}/100
+                        </p>
                     </div>
 
                     {/* Category Selection */}
                     <div className="space-y-2">
-                        <label className="text-sm text-white/70 font-semibold">Category</label>
+                        <label className="text-sm text-white/70 font-semibold">
+                            Category
+                        </label>
                         <div className="flex flex-wrap gap-2">
                             {CATEGORIES.map((cat) => (
                                 <button
                                     key={cat.id}
                                     onClick={() => setStreamCategory(cat.id)}
                                     className={`px-3 py-2 rounded-full text-sm transition ${streamCategory === cat.id
-                                        ? "bg-cyan-500 text-black font-semibold"
-                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                            ? "bg-cyan-500 text-black font-semibold"
+                                            : "bg-white/10 text-white/70 hover:bg-white/20"
                                         }`}
                                 >
                                     {cat.icon} {cat.name}
@@ -701,15 +761,17 @@ export default function LivePage() {
                     {/* Seat Count (Multi mode only) */}
                     {selectedLiveMode === "multi" && (
                         <div className="space-y-2">
-                            <label className="text-sm text-white/70 font-semibold">Number of Seats</label>
+                            <label className="text-sm text-white/70 font-semibold">
+                                Number of Seats
+                            </label>
                             <div className="flex gap-2">
                                 {SEAT_OPTIONS.map((count) => (
                                     <button
                                         key={count}
                                         onClick={() => setSeatCount(count)}
                                         className={`flex-1 py-3 rounded-xl font-bold transition ${seatCount === count
-                                            ? "bg-gradient-to-r from-purple-500 to-pink-500"
-                                            : "bg-white/10 hover:bg-white/20"
+                                                ? "bg-gradient-to-r from-purple-500 to-pink-500"
+                                                : "bg-white/10 hover:bg-white/20"
                                             }`}
                                     >
                                         {count} 🪑
@@ -721,16 +783,24 @@ export default function LivePage() {
 
                     {/* Go Live Button */}
                     <button
-                        disabled={!streamTitle.trim() || !currentUser || loading || (selectedLiveMode !== "audio" && cameraStatus !== "granted")}
+                        disabled={
+                            !streamTitle.trim() ||
+                            !currentUser ||
+                            loading ||
+                            (selectedLiveMode !== "audio" &&
+                                cameraStatus !== "granted")
+                        }
                         onClick={startStreaming}
-                        className={`w-full py-4 rounded-xl font-bold text-lg disabled:opacity-40 bg-gradient-to-r ${LIVE_MODES.find(m => m.id === selectedLiveMode)?.color} hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3`}
+                        className={`w-full py-4 rounded-xl font-bold text-lg disabled:opacity-40 bg-gradient-to-r ${LIVE_MODES.find((m) => m.id === selectedLiveMode)?.color
+                            } hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3`}
                     >
                         {loading ? (
                             <>
                                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                 Starting...
                             </>
-                        ) : selectedLiveMode !== "audio" && cameraStatus !== "granted" ? (
+                        ) : selectedLiveMode !== "audio" &&
+                            cameraStatus !== "granted" ? (
                             "📷 Camera Required"
                         ) : (
                             <>
@@ -745,7 +815,10 @@ export default function LivePage() {
 
                     {/* Back Button */}
                     <button
-                        onClick={() => { stopCameraPreview(); setStep(1); }}
+                        onClick={() => {
+                            stopCameraPreview();
+                            setStep(1);
+                        }}
                         className="w-full py-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition"
                     >
                         ← Choose Different Mode

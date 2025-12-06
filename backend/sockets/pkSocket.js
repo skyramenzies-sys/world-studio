@@ -1,11 +1,46 @@
 // backend/sockets/pkSocket.js
-// World-Studio.live - PK Battle Socket Handlers
-// Handles real-time PK battles, voting, gifts, and notifications
+// World-Studio.live - PK Battle Socket Handlers (UNIVERSE EDITION 🌌)
+// Handles real-time PK battles, voting, gifts, moderation and notifications
 
 const PK = require("../models/PK");
 const User = require("../models/User");
+const {
+    computeBanStatus,
+    applyViolation,
+} = require("../utils/moderation");
 
 module.exports = (io, socket) => {
+    // ===========================================
+    // HELPERS
+    // ===========================================
+
+    const emitPkError = (socket, message, code = "PK_ERROR") => {
+        socket.emit("pk:error", { message, code });
+    };
+
+    const ensureUserNotBanned = async (userId, actionLabel = "action") => {
+        if (!userId) {
+            throw new Error("USER_ID_REQUIRED");
+        }
+        const user = await User.findById(userId);
+        if (!user) {
+            const err = new Error("USER_NOT_FOUND");
+            err.code = "USER_NOT_FOUND";
+            throw err;
+        }
+
+        const ban = computeBanStatus(user);
+        if (ban.banned) {
+            const err = new Error("USER_BANNED");
+            err.code = "USER_BANNED";
+            err.ban = ban;
+            err.user = user;
+            throw err;
+        }
+
+        return user;
+    };
+
     // ===========================================
     // ROOM MANAGEMENT
     // ===========================================
@@ -17,7 +52,7 @@ module.exports = (io, socket) => {
         if (!userId) return;
         socket.join(`user:${userId}`);
         socket.userId = userId;
-        console.log(`👤 User ${userId} joined notification room`);
+        console.log(`👤 User ${userId} joined PK notification room`);
     });
 
     /**
@@ -27,7 +62,7 @@ module.exports = (io, socket) => {
         if (!streamId) return;
         socket.join(`stream:${streamId}`);
         socket.streamId = streamId;
-        console.log(`📺 Socket ${socket.id} joined stream: ${streamId}`);
+        console.log(`📺 Socket ${socket.id} joined PK stream: ${streamId}`);
     });
 
     /**
@@ -36,7 +71,7 @@ module.exports = (io, socket) => {
     socket.on("pk:leaveStream", (streamId) => {
         if (!streamId) return;
         socket.leave(`stream:${streamId}`);
-        console.log(`📺 Socket ${socket.id} left stream: ${streamId}`);
+        console.log(`📺 Socket ${socket.id} left PK stream: ${streamId}`);
     });
 
     /**
@@ -69,7 +104,7 @@ module.exports = (io, socket) => {
             const pk = await PK.findById(pkId);
 
             if (!pk) {
-                socket.emit("pk:error", { message: "PK not found" });
+                emitPkError(socket, "PK not found", "PK_NOT_FOUND");
                 return;
             }
 
@@ -84,7 +119,7 @@ module.exports = (io, socket) => {
                 await pk.populate([
                     { path: "challenger.user", select: "username avatar isVerified" },
                     { path: "opponent.user", select: "username avatar isVerified" },
-                    { path: "winner", select: "username avatar isVerified" }
+                    { path: "winner", select: "username avatar isVerified" },
                 ]);
 
                 const resultData = {
@@ -94,15 +129,17 @@ module.exports = (io, socket) => {
                     challenger: {
                         user: pk.challenger.user,
                         score: pk.challenger.score,
-                        streamId: pk.challenger.streamId
+                        streamId: pk.challenger.streamId,
                     },
                     opponent: {
                         user: pk.opponent.user,
                         score: pk.opponent.score,
-                        streamId: pk.opponent.streamId
+                        streamId: pk.opponent.streamId,
                     },
                     duration: pk.duration,
-                    totalGifts: (pk.challenger.gifts?.length || 0) + (pk.opponent.gifts?.length || 0)
+                    totalGifts:
+                        (pk.challenger.giftsReceived?.length || 0) +
+                        (pk.opponent.giftsReceived?.length || 0),
                 };
 
                 // Emit to both streams
@@ -114,64 +151,93 @@ module.exports = (io, socket) => {
                 io.to(`user:${pk.challenger.user._id}`).emit("pk:result", resultData);
                 io.to(`user:${pk.opponent.user._id}`).emit("pk:result", resultData);
 
-                console.log(`⚔️ PK ${pkId} ended - Winner: ${pk.isDraw ? "DRAW" : pk.winner?.username}`);
+                console.log(
+                    `⚔️ PK ${pkId} ended - Winner: ${pk.isDraw ? "DRAW" : pk.winner?.username
+                    }`
+                );
             }
         } catch (err) {
             console.error("❌ PK timer check error:", err);
-            socket.emit("pk:error", { message: "Failed to check PK timer" });
+            emitPkError(socket, "Failed to check PK timer", "PK_TIMER_ERROR");
         }
     });
 
     /**
      * Send gift to PK participant
      */
-    socket.on("pk:gift", async (data) => {
+    socket.on("pk:gift", async (data = {}) => {
         try {
-            const { pkId, recipientId, giftType, giftValue, senderId, senderName } = data;
+            const { pkId, recipientId, giftType, giftValue, senderId, senderName } =
+                data;
 
-            if (!pkId || !recipientId || !giftType || !giftValue) {
-                socket.emit("pk:error", { message: "Invalid gift data" });
+            if (!pkId || !recipientId || !giftType || !giftValue || !senderId) {
+                emitPkError(socket, "Invalid gift data", "PK_GIFT_INVALID");
                 return;
+            }
+
+            // Check of sender geband is
+            try {
+                await ensureUserNotBanned(senderId, "pk_gift");
+            } catch (banErr) {
+                if (banErr.code === "USER_BANNED") {
+                    socket.emit("pk:banned", {
+                        message: "You are banned from sending gifts",
+                        ban: banErr.ban,
+                    });
+                    return;
+                }
+                throw banErr;
             }
 
             const pk = await PK.findById(pkId);
 
             if (!pk || pk.status !== "active") {
-                socket.emit("pk:error", { message: "PK not active" });
+                emitPkError(socket, "PK not active", "PK_NOT_ACTIVE");
                 return;
             }
 
-            // Determine which side received the gift
+
             const isChallenger = pk.challenger.user.toString() === recipientId;
             const isOpponent = pk.opponent.user.toString() === recipientId;
 
             if (!isChallenger && !isOpponent) {
-                socket.emit("pk:error", { message: "Invalid recipient" });
+                emitPkError(socket, "Invalid recipient", "PK_INVALID_RECIPIENT");
                 return;
             }
 
-            // Add gift and update score
+
             const giftData = {
-                sender: senderId,
-                senderName,
+                from: senderId,
+                fromUsername: senderName,
+                fromAvatar: null,
+                to: isChallenger ? "challenger" : "opponent",
                 giftType,
-                value: giftValue,
-                timestamp: new Date()
+                giftName: giftType,
+                icon: "💰",
+                amount: 1,
+                coins: giftValue,
+                message: null,
+                animation: "float",
+                timestamp: new Date(),
             };
 
             if (isChallenger) {
-                pk.challenger.gifts = pk.challenger.gifts || [];
-                pk.challenger.gifts.push(giftData);
+                pk.challenger.giftsReceived = pk.challenger.giftsReceived || [];
+                pk.challenger.giftsReceived.push(giftData);
                 pk.challenger.score += giftValue;
+                pk.challenger.giftsCount =
+                    (pk.challenger.giftsCount || 0) + 1;
             } else {
-                pk.opponent.gifts = pk.opponent.gifts || [];
-                pk.opponent.gifts.push(giftData);
+                pk.opponent.giftsReceived = pk.opponent.giftsReceived || [];
+                pk.opponent.giftsReceived.push(giftData);
                 pk.opponent.score += giftValue;
+                pk.opponent.giftsCount =
+                    (pk.opponent.giftsCount || 0) + 1;
             }
 
             await pk.save();
 
-            // Broadcast score update
+
             const scoreUpdate = {
                 pkId: pk._id,
                 challengerScore: pk.challenger.score,
@@ -179,71 +245,99 @@ module.exports = (io, socket) => {
                 gift: {
                     ...giftData,
                     recipient: recipientId,
-                    recipientSide: isChallenger ? "challenger" : "opponent"
-                }
+                    recipientSide: isChallenger ? "challenger" : "opponent",
+                },
             };
 
-            io.to(`stream:${pk.challenger.streamId}`).emit("pk:scoreUpdate", scoreUpdate);
-            io.to(`stream:${pk.opponent.streamId}`).emit("pk:scoreUpdate", scoreUpdate);
+            io.to(`stream:${pk.challenger.streamId}`).emit(
+                "pk:scoreUpdate",
+                scoreUpdate
+            );
+            io.to(`stream:${pk.opponent.streamId}`).emit(
+                "pk:scoreUpdate",
+                scoreUpdate
+            );
             io.to(`pk:${pkId}`).emit("pk:scoreUpdate", scoreUpdate);
 
-            // Gift animation event
-            io.to(`stream:${pk.challenger.streamId}`).emit("pk:giftReceived", scoreUpdate.gift);
-            io.to(`stream:${pk.opponent.streamId}`).emit("pk:giftReceived", scoreUpdate.gift);
+            io.to(`stream:${pk.challenger.streamId}`).emit(
+                "pk:giftReceived",
+                scoreUpdate.gift
+            );
+            io.to(`stream:${pk.opponent.streamId}`).emit(
+                "pk:giftReceived",
+                scoreUpdate.gift
+            );
 
-            console.log(`🎁 PK gift: ${giftType} (${giftValue}) to ${isChallenger ? "challenger" : "opponent"}`);
-
+            console.log(
+                `🎁 PK gift: ${giftType} (${giftValue}) to ${isChallenger ? "challenger" : "opponent"
+                }`
+            );
         } catch (err) {
             console.error("❌ PK gift error:", err);
-            socket.emit("pk:error", { message: "Failed to send gift" });
+            emitPkError(socket, "Failed to send gift", "PK_GIFT_ERROR");
         }
     });
 
     /**
      * Vote for a PK participant
      */
-    socket.on("pk:vote", async (data) => {
+    socket.on("pk:vote", async (data = {}) => {
         try {
             const { pkId, recipientId, voterId } = data;
 
-            if (!pkId || !recipientId) {
-                socket.emit("pk:error", { message: "Invalid vote data" });
+            if (!pkId || !recipientId || !voterId) {
+                emitPkError(socket, "Invalid vote data", "PK_VOTE_INVALID");
                 return;
+            }
+
+            // check ban
+            try {
+                await ensureUserNotBanned(voterId, "pk_vote");
+            } catch (banErr) {
+                if (banErr.code === "USER_BANNED") {
+                    socket.emit("pk:banned", {
+                        message: "You are banned from voting",
+                        ban: banErr.ban,
+                    });
+                    return;
+                }
+                throw banErr;
             }
 
             const pk = await PK.findById(pkId);
 
             if (!pk || pk.status !== "active") {
-                socket.emit("pk:error", { message: "PK not active" });
+                emitPkError(socket, "PK not active", "PK_NOT_ACTIVE");
                 return;
             }
 
-            // Check if user already voted
-            const hasVoted = pk.votes?.some(v => v.voter.toString() === voterId);
+            const hasVoted = pk.votes?.some(
+                (v) => v.voter.toString() === voterId
+            );
             if (hasVoted) {
-                socket.emit("pk:error", { message: "Already voted" });
+                emitPkError(socket, "Already voted", "PK_ALREADY_VOTED");
                 return;
             }
 
-            // Determine vote side
+
             const isChallenger = pk.challenger.user.toString() === recipientId;
             const isOpponent = pk.opponent.user.toString() === recipientId;
 
             if (!isChallenger && !isOpponent) {
-                socket.emit("pk:error", { message: "Invalid vote recipient" });
+                emitPkError(socket, "Invalid vote recipient", "PK_INVALID_RECIPIENT");
                 return;
             }
 
-            // Add vote
+
             pk.votes = pk.votes || [];
             pk.votes.push({
                 voter: voterId,
                 for: recipientId,
                 side: isChallenger ? "challenger" : "opponent",
-                timestamp: new Date()
+                timestamp: new Date(),
             });
 
-            // Update vote counts
+
             if (isChallenger) {
                 pk.challenger.voteCount = (pk.challenger.voteCount || 0) + 1;
             } else {
@@ -252,23 +346,31 @@ module.exports = (io, socket) => {
 
             await pk.save();
 
-            // Broadcast vote update
+
             const voteUpdate = {
                 pkId: pk._id,
                 challengerVotes: pk.challenger.voteCount || 0,
                 opponentVotes: pk.opponent.voteCount || 0,
-                totalVotes: pk.votes.length
+                totalVotes: pk.votes.length,
             };
 
             io.to(`pk:${pkId}`).emit("pk:voteUpdate", voteUpdate);
-            io.to(`stream:${pk.challenger.streamId}`).emit("pk:voteUpdate", voteUpdate);
-            io.to(`stream:${pk.opponent.streamId}`).emit("pk:voteUpdate", voteUpdate);
+            io.to(`stream:${pk.challenger.streamId}`).emit(
+                "pk:voteUpdate",
+                voteUpdate
+            );
+            io.to(`stream:${pk.opponent.streamId}`).emit(
+                "pk:voteUpdate",
+                voteUpdate
+            );
 
-            socket.emit("pk:voted", { success: true, side: isChallenger ? "challenger" : "opponent" });
-
+            socket.emit("pk:voted", {
+                success: true,
+                side: isChallenger ? "challenger" : "opponent",
+            });
         } catch (err) {
             console.error("❌ PK vote error:", err);
-            socket.emit("pk:error", { message: "Failed to vote" });
+            emitPkError(socket, "Failed to vote", "PK_VOTE_ERROR");
         }
     });
 
@@ -278,19 +380,32 @@ module.exports = (io, socket) => {
     socket.on("pk:getStatus", async (pkId) => {
         try {
             const pk = await PK.findById(pkId).populate([
-                { path: "challenger.user", select: "username avatar isVerified" },
-                { path: "opponent.user", select: "username avatar isVerified" },
-                { path: "winner", select: "username avatar" }
+                {
+                    path: "challenger.user",
+                    select: "username avatar isVerified",
+                },
+                {
+                    path: "opponent.user",
+                    select: "username avatar isVerified",
+                },
+                {
+                    path: "winner",
+                    select: "username avatar",
+                },
             ]);
 
             if (!pk) {
-                socket.emit("pk:error", { message: "PK not found" });
+                emitPkError(socket, "PK not found", "PK_NOT_FOUND");
                 return;
             }
 
-            const timeRemaining = pk.status === "active"
-                ? Math.max(0, Math.floor((pk.endTime - new Date()) / 1000))
-                : 0;
+            const timeRemaining =
+                pk.status === "active"
+                    ? Math.max(
+                        0,
+                        Math.floor((pk.endTime - new Date()) / 1000)
+                    )
+                    : 0;
 
             socket.emit("pk:status", {
                 pkId: pk._id,
@@ -299,55 +414,81 @@ module.exports = (io, socket) => {
                     user: pk.challenger.user,
                     score: pk.challenger.score,
                     voteCount: pk.challenger.voteCount || 0,
-                    streamId: pk.challenger.streamId
+                    streamId: pk.challenger.streamId,
                 },
                 opponent: {
                     user: pk.opponent.user,
                     score: pk.opponent.score,
                     voteCount: pk.opponent.voteCount || 0,
-                    streamId: pk.opponent.streamId
+                    streamId: pk.opponent.streamId,
                 },
                 winner: pk.winner,
                 isDraw: pk.isDraw,
                 duration: pk.duration,
                 timeRemaining,
-                startedAt: pk.startedAt,
-                endTime: pk.endTime
+                startedAt: pk.startTime,
+                endTime: pk.endTime,
             });
 
         } catch (err) {
             console.error("❌ PK get status error:", err);
-            socket.emit("pk:error", { message: "Failed to get PK status" });
+            emitPkError(socket, "Failed to get PK status", "PK_STATUS_ERROR");
         }
     });
 
     /**
      * Streamer accepts PK challenge
      */
-    socket.on("pk:accept", async (data) => {
+    socket.on("pk:accept", async (data = {}) => {
         try {
             const { pkId, userId } = data;
+
+            // check ban
+            try {
+                await ensureUserNotBanned(userId, "pk_accept");
+            } catch (banErr) {
+                if (banErr.code === "USER_BANNED") {
+                    socket.emit("pk:banned", {
+                        message: "You are banned from PK battles",
+                        ban: banErr.ban,
+                    });
+                    return;
+                }
+                throw banErr;
+            }
 
             const pk = await PK.findById(pkId);
 
             if (!pk || pk.status !== "pending") {
-                socket.emit("pk:error", { message: "Invalid PK or already started" });
+                emitPkError(
+                    socket,
+                    "Invalid PK or already started",
+                    "PK_INVALID_STATE"
+                );
                 return;
             }
 
             if (pk.opponent.user.toString() !== userId) {
-                socket.emit("pk:error", { message: "Not authorized to accept" });
+                emitPkError(socket, "Not authorized to accept", "PK_NOT_AUTH");
                 return;
             }
 
             pk.status = "active";
-            pk.startedAt = new Date();
-            pk.endTime = new Date(Date.now() + pk.duration * 1000);
+            pk.startTime = new Date();
+            pk.endTime = new Date(
+                pk.startTime.getTime() + pk.duration * 1000
+            );
             await pk.save();
 
             await pk.populate([
-                { path: "challenger.user", select: "username avatar isVerified" },
-                { path: "opponent.user", select: "username avatar isVerified" }
+                {
+                    path: "challenger.user",
+                    select: "username avatar isVerified",
+                },
+                {
+                    path: "opponent.user",
+                    select: "username avatar isVerified",
+                },
             ]);
 
             const startData = {
@@ -357,10 +498,10 @@ module.exports = (io, socket) => {
                 opponent: pk.opponent,
                 duration: pk.duration,
                 endTime: pk.endTime,
-                startedAt: pk.startedAt
+                startedAt: pk.startTime,
             };
 
-            // Notify both streams
+
             io.to(`stream:${pk.challenger.streamId}`).emit("pk:started", startData);
             io.to(`stream:${pk.opponent.streamId}`).emit("pk:started", startData);
             io.to(`user:${pk.challenger.user._id}`).emit("pk:started", startData);
@@ -370,26 +511,40 @@ module.exports = (io, socket) => {
 
         } catch (err) {
             console.error("❌ PK accept error:", err);
-            socket.emit("pk:error", { message: "Failed to accept PK" });
+            emitPkError(socket, "Failed to accept PK", "PK_ACCEPT_ERROR");
         }
     });
 
     /**
      * Streamer declines PK challenge
      */
-    socket.on("pk:decline", async (data) => {
+    socket.on("pk:decline", async (data = {}) => {
         try {
             const { pkId, userId } = data;
+
+            // check ban
+            try {
+                await ensureUserNotBanned(userId, "pk_decline");
+            } catch (banErr) {
+                if (banErr.code === "USER_BANNED") {
+                    socket.emit("pk:banned", {
+                        message: "You are banned from PK actions",
+                        ban: banErr.ban,
+                    });
+                    return;
+                }
+                throw banErr;
+            }
 
             const pk = await PK.findById(pkId);
 
             if (!pk || pk.status !== "pending") {
-                socket.emit("pk:error", { message: "Invalid PK" });
+                emitPkError(socket, "Invalid PK", "PK_INVALID_STATE");
                 return;
             }
 
             if (pk.opponent.user.toString() !== userId) {
-                socket.emit("pk:error", { message: "Not authorized to decline" });
+                emitPkError(socket, "Not authorized to decline", "PK_NOT_AUTH");
                 return;
             }
 
@@ -397,36 +552,50 @@ module.exports = (io, socket) => {
             pk.finishedAt = new Date();
             await pk.save();
 
-            // Notify challenger
+
             io.to(`user:${pk.challenger.user}`).emit("pk:declined", {
                 pkId: pk._id,
-                declinedBy: userId
+                declinedBy: userId,
             });
 
             console.log(`⚔️ PK ${pkId} declined`);
 
         } catch (err) {
             console.error("❌ PK decline error:", err);
-            socket.emit("pk:error", { message: "Failed to decline PK" });
+            emitPkError(socket, "Failed to decline PK", "PK_DECLINE_ERROR");
         }
     });
 
     /**
      * Cancel PK (by challenger before acceptance)
      */
-    socket.on("pk:cancel", async (data) => {
+    socket.on("pk:cancel", async (data = {}) => {
         try {
             const { pkId, userId } = data;
+
+            // check ban
+            try {
+                await ensureUserNotBanned(userId, "pk_cancel");
+            } catch (banErr) {
+                if (banErr.code === "USER_BANNED") {
+                    socket.emit("pk:banned", {
+                        message: "You are banned from PK actions",
+                        ban: banErr.ban,
+                    });
+                    return;
+                }
+                throw banErr;
+            }
 
             const pk = await PK.findById(pkId);
 
             if (!pk || pk.status !== "pending") {
-                socket.emit("pk:error", { message: "Invalid PK" });
+                emitPkError(socket, "Invalid PK", "PK_INVALID_STATE");
                 return;
             }
 
             if (pk.challenger.user.toString() !== userId) {
-                socket.emit("pk:error", { message: "Not authorized to cancel" });
+                emitPkError(socket, "Not authorized to cancel", "PK_NOT_AUTH");
                 return;
             }
 
@@ -434,17 +603,65 @@ module.exports = (io, socket) => {
             pk.finishedAt = new Date();
             await pk.save();
 
-            // Notify opponent
+
             io.to(`user:${pk.opponent.user}`).emit("pk:cancelled", {
                 pkId: pk._id,
-                cancelledBy: userId
+                cancelledBy: userId,
             });
 
             console.log(`⚔️ PK ${pkId} cancelled`);
 
         } catch (err) {
             console.error("❌ PK cancel error:", err);
-            socket.emit("pk:error", { message: "Failed to cancel PK" });
+            emitPkError(socket, "Failed to cancel PK", "PK_CANCEL_ERROR");
+        }
+    });
+
+    // ===========================================
+    // MODERATION EVENT (robot / admin)
+    // ===========================================
+
+    /**
+     * pk:moderationStrike
+     * Data: { targetUserId, reason }
+     * → geeft strike + ban volgens ladder
+     * Deze moet je aanroepen vanuit admin UI of je robot / AI.
+     */
+    socket.on("pk:moderationStrike", async (data = {}) => {
+        try {
+            const { targetUserId, reason } = data;
+
+            if (!targetUserId) {
+                emitPkError(socket, "Target user required", "PK_MOD_TARGET_REQUIRED");
+                return;
+            }
+
+            // optioneel: hier kun je checken of socket.userId admin/mod is
+            // Voor nu: gewoon toepassen
+            const result = await applyViolation(
+                targetUserId,
+                reason || "pk_violation"
+            );
+
+            io.to(`user:${targetUserId}`).emit("pk:moderation", {
+                type: "strike",
+                action: result.action,
+                strikeCount: result.strikeCount,
+                durationSeconds: result.durationSeconds,
+                permanent: result.permanent,
+                reason: reason || "pk_violation",
+            });
+
+            console.log(
+                `🛡️ Moderation strike: user=${targetUserId} action=${result.action} strikes=${result.strikeCount}`
+            );
+        } catch (err) {
+            console.error("❌ PK moderationStrike error:", err);
+            emitPkError(
+                socket,
+                "Failed to apply moderation strike",
+                "PK_MOD_ERROR"
+            );
         }
     });
 
@@ -455,63 +672,9 @@ module.exports = (io, socket) => {
     socket.on("disconnect", () => {
         if (socket.userId) {
             console.log(`👤 User ${socket.userId} disconnected from PK`);
+        } else {
+            console.log(`🔌 Socket ${socket.id} disconnected from PK`);
         }
     });
 };
 
-// ============================================
-// INTEGRATION EXAMPLE
-// ============================================
-/*
-// In your server.js or socket setup file:
-
-const { Server } = require("socket.io");
-const pkSocket = require("./sockets/pkSocket");
-
-const io = new Server(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL || "https://world-studio.live",
-        methods: ["GET", "POST"],
-        credentials: true
-    }
-});
-
-// Make io available in routes
-app.set("io", io);
-
-io.on("connection", (socket) => {
-    console.log("🔌 User connected:", socket.id);
-    
-    // Initialize PK socket handlers
-    pkSocket(io, socket);
-    
-    // ... your other socket handlers
-    
-    socket.on("disconnect", () => {
-        console.log("🔌 User disconnected:", socket.id);
-    });
-});
-
-// ============================================
-// EMIT EVENTS FROM ROUTES
-// ============================================
-
-// In your routes, emit events like:
-
-// When a new PK challenge is created:
-const io = req.app.get("io");
-io.to(`user:${opponentId}`).emit("pk:challenge", {
-    pkId: pk._id,
-    challenger: { username, avatar },
-    duration: pk.duration
-});
-
-// When a gift is sent during PK:
-io.to(`pk:${pkId}`).emit("pk:giftReceived", {
-    sender: username,
-    giftType: "rose",
-    value: 10,
-    recipient: "challenger"
-});
-
-*/

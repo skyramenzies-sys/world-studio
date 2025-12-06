@@ -1,5 +1,5 @@
 // =======================================================
-// World-Studio.live - Users Routes (Universe Edition)
+// World-Studio.live - Users Routes (Universe Edition 🚀)
 // Engineered for Commander Sandro Menzies
 // by AIRPATH
 // =======================================================
@@ -8,7 +8,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const User = require("../models/User");
-const Post = require("../models/Post"); // gebruikt voor profiel posts (indien nodig)
+const Post = require("../models/Post"); // gebruikt voor profiel posts
 const auth = require("../middleware/authMiddleware");
 
 // -------------------------------------------
@@ -30,6 +30,7 @@ const toPublicUser = (user) => {
     const followersCount =
         user.followersCount ??
         (Array.isArray(user.followers) ? user.followers.length : 0);
+
     const followingCount =
         user.followingCount ??
         (Array.isArray(user.following) ? user.following.length : 0);
@@ -63,6 +64,7 @@ router.get("/me", auth, async (req, res) => {
         }
 
         return res.json({
+            success: true,
             user: toPublicUser(user),
         });
     } catch (err) {
@@ -127,22 +129,30 @@ router.get("/:id", async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         }
 
-        // Posts optioneel meegeven
+        // Posts van deze user (volgens Post-schema: userId)
         let posts = [];
+        let postsCount = 0;
+
         try {
-            posts = await Post.find({ author: user._id })
-                .sort({ createdAt: -1 })
-                .limit(20)
-                .lean();
+            const query = { userId: user._id, status: { $ne: "deleted" } };
+            [posts, postsCount] = await Promise.all([
+                Post.find(query)
+                    .sort({ createdAt: -1 })
+                    .limit(20)
+                    .lean(),
+                Post.countDocuments(query),
+            ]);
         } catch (e) {
-            // posts zijn nice-to-have, niet blocking
+            console.log("⚠️ Profile posts query failed:", e.message);
             posts = [];
+            postsCount = 0;
         }
 
         return res.json({
+            success: true,
             user: toPublicUser(user),
             stats: {
-                postsCount: posts.length,
+                postsCount,
             },
             posts,
         });
@@ -244,6 +254,10 @@ router.post("/:id/follow", auth, async (req, res) => {
             target.notifications = target.notifications.slice(0, 100);
         }
 
+        // unread counter
+        target.unreadNotifications =
+            (target.unreadNotifications || 0) + 1;
+
         await Promise.all([me.save(), target.save()]);
 
         // 4️⃣ real-time push via Socket.io
@@ -260,7 +274,10 @@ router.post("/:id/follow", auth, async (req, res) => {
             targetUser: toPublicUser(target),
             me: {
                 _id: me._id,
-                followersCount: me.followersCount,
+                followersCount:
+                    Array.isArray(me.followers) && me.followers.length
+                        ? me.followers.length
+                        : me.followersCount ?? 0,
                 followingCount: me.followingCount,
             },
         });
@@ -317,7 +334,10 @@ router.post("/:id/unfollow", auth, async (req, res) => {
             targetUser: toPublicUser(target),
             me: {
                 _id: me._id,
-                followersCount: me.followersCount,
+                followersCount:
+                    Array.isArray(me.followers) && me.followers.length
+                        ? me.followers.length
+                        : me.followersCount ?? 0,
                 followingCount: me.followingCount,
             },
         });
@@ -328,7 +348,7 @@ router.post("/:id/unfollow", auth, async (req, res) => {
 });
 
 // =======================================================
-// 4. FOLLOWERS / FOLLOWING LISTS (OPTIONEEL)
+// 4. FOLLOWERS / FOLLOWING LISTS
 // =======================================================
 
 // GET /api/users/:id/followers
@@ -341,7 +361,7 @@ router.get("/:id/followers", async (req, res) => {
 
         const user = await User.findById(userId).populate(
             "followers",
-            "username displayName avatar isVerified"
+            "username displayName avatar isVerified followers followersCount following followingCount"
         );
 
         if (!user) {
@@ -351,6 +371,7 @@ router.get("/:id/followers", async (req, res) => {
         const followers = (user.followers || []).map((u) => toPublicUser(u));
 
         return res.json({
+            success: true,
             count: followers.length,
             followers,
         });
@@ -370,7 +391,7 @@ router.get("/:id/following", async (req, res) => {
 
         const user = await User.findById(userId).populate(
             "following",
-            "username displayName avatar isVerified"
+            "username displayName avatar isVerified followers followersCount following followingCount"
         );
 
         if (!user) {
@@ -380,6 +401,7 @@ router.get("/:id/following", async (req, res) => {
         const following = (user.following || []).map((u) => toPublicUser(u));
 
         return res.json({
+            success: true,
             count: following.length,
             following,
         });

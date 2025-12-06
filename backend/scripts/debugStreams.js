@@ -1,18 +1,23 @@
 // backend/scripts/debugStreams.js
-// World-Studio.live - Stream Debug Utility
-// Run: node scripts/debugStreams.js [collection]
+// World-Studio.live - Stream Debug Utility (UNIVERSE EDITION 🚀)
+// Run: node scripts/debugStreams.js [mode]
 //
-// Examples:
-//   node scripts/debugStreams.js           # Check all stream collections
-//   node scripts/debugStreams.js streams   # Check streams collection only
-//   node scripts/debugStreams.js users     # Check user live statuses
+// Modes / Examples:
+//   node scripts/debugStreams.js             # Check all stream collections + users
+//   node scripts/debugStreams.js streams     # Check streams collection only
+//   node scripts/debugStreams.js livestreams # Check livestreams collection only
+//   node scripts/debugStreams.js users       # Check user live statuses
+//   node scripts/debugStreams.js schema      # Inspect sample stream document fields
 
 require("dotenv").config();
 const mongoose = require("mongoose");
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+const STREAM_COLLECTIONS = ["streams", "livestreams"];
 
-// Helper functions
+// ===========================================
+// HELPERS
+// ===========================================
 const formatDate = (date) => {
     if (!date) return "N/A";
     return new Date(date).toLocaleString();
@@ -27,11 +32,26 @@ const formatDuration = (startedAt, endedAt = null) => {
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 };
 
+const safeGetCollection = (db, name) => {
+    try {
+        return db.collection(name);
+    } catch {
+        return null;
+    }
+};
+
+// ===========================================
+// STREAM COLLECTION DEBUG
+// ===========================================
 async function debugStreamsCollection(db, collectionName) {
     console.log(`\n📺 DEBUGGING ${collectionName.toUpperCase()} COLLECTION\n`);
 
     try {
-        const collection = db.collection(collectionName);
+        const collection = safeGetCollection(db, collectionName);
+        if (!collection) {
+            console.log(`Collection "${collectionName}" not found`);
+            return { total: 0, live: 0, ghosts: 0 };
+        }
 
         // Total counts
         const totalCount = await collection.countDocuments();
@@ -39,8 +59,8 @@ async function debugStreamsCollection(db, collectionName) {
         const endedCount = await collection.countDocuments({ isLive: false });
 
         console.log(`Total documents: ${totalCount}`);
-        console.log(`Live streams: ${liveCount}`);
-        console.log(`Ended streams: ${endedCount}`);
+        console.log(`Live streams:   ${liveCount}`);
+        console.log(`Ended streams:  ${endedCount}`);
 
         // Check for various "live" indicators
         const statusLive = await collection.countDocuments({ status: "live" });
@@ -49,10 +69,10 @@ async function debugStreamsCollection(db, collectionName) {
         const streamingTrue = await collection.countDocuments({ streaming: true });
 
         console.log(`\n📌 Live Indicators:`);
-        console.log(`   isLive: true = ${liveCount}`);
+        console.log(`   isLive: true   = ${liveCount}`);
         console.log(`   status: "live" = ${statusLive}`);
         console.log(`   status: "active" = ${statusActive}`);
-        console.log(`   live: true = ${liveTrue}`);
+        console.log(`   live: true     = ${liveTrue}`);
         console.log(`   streaming: true = ${streamingTrue}`);
 
         // Get last 20 streams
@@ -71,45 +91,51 @@ async function debugStreamsCollection(db, collectionName) {
                 : formatDuration(stream.startedAt || stream.createdAt, stream.endedAt);
 
             console.log(`${status} "${stream.title || "Untitled"}"`);
-            console.log(`    ID: ${stream._id}`);
+            console.log(`    ID:       ${stream._id}`);
             console.log(`    Streamer: ${stream.username || stream.streamerName || "Unknown"}`);
-            console.log(`    isLive: ${stream.isLive}`);
-            console.log(`    status: ${stream.status || "(not set)"}`);
+            console.log(`    isLive:   ${stream.isLive}`);
+            console.log(`    status:   ${stream.status || "(not set)"}`);
             console.log(`    Duration: ${duration}`);
-            console.log(`    Viewers: ${stream.viewersCount || stream.viewers?.length || 0}`);
-            console.log(`    Created: ${formatDate(stream.createdAt)}`);
-            console.log(`    Started: ${formatDate(stream.startedAt)}`);
-            console.log(`    Ended: ${formatDate(stream.endedAt)}`);
+            console.log(`    Viewers:  ${stream.viewersCount || stream.viewers?.length || 0}`);
+            console.log(`    Created:  ${formatDate(stream.createdAt)}`);
+            console.log(`    Started:  ${formatDate(stream.startedAt)}`);
+            console.log(`    Ended:    ${formatDate(stream.endedAt)}`);
             console.log("");
         }
 
         // Find potential ghost streams
-        const ghostStreams = await collection.find({
-            $or: [
-                { isLive: true },
-                { status: "live" },
-                { status: "active" },
-                { live: true },
-                { streaming: true }
-            ]
-        }).toArray();
+        const ghostStreams = await collection
+            .find({
+                $or: [
+                    { isLive: true },
+                    { status: "live" },
+                    { status: "active" },
+                    { live: true },
+                    { streaming: true }
+                ]
+            })
+            .toArray();
 
         if (ghostStreams.length > 0) {
             console.log(`\n🎯 POTENTIAL GHOST STREAMS (${ghostStreams.length}):\n`);
 
-            for (const s of ghostStreams) {
+            for (const s of ghostStreams.slice(0, 30)) {
                 const age = formatDuration(s.startedAt || s.createdAt);
                 console.log(`  ⚠️  "${s.title || "Untitled"}" - ${age} old`);
-                console.log(`      ID: ${s._id}`);
+                console.log(`      ID:       ${s._id}`);
                 console.log(`      isLive=${s.isLive}, status=${s.status}, live=${s.live}, streaming=${s.streaming}`);
                 console.log(`      Streamer: ${s.username || s.streamerName || "Unknown"}`);
                 console.log("");
+            }
+
+            if (ghostStreams.length > 30) {
+                console.log(`  ... and ${ghostStreams.length - 30} more ghost candidates\n`);
             }
         } else {
             console.log(`\n✅ No ghost streams found in ${collectionName}`);
         }
 
-        // Check for orphaned streams (streamer doesn't exist)
+        // Check for orphaned streams (streamer doesn't exist) in recent subset
         const usersCollection = db.collection("users");
         let orphanedCount = 0;
 
@@ -119,7 +145,9 @@ async function debugStreamsCollection(db, collectionName) {
                 const userExists = await usersCollection.findOne({ _id: streamerId });
                 if (!userExists) {
                     orphanedCount++;
-                    console.log(`  🔍 Orphaned stream: "${stream.title}" (user ${streamerId} not found)`);
+                    console.log(
+                        `  🔍 Orphaned stream: "${stream.title || "Untitled"}" (user ${streamerId} not found)`
+                    );
                 }
             }
         }
@@ -144,6 +172,9 @@ async function debugStreamsCollection(db, collectionName) {
     }
 }
 
+// ===========================================
+// USER LIVE STATUS DEBUG
+// ===========================================
 async function debugUserStatuses(db) {
     console.log(`\n👤 DEBUGGING USER LIVE STATUSES\n`);
 
@@ -162,18 +193,31 @@ async function debugUserStatuses(db) {
                 : "unknown";
 
             console.log(`  @${user.username}`);
-            console.log(`    ID: ${user._id}`);
-            console.log(`    isLive: ${user.isLive}`);
+            console.log(`    ID:              ${user._id}`);
+            console.log(`    isLive:          ${user.isLive}`);
             console.log(`    currentStreamId: ${user.currentStreamId || "(not set)"}`);
-            console.log(`    Last Active: ${lastActive}`);
+            console.log(`    Last Active:     ${lastActive}`);
 
             // Check if their stream actually exists
             if (user.currentStreamId) {
-                const streamsCollection = db.collection("streams");
-                const stream = await streamsCollection.findOne({ _id: user.currentStreamId });
+                const streamsCollection = safeGetCollection(db, "streams");
+                let stream = null;
+
+                if (streamsCollection) {
+                    stream = await streamsCollection.findOne({ _id: user.currentStreamId });
+                }
+
+                if (!stream) {
+                    const liveStreamsCollection = safeGetCollection(db, "livestreams");
+                    if (liveStreamsCollection) {
+                        stream = await liveStreamsCollection.findOne({ _id: user.currentStreamId });
+                    }
+                }
 
                 if (stream) {
-                    console.log(`    Stream Status: ${stream.isLive ? "🟢 LIVE" : "⚫ ENDED"}`);
+                    console.log(
+                        `    Stream Status: ${stream.isLive ? "🟢 LIVE" : "⚫ ENDED"} (status=${stream.status})`
+                    );
                 } else {
                     console.log(`    Stream Status: ⚠️ STREAM NOT FOUND`);
                 }
@@ -187,9 +231,12 @@ async function debugUserStatuses(db) {
         for (const user of liveUsers) {
             let hasActiveStream = false;
 
-            for (const collName of ["streams", "livestreams"]) {
+            for (const collName of STREAM_COLLECTIONS) {
+                const collection = safeGetCollection(db, collName);
+                if (!collection) continue;
+
                 try {
-                    const collection = db.collection(collName);
+
                     const activeStream = await collection.findOne({
                         $or: [
                             { streamerId: user._id },
@@ -203,23 +250,31 @@ async function debugUserStatuses(db) {
                         hasActiveStream = true;
                         break;
                     }
-                } catch (e) { }
+                } catch {
+                    // ignore
+                }
             }
 
             if (!hasActiveStream) {
-                console.log(`  ⚠️  @${user.username} is marked LIVE but has NO active stream!`);
+                console.log(
+                    `  ⚠️  @${user.username} is marked LIVE but has NO active stream in streams/livestreams!`
+                );
             }
         }
     }
 
     // Users with currentStreamId but not live
-    const inconsistentUsers = await usersCollection.find({
-        isLive: false,
-        currentStreamId: { $ne: null, $exists: true }
-    }).toArray();
+    const inconsistentUsers = await usersCollection
+        .find({
+            isLive: false,
+            currentStreamId: { $ne: null, $exists: true }
+        })
+        .toArray();
 
     if (inconsistentUsers.length > 0) {
-        console.log(`\n⚠️  INCONSISTENT USERS (not live but has currentStreamId):`);
+        console.log(
+            `\n⚠️  INCONSISTENT USERS (not live but has currentStreamId set):`
+        );
         for (const user of inconsistentUsers) {
             console.log(`  @${user.username} - currentStreamId: ${user.currentStreamId}`);
         }
@@ -228,14 +283,20 @@ async function debugUserStatuses(db) {
     return liveUsers.length;
 }
 
+// ===========================================
+// SCHEMA ANALYSIS
+// ===========================================
 async function debugSchemaFields(db) {
     console.log(`\n📋 STREAM SCHEMA ANALYSIS\n`);
 
-    const collections = ["streams", "livestreams"];
+    for (const collName of STREAM_COLLECTIONS) {
+        const collection = safeGetCollection(db, collName);
+        if (!collection) continue;
 
-    for (const collName of collections) {
+
+
         try {
-            const collection = db.collection(collName);
+
             const sample = await collection.findOne({});
 
             if (sample) {
@@ -243,28 +304,45 @@ async function debugSchemaFields(db) {
                 const fields = Object.keys(sample).sort();
 
                 for (const field of fields) {
-                    const type = typeof sample[field];
-                    const value = type === "object"
-                        ? (Array.isArray(sample[field]) ? "Array" : "Object")
-                        : type;
-                    console.log(`  - ${field}: ${value}`);
+                    const raw = sample[field];
+                    let valueType;
+
+                    if (raw === null) {
+                        valueType = "null";
+                    } else if (Array.isArray(raw)) {
+                        valueType = "Array";
+                    } else if (raw instanceof Date) {
+                        valueType = "Date";
+                    } else {
+                        const t = typeof raw;
+                        valueType = t === "object" ? "Object" : t;
+                    }
+
+                    console.log(`  - ${field}: ${valueType}`);
                 }
                 console.log("");
+            } else {
+                console.log(`${collName}: (no documents)`);
             }
-        } catch (e) { }
+        } catch (e) {
+            console.log(`Error inspecting ${collName}: ${e.message}`);
+        }
     }
 }
 
+// ===========================================
+// MAIN
+// ===========================================
 async function main() {
     const args = process.argv.slice(2);
     const mode = args[0] || "all";
 
     console.log("╔════════════════════════════════════════╗");
-    console.log("║  🔍 STREAM DEBUG UTILITY               ║");
+    console.log("║  🔍 STREAM DEBUG UTILITY (U.E.)        ║");
     console.log("╚════════════════════════════════════════╝\n");
 
     if (!MONGO_URI) {
-        console.error("❌ No MONGO_URI found in .env");
+        console.error("❌ No MONGO_URI / MONGODB_URI found in .env");
         process.exit(1);
     }
 
@@ -302,20 +380,35 @@ async function main() {
                 break;
         }
 
-        // Summary
+        // Summary box
         console.log("\n╔════════════════════════════════════════╗");
         console.log("║  📊 DEBUG SUMMARY                      ║");
         console.log("╠════════════════════════════════════════╣");
-        console.log(`║  streams:     ${String(results.streams.total).padStart(5)} total, ${String(results.streams.live).padStart(3)} live  ║`);
-        console.log(`║  livestreams: ${String(results.livestreams.total).padStart(5)} total, ${String(results.livestreams.live).padStart(3)} live  ║`);
-        console.log(`║  Ghost streams: ${String(results.streams.ghosts + results.livestreams.ghosts).padStart(5)}             ║`);
-        console.log(`║  Live users: ${String(results.liveUsers).padStart(8)}             ║`);
+        console.log(
+            `║  streams:     ${String(results.streams.total).padStart(
+                5
+            )} total, ${String(results.streams.live).padStart(3)} live  ║`
+        );
+        console.log(
+            `║  livestreams: ${String(results.livestreams.total).padStart(
+                5
+            )} total, ${String(results.livestreams.live).padStart(3)} live  ║`
+        );
+        console.log(
+            `║  Ghost streams: ${String(
+                results.streams.ghosts + results.livestreams.ghosts
+            ).padStart(5)}             ║`
+        );
+        console.log(
+            `║  Live users: ${String(results.liveUsers).padStart(8)}             ║`
+        );
         console.log("╚════════════════════════════════════════╝");
 
-        const totalGhosts = results.streams.ghosts + results.livestreams.ghosts;
+        const totalGhosts =
+            results.streams.ghosts + results.livestreams.ghosts;
         if (totalGhosts > 0) {
             console.log(`\n⚠️  Found ${totalGhosts} potential ghost streams!`);
-            console.log("Run: node scripts/cleanupStreams.js to clean them up");
+            console.log("   → Run: node scripts/cleanupStreams.js to clean them up\n");
         }
 
     } catch (error) {

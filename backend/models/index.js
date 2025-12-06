@@ -1,6 +1,8 @@
 // backend/models/index.js
-// World-Studio.live - Model Index
+// World-Studio.live - Model Index (UNIVERSE EDITION 🌌)
 // Centralized export of all Mongoose models
+
+"use strict";
 
 const mongoose = require("mongoose");
 
@@ -10,7 +12,7 @@ const mongoose = require("mongoose");
 
 /**
  * Safely load a model - returns null if not found
- * @param {string} modelName - Name of the model file
+ * @param {string} modelName - Name of the model file (without .js)
  * @returns {Model|null} - Mongoose model or null
  */
 function safeLoad(modelName) {
@@ -28,14 +30,17 @@ function safeLoad(modelName) {
 
 /**
  * Required model loader - throws if not found
- * @param {string} modelName - Name of the model file
+ * @param {string} modelName - Name of the model file (without .js)
  * @returns {Model} - Mongoose model
  */
 function requireLoad(modelName) {
     try {
         return require(`./${modelName}`);
     } catch (e) {
-        console.error(`❌ Required model '${modelName}' failed to load:`, e.message);
+        console.error(
+            `❌ Required model '${modelName}' failed to load:`,
+            e.message
+        );
         throw new Error(`Required model '${modelName}' not found`);
     }
 }
@@ -74,6 +79,7 @@ const Wallet = safeLoad("Wallet");
 const Transaction = safeLoad("Transaction");
 const Purchase = safeLoad("Purchase");
 const Subscription = safeLoad("Subscription");
+const PlatformWallet = safeLoad("PlatformWallet"); // 🔥 voor platform fees / gift revenue
 
 // ===========================================
 // SOCIAL MODELS (Optional)
@@ -105,7 +111,7 @@ const Analytics = safeLoad("Analytics");
 const ViewLog = safeLoad("ViewLog");
 
 // ===========================================
-// LOG LOADED MODELS
+// LOADED MODELS REGISTER
 // ===========================================
 const loadedModels = {
     // Core
@@ -132,6 +138,7 @@ const loadedModels = {
     Transaction: !!Transaction,
     Purchase: !!Purchase,
     Subscription: !!Subscription,
+    PlatformWallet: !!PlatformWallet,
 
     // Social
     Follow: !!Follow,
@@ -152,27 +159,32 @@ const loadedModels = {
 
     // Analytics
     Analytics: !!Analytics,
-    ViewLog: !!ViewLog,
+    ViewLog: !!ViewLog
 };
 
-// Count loaded models
+
 const loadedCount = Object.values(loadedModels).filter(Boolean).length;
 const totalCount = Object.keys(loadedModels).length;
 
-console.log(`✅ Models registered: ${loadedCount}/${totalCount}`);
-console.log("📦 Loaded models:", Object.entries(loadedModels)
-    .filter(([_, loaded]) => loaded)
-    .map(([name]) => name)
-    .join(", ")
-);
+// Iets nettere logging: alleen uitgebreid loggen in development
+if (process.env.NODE_ENV !== "test") {
+    console.log(`✅ Models registered: ${loadedCount}/${totalCount}`);
+    console.log(
+        "📦 Loaded models:",
+        Object.entries(loadedModels)
+            .filter(([, loaded]) => loaded)
+            .map(([name]) => name)
+            .join(", ") || "(none)"
+    );
+}
 
 // ===========================================
 // HELPER FUNCTIONS
 // ===========================================
 
 /**
- * Get a model by name
- * @param {string} name - Model name
+ * Get a model by name from mongoose registry
+ * @param {string} name - Model name (e.g. "User")
  * @returns {Model|null}
  */
 function getModel(name) {
@@ -198,7 +210,7 @@ function hasModel(name) {
  */
 function getLoadedModelNames() {
     return Object.entries(loadedModels)
-        .filter(([_, loaded]) => loaded)
+        .filter(([, loaded]) => loaded)
         .map(([name]) => name);
 }
 
@@ -218,53 +230,54 @@ function getModelStats() {
 // EXPORTS
 // ===========================================
 module.exports = {
-    // Core Models
+    // Core
     User,
 
-    // Content Models
+    // Content
     Post,
     Comment,
     Media,
 
-    // Live Streaming Models
+    // Live Streaming
     Stream,
     LiveStream,
     StreamChat,
 
-    // PK Battle Models
+    // PK Battles
     PK,
     PKBattle,
     PKChallenge,
 
-    // Monetization Models
+    // Monetization
     Gift,
     Wallet,
     Transaction,
     Purchase,
     Subscription,
+    PlatformWallet,
 
-    // Social Models
+    // Social
     Follow,
     Notification,
     Message,
     Conversation,
 
-    // Content Shop Models
+    // Content Shop
     Content,
     ContentPurchase,
     Review,
 
-    // Admin Models
+    // Admin
     Report,
     Ban,
     AdminLog,
     Setting,
 
-    // Analytics Models
+    // Analytics
     Analytics,
     ViewLog,
 
-    // Helper Functions
+    // Helpers
     getModel,
     hasModel,
     getLoadedModelNames,
@@ -272,6 +285,6 @@ module.exports = {
     safeLoad,
     requireLoad,
 
-    // Model registry
-    loadedModels,
+    // Registry
+    loadedModels
 };

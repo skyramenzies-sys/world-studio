@@ -5,10 +5,14 @@ import axios from "axios";
 import { io } from "socket.io-client";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (U.E.)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+const SOCKET_URL = API_BASE_URL;
 
 // Create API instance
 const api = axios.create({
@@ -117,6 +121,10 @@ export default function LiveStreamPage() {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
     // Join stream room and listen to events
     useEffect(() => {
         if (!streamId) return;
@@ -127,8 +135,10 @@ export default function LiveStreamPage() {
         // Join chat room
         socket.emit("join_stream", { streamId, roomId: streamId });
 
-        // Listen to messages
+        // Messages
         const handleMessage = (msg) => {
+            // Zorg dat het echt bij deze stream hoort
+            if (msg.roomId && msg.roomId !== streamId) return;
             setMessages((prev) => [...prev.slice(-100), msg]);
         };
 
@@ -139,11 +149,14 @@ export default function LiveStreamPage() {
 
         // Gift received
         const handleGift = (gift) => {
-            setGifts((prev) => [...prev.slice(-5), { ...gift, timestamp: Date.now() }]);
+            const timestamp = Date.now();
+            const giftObj = { ...gift, timestamp };
 
-            // Auto-remove after 5 seconds
+            setGifts((prev) => [...prev.slice(-5), giftObj]);
+
+            // Auto-remove na 5 seconden op basis van deze timestamp
             setTimeout(() => {
-                setGifts((prev) => prev.filter(g => g.timestamp !== gift.timestamp));
+                setGifts((prev) => prev.filter((g) => g.timestamp !== timestamp));
             }, 5000);
         };
 
@@ -169,10 +182,6 @@ export default function LiveStreamPage() {
         };
     }, [streamId]);
 
-    // Scroll after every new message
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
 
     // Send message
     function sendMessage(e) {
@@ -244,12 +253,21 @@ export default function LiveStreamPage() {
                             </h1>
                             <p className="text-white/60 text-sm flex items-center gap-2">
                                 <img
-                                    src={stream.host?.avatar || stream.hostAvatar || "/defaults/default-avatar.png"}
+                                    src={
+                                        stream.host?.avatar ||
+                                        stream.hostAvatar ||
+                                        "/defaults/default-avatar.png"
+                                    }
                                     alt=""
                                     className="w-5 h-5 rounded-full"
-                                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                    onError={(e) => {
+                                        e.target.src = "/defaults/default-avatar.png";
+                                    }}
                                 />
-                                {stream.host?.username || stream.hostUsername || "Unknown"} • {stream.category || "Live"}
+                                {stream.host?.username ||
+                                    stream.hostUsername ||
+                                    "Unknown"}{" "}
+                                • {stream.category || "Live"}
                             </p>
                         </div>
                     )}
@@ -257,8 +275,13 @@ export default function LiveStreamPage() {
                     <div className="flex items-center gap-3">
                         {/* Connection status */}
                         <div className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-lg">
-                            <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
-                            <span className="text-xs text-white/60">{isConnected ? "Connected" : "..."}</span>
+                            <div
+                                className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"
+                                    }`}
+                            />
+                            <span className="text-xs text-white/60">
+                                {isConnected ? "Connected" : "..."}
+                            </span>
                         </div>
 
                         {/* Viewer count */}
@@ -283,12 +306,21 @@ export default function LiveStreamPage() {
                         {gifts.map((gift, i) => (
                             <div
                                 key={gift.timestamp || i}
-                                className={`flex items-center gap-3 bg-gradient-to-r ${gift.color || "from-purple-500/80 to-pink-500/80"} px-4 py-3 rounded-xl animate-slideIn`}
+                                className={`flex items-center gap-3 bg-gradient-to-r ${gift.color ||
+                                    "from-purple-500/80 to-pink-500/80"
+                                    } px-4 py-3 rounded-xl animate-slideIn`}
                             >
-                                <span className="text-3xl animate-bounce">{gift.icon || "🎁"}</span>
+                                <span className="text-3xl animate-bounce">
+                                    {gift.icon || "🎁"}
+                                </span>
                                 <div>
-                                    <p className="font-semibold">{gift.senderUsername}</p>
-                                    <p className="text-sm text-white/80">sent {gift.item || "a gift"} x{gift.amount}</p>
+                                    <p className="font-semibold">
+                                        {gift.senderUsername}
+                                    </p>
+                                    <p className="text-sm text-white/80">
+                                        sent {gift.item || "a gift"} x
+                                        {gift.amount}
+                                    </p>
                                 </div>
                             </div>
                         ))}
@@ -300,7 +332,9 @@ export default function LiveStreamPage() {
                     <div className="p-4 border-b border-white/10 flex items-center justify-between">
                         <h2 className="font-semibold flex items-center gap-2">
                             💬 Live Chat
-                            <span className="text-xs text-white/40">({messages.length})</span>
+                            <span className="text-xs text-white/40">
+                                ({messages.length})
+                            </span>
                         </h2>
                     </div>
 
@@ -317,20 +351,35 @@ export default function LiveStreamPage() {
                             messages.map((msg, idx) => (
                                 <div
                                     key={idx}
-                                    className={`rounded-lg px-4 py-2 ${msg.isHost ? "bg-cyan-500/20 border border-cyan-500/30" : "bg-white/5"}`}
+                                    className={`rounded-lg px-4 py-2 ${msg.isHost
+                                            ? "bg-cyan-500/20 border border-cyan-500/30"
+                                            : "bg-white/5"
+                                        }`}
                                 >
                                     <div className="flex items-baseline gap-2">
-                                        <span className={`font-semibold ${msg.isHost ? "text-cyan-400" : "text-purple-400"}`}>
+                                        <span
+                                            className={`font-semibold ${msg.isHost
+                                                    ? "text-cyan-400"
+                                                    : "text-purple-400"
+                                                }`}
+                                        >
                                             {msg.username || msg.user}
                                             {msg.isHost && " 👑"}
                                         </span>
                                         <span className="text-xs text-white/40">
                                             {msg.timestamp
-                                                ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                                                ? new Date(
+                                                    msg.timestamp
+                                                ).toLocaleTimeString([], {
+                                                    hour: "2-digit",
+                                                    minute: "2-digit",
+                                                })
                                                 : ""}
                                         </span>
                                     </div>
-                                    <p className="text-white/80 mt-1">{msg.text}</p>
+                                    <p className="text-white/80 mt-1">
+                                        {msg.text}
+                                    </p>
                                 </div>
                             ))
                         )}
@@ -346,7 +395,11 @@ export default function LiveStreamPage() {
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder={currentUser ? "Type your message..." : "Log in to chat"}
+                            placeholder={
+                                currentUser
+                                    ? "Type your message..."
+                                    : "Log in to chat"
+                            }
                             disabled={!currentUser}
                             maxLength={200}
                             className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 outline-none focus:border-cyan-400 transition disabled:opacity-50"
@@ -367,27 +420,50 @@ export default function LiveStreamPage() {
                         <h3 className="font-semibold mb-3">About this stream</h3>
                         <div className="flex items-center gap-4 mb-3">
                             <img
-                                src={stream.host?.avatar || stream.hostAvatar || "/defaults/default-avatar.png"}
+                                src={
+                                    stream.host?.avatar ||
+                                    stream.hostAvatar ||
+                                    "/defaults/default-avatar.png"
+                                }
                                 alt=""
                                 className="w-12 h-12 rounded-full border-2 border-white/20"
-                                onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                onError={(e) => {
+                                    e.target.src = "/defaults/default-avatar.png";
+                                }}
                             />
                             <div>
-                                <p className="font-semibold">{stream.host?.username || stream.hostUsername}</p>
-                                <p className="text-sm text-white/60">{stream.category || "Live"}</p>
+                                <p className="font-semibold">
+                                    {stream.host?.username ||
+                                        stream.hostUsername}
+                                </p>
+                                <p className="text-sm text-white/60">
+                                    {stream.category || "Live"}
+                                </p>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-4 text-sm text-white/60">
-                            <span className="flex items-center gap-1">👁 {stream.viewers || viewers} viewers</span>
-                            <span className="flex items-center gap-1">📁 {stream.category || "Uncategorized"}</span>
+                            <span className="flex items-center gap-1">
+                                👁 {stream.viewers || viewers} viewers
+                            </span>
+                            <span className="flex items-center gap-1">
+                                📁 {stream.category || "Uncategorized"}
+                            </span>
                             {stream.startedAt && (
                                 <span className="flex items-center gap-1">
-                                    🕐 Started {new Date(stream.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    🕐 Started{" "}
+                                    {new Date(
+                                        stream.startedAt
+                                    ).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                    })}
                                 </span>
                             )}
                         </div>
                         {stream.description && (
-                            <p className="mt-3 text-white/70 text-sm">{stream.description}</p>
+                            <p className="mt-3 text-white/70 text-sm">
+                                {stream.description}
+                            </p>
                         )}
                     </div>
                 )}
@@ -396,8 +472,13 @@ export default function LiveStreamPage() {
                 {!currentUser && (
                     <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-center">
                         <p className="text-yellow-400 text-sm">
-                            <button onClick={() => navigate("/login")} className="underline font-semibold">Log in</button>
-                            {" "}to chat and send gifts
+                            <button
+                                onClick={() => navigate("/login")}
+                                className="underline font-semibold"
+                            >
+                                Log in
+                            </button>{" "}
+                            to chat and send gifts
                         </p>
                     </div>
                 )}

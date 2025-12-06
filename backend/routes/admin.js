@@ -1,6 +1,5 @@
 // backend/routes/admin.js
-// World-Studio.live - Admin Routes
-// Comprehensive admin panel API endpoints
+// World-Studio.live - Admin Routes (UNIVERSUM EDITION 🌌)
 
 const express = require("express");
 const router = express.Router();
@@ -82,7 +81,7 @@ const safeSum = async (Model, field, query = {}) => {
 
 /**
  * GET /api/admin/stats
- * Main dashboard statistics
+ * Main dashboard statistics (aligned with AdminDashboard.jsx U.E.)
  */
 router.get("/stats", auth, requireAdmin, async (req, res) => {
     try {
@@ -90,7 +89,7 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
         const thisWeek = startOfWeek();
         const thisMonth = startOfMonth();
 
-        // User stats
+        // ---------- USER STATS ----------
         const totalUsers = await User.countDocuments();
         const newUsersToday = await User.countDocuments({ createdAt: { $gte: today } });
         const newUsersThisWeek = await User.countDocuments({ createdAt: { $gte: thisWeek } });
@@ -99,33 +98,101 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
         const verifiedUsers = await User.countDocuments({ isVerified: true });
         const premiumUsers = await User.countDocuments({ isPremium: true });
 
-        // Stream stats
+        // growth vs vorige week (voor userGrowthPercent)
+        const lastWeekStart = new Date(thisWeek);
+        lastWeekStart.setDate(thisWeek.getDate() - 7);
+
+        const lastWeekUsers = await User.countDocuments({
+            createdAt: { $gte: lastWeekStart, $lt: thisWeek }
+        });
+
+        let userGrowthPercent = 0;
+        if (lastWeekUsers > 0) {
+            userGrowthPercent = Math.round(
+                ((newUsersThisWeek - lastWeekUsers) / lastWeekUsers) * 100
+            );
+        } else if (newUsersThisWeek > 0) {
+            userGrowthPercent = 100;
+        }
+
+        // ---------- STREAM STATS ----------
         const activeStreams = await safeCount(Stream, { isLive: true });
         const totalStreamsToday = await safeCount(Stream, { startedAt: { $gte: today } });
         const totalStreams = await safeCount(Stream);
 
-        // Post stats
+        // ---------- POST STATS ----------
         const totalPosts = await safeCount(Post);
         const postsToday = await safeCount(Post, { createdAt: { $gte: today } });
         const paidPosts = await safeCount(Post, { isFree: false });
 
-        // Gift stats
+        // ---------- GIFT STATS ----------
         const totalGiftsToday = await safeSum(Gift, "amount", { createdAt: { $gte: today } });
         const totalGiftsThisMonth = await safeSum(Gift, "amount", { createdAt: { $gte: thisMonth } });
         const totalGiftsAllTime = await safeSum(Gift, "amount");
 
-        // PK Battle stats
+        // extra velden voor Gifts-tab
+        let totalGiftsSent = 0;
+        let totalCoinsSpent = 0;
+        let uniqueGifters = 0;
+        let topGiftedStreamers = [];
+
+        try {
+            if (Gift) {
+                totalGiftsSent = await Gift.countDocuments({});
+                totalCoinsSpent = await safeSum(Gift, "coins"); // als "coins" niet bestaat => 0
+
+                const distinctSenders = await Gift.distinct("senderId");
+                uniqueGifters = distinctSenders.length;
+
+                // Top gifted streamers
+                const agg = await Gift.aggregate([
+                    {
+                        $group: {
+                            _id: "$recipientId",
+                            gifts: { $sum: 1 },
+                            totalAmount: { $sum: "$amount" }
+                        }
+                    },
+                    { $sort: { totalAmount: -1 } },
+                    { $limit: 10 }
+                ]);
+
+                const userIds = agg.map(a => a._id).filter(Boolean);
+                const users = await User.find({ _id: { $in: userIds } })
+                    .select("username avatar")
+                    .lean();
+
+                const userMap = new Map(
+                    users.map(u => [u._id.toString(), u])
+                );
+
+                topGiftedStreamers = agg.map(a => {
+                    const u = userMap.get((a._id || "").toString());
+                    return {
+                        userId: a._id,
+                        username: u?.username || "Unknown",
+                        avatar: u?.avatar || null,
+                        giftsReceived: a.gifts,
+                        totalAmount: a.totalAmount || 0
+                    };
+                });
+            }
+        } catch (err) {
+            console.log("Gift stats error:", err.message);
+        }
+
+        // ---------- PK BATTLES ----------
         const activePKs = await safeCount(PK, { status: "active" });
         const totalPKsToday = await safeCount(PK, { createdAt: { $gte: today } });
 
-        // Platform revenue (if PlatformWallet exists)
-        let platformRevenue = { today: 0, thisMonth: 0, total: 0 };
+        // ---------- PLATFORM REVENUE SNAPSHOT ----------
+        let platformRevenue = { today: 0, thisMonth: 0, total: 0, balance: 0 };
         try {
             if (PlatformWallet) {
                 const wallet = await PlatformWallet.getWallet();
                 if (wallet) {
                     platformRevenue = {
-                        today: wallet.monthlyStats?.revenue || 0,
+                        today: wallet.monthlyStats?.revenue || 0, // basic snapshot
                         thisMonth: wallet.monthlyStats?.revenue || 0,
                         total: wallet.lifetimeStats?.totalRevenue || 0,
                         balance: wallet.balance || 0
@@ -136,7 +203,7 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             console.log("PlatformWallet not available");
         }
 
-        // User growth last 7 days
+        // ---------- USER GROWTH (7 DAYS) ----------
         const userGrowth = [];
         for (let i = 6; i >= 0; i--) {
             const day = new Date();
@@ -157,7 +224,7 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        // Stream growth last 7 days
+        // ---------- STREAM GROWTH (7 DAYS) ----------
         const streamGrowth = [];
         for (let i = 6; i >= 0; i--) {
             const day = new Date();
@@ -177,7 +244,7 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        // Top earners
+        // ---------- TOP EARNERS ----------
         const topEarnersRaw = await User.find({
             "wallet.totalReceived": { $gt: 0 },
         })
@@ -195,7 +262,7 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             balance: u.wallet?.balance || 0,
         }));
 
-        // Top streamers by followers
+        // ---------- TOP STREAMERS BY FOLLOWERS ----------
         const topStreamers = await User.find({
             followersCount: { $gt: 0 }
         })
@@ -204,13 +271,19 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             .limit(10)
             .lean();
 
-        // Top categories (from streams)
+        // ---------- TOP CATEGORIES ----------
         let topCategories = [];
         try {
             if (Stream) {
                 topCategories = await Stream.aggregate([
                     { $match: { isLive: true } },
-                    { $group: { _id: "$category", count: { $sum: 1 }, viewers: { $sum: "$viewers" } } },
+                    {
+                        $group: {
+                            _id: "$category",
+                            count: { $sum: 1 },
+                            viewers: { $sum: "$viewers" }
+                        }
+                    },
                     { $sort: { viewers: -1 } },
                     { $limit: 10 }
                 ]);
@@ -226,15 +299,59 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             ];
         }
 
-        // Recent activity
+        // ---------- RECENT USERS ----------
         const recentUsers = await User.find()
             .select("username avatar createdAt")
             .sort({ createdAt: -1 })
             .limit(5)
             .lean();
 
+        // ---------- RESPONSE SHAPE (FLAT + LEGACY) ----------
+        const flatStats = {
+            // Users
+            totalUsers,
+            newUsersToday,
+            newUsersThisWeek,
+            newUsersThisMonth,
+            bannedUsers,
+            verifiedUsers,
+            premiumUsers,
+            userGrowthPercent,
+            // Streams
+            activeStreams,
+            totalStreamsToday,
+            totalStreams,
+            // Posts
+            totalPosts,
+            postsToday,
+            paidPosts,
+            // Gifts
+            totalGiftsToday,
+            totalGiftsThisMonth,
+            totalGiftsAllTime,
+            totalGiftsSent,
+            totalCoinsSpent,
+            totalGiftValue: totalGiftsAllTime,
+            uniqueGifters,
+            // PK
+            activePKs,
+            totalPKsToday,
+            // Charts & leaderboards
+            userGrowth,
+            streamGrowth,
+            topEarners,
+            topStreamers,
+            topCategories,
+            topGiftedStreamers,
+            recentUsers,
+            // Platform revenue snapshot (optional use)
+            platformRevenue
+        };
+
         res.json({
             success: true,
+            ...flatStats,
+            // legacy nested structure (for eventueel ander gebruik)
             stats: {
                 users: {
                     total: totalUsers,
@@ -273,7 +390,8 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
             leaderboards: {
                 topEarners,
                 topStreamers,
-                topCategories
+                topCategories,
+                topGiftedStreamers
             },
             recent: {
                 users: recentUsers
@@ -871,7 +989,7 @@ router.post("/remove-coins/:userId", auth, requireAdmin, async (req, res) => {
 
 /**
  * GET /api/admin/revenue
- * Get revenue statistics
+ * Get revenue statistics (aligned with AdminDashboard.jsx U.E.)
  */
 router.get("/revenue", auth, requireAdmin, async (req, res) => {
     try {
@@ -879,7 +997,7 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
         const thisWeek = startOfWeek();
         const thisMonth = startOfMonth();
 
-        // Get platform wallet stats
+        // Get platform wallet stats (if available)
         let platformStats = null;
         try {
             if (PlatformWallet) {
@@ -889,7 +1007,7 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
             console.log("PlatformWallet not available");
         }
 
-        // Calculate from user transactions if PlatformWallet not available
+        // Fallback: calculate from user transactions
         let totalRevenue = 0;
         let revenueToday = 0;
         let revenueThisWeek = 0;
@@ -932,7 +1050,7 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
             recentTransactions.sort((a, b) => b.date - a.date);
         }
 
-        // Revenue by day (last 30 days)
+        // Revenue by day (last 30 days) via Gifts as proxy (15% fee)
         const revenueByDay = [];
         for (let i = 29; i >= 0; i--) {
             const day = new Date();
@@ -942,7 +1060,7 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
             const nextDay = new Date(day);
             nextDay.setDate(day.getDate() + 1);
 
-            // Count gifts for that day as revenue proxy
+
             const dayRevenue = await safeSum(Gift, "amount", {
                 createdAt: { $gte: day, $lt: nextDay }
             }) * 0.15; // 15% platform fee
@@ -953,22 +1071,60 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        res.json({
-            success: true,
-            revenue: platformStats ? {
+        // Build final revenue object
+        const revenueFromPlatform = platformStats
+            ? {
                 total: platformStats.lifetime?.totalRevenue || 0,
                 today: platformStats.today?.revenue || 0,
                 thisWeek: platformStats.thisWeek?.revenue || 0,
                 thisMonth: platformStats.thisMonth?.revenue || 0,
                 balance: platformStats.balance || 0
-            } : {
+            }
+            : {
                 total: totalRevenue,
                 today: revenueToday,
                 thisWeek: revenueThisWeek,
-                thisMonth: revenueThisMonth
-            },
-            chart: revenueByDay,
-            recentTransactions: platformStats ? [] : recentTransactions.slice(0, 50)
+                thisMonth: revenueThisMonth,
+                balance: 0
+            };
+
+        // growth vs vorige week (met Gifts als fallback)
+        const previousWeekStart = new Date(thisWeek);
+        previousWeekStart.setDate(thisWeek.getDate() - 7);
+
+        const previousWeekRevenueGifts = await safeSum(Gift, "amount", {
+            createdAt: { $gte: previousWeekStart, $lt: thisWeek }
+        }) * 0.15;
+
+        const currentWeekRevenue =
+            platformStats?.thisWeek?.revenue || revenueFromPlatform.thisWeek || 0;
+
+        let revenueGrowthPercent = 0;
+        if (previousWeekRevenueGifts > 0) {
+            revenueGrowthPercent = Math.round(
+                ((currentWeekRevenue - previousWeekRevenueGifts) /
+                    previousWeekRevenueGifts) * 100
+            );
+        } else if (currentWeekRevenue > 0) {
+            revenueGrowthPercent = 100;
+        }
+
+        const revenuePayload = {
+            totalRevenue: revenueFromPlatform.total,
+            revenueToday: revenueFromPlatform.today,
+            revenueThisWeek: revenueFromPlatform.thisWeek,
+            revenueThisMonth: revenueFromPlatform.thisMonth,
+            balance: revenueFromPlatform.balance,
+            revenueGrowthPercent,
+            recentTransactions: platformStats ? [] : recentTransactions.slice(0, 50),
+            chart: revenueByDay
+        };
+
+        res.json({
+            success: true,
+            ...revenuePayload,
+            // ook legacy veld
+            revenue: revenuePayload
         });
     } catch (err) {
         console.error("❌ Error in /admin/revenue:", err);
@@ -1194,6 +1350,47 @@ router.post("/streams/:streamId/end", auth, requireAdmin, async (req, res) => {
     }
 });
 
+/**
+ * POST /api/admin/stop-stream/:streamId
+ * Alias route for AdminDashboard.jsx (stopStream)
+ */
+router.post("/stop-stream/:streamId", auth, requireAdmin, async (req, res) => {
+    try {
+        const stream = await Stream.findByIdAndUpdate(
+            req.params.streamId,
+            {
+                isLive: false,
+                status: "ended",
+                endedAt: new Date()
+            },
+            { new: true }
+        );
+
+        if (!stream) {
+            return res.status(404).json({
+                success: false,
+                error: "Stream not found"
+            });
+        }
+
+        // Update user's live status
+        await User.findByIdAndUpdate(stream.streamerId, {
+            isLive: false,
+            currentStreamId: null
+        });
+
+        console.log(`⏹️ Stream ${stream._id} stopped by admin ${req.user.username} (alias route)`);
+
+        res.json({ success: true, stream });
+    } catch (err) {
+        console.error("❌ Error in /stop-stream:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to stop stream"
+        });
+    }
+});
+
 // ===========================================
 // SYSTEM
 // ===========================================
@@ -1234,8 +1431,54 @@ router.get("/system", auth, requireAdmin, async (req, res) => {
 });
 
 /**
+ * POST /api/admin/announcement
+ * Send announcement (used by AdminDashboard AnnouncementModal)
+ */
+router.post("/announcement", auth, requireAdmin, async (req, res) => {
+    try {
+        const { title, message, type = "info" } = req.body;
+
+        if (!title || !message) {
+            return res.status(400).json({
+                success: false,
+                error: "Title and message are required"
+            });
+        }
+
+        const fullMessage = `${title} — ${message}`;
+
+        let processed = 0;
+        const cursor = User.find({}).cursor();
+
+        for await (const user of cursor) {
+            user.notifications.unshift({
+                message: fullMessage,
+                type,
+                createdAt: new Date()
+            });
+            user.unreadNotifications += 1;
+            await user.save();
+            processed++;
+        }
+
+        console.log(`📢 Announcement "${title}" sent to ${processed} users by ${req.user.username}`);
+
+        res.json({
+            success: true,
+            message: `Announcement sent to ${processed} users`
+        });
+    } catch (err) {
+        console.error("❌ Error sending announcement:", err);
+        res.status(500).json({
+            success: false,
+            error: "Failed to send announcement"
+        });
+    }
+});
+
+/**
  * POST /api/admin/broadcast
- * Send system notification to all users
+ * Send system notification to all users (legacy generic)
  */
 router.post("/broadcast", auth, requireAdmin, async (req, res) => {
     try {
@@ -1249,9 +1492,8 @@ router.post("/broadcast", auth, requireAdmin, async (req, res) => {
         }
 
         // Add notification to all users (in batches)
-        const batchSize = 100;
-        let processed = 0;
 
+        let processed = 0;
         const cursor = User.find({}).cursor();
 
         for await (const user of cursor) {

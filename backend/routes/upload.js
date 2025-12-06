@@ -1,10 +1,10 @@
 // backend/routes/upload.js
-// World-Studio.live - File Upload Routes
+// World-Studio.live - File Upload Routes (UNIVERSE EDITION 🚀)
 // Handles file uploads via Cloudinary with media processing
 
 const express = require("express");
 const router = express.Router();
-const mongoose = require("mongoose");
+
 const authMiddleware = require("../middleware/authMiddleware");
 const { upload, cloudinary } = require("../config/cloudinary");
 const Post = require("../models/Post");
@@ -36,6 +36,7 @@ const CATEGORIES = [
  * Determine file type from mimetype
  */
 const getFileType = (mimetype) => {
+    if (!mimetype) return "file";
     if (mimetype.startsWith("video")) return "video";
     if (mimetype.startsWith("audio")) return "audio";
     if (mimetype.startsWith("image")) return "image";
@@ -46,7 +47,7 @@ const getFileType = (mimetype) => {
  * Generate thumbnail URL for video
  */
 const generateVideoThumbnail = (publicId) => {
-    if (!cloudinary) return null;
+    if (!cloudinary || !publicId) return null;
     try {
         return cloudinary.url(publicId, {
             resource_type: "video",
@@ -57,15 +58,16 @@ const generateVideoThumbnail = (publicId) => {
             ]
         });
     } catch (e) {
+        console.log("Video thumbnail generation error:", e.message);
         return null;
     }
 };
 
 /**
- * Generate blurred thumbnail for premium content
+ * Generate blurred thumbnail for premium/paid content
  */
 const generateBlurredThumbnail = (publicId, resourceType = "image") => {
-    if (!cloudinary) return null;
+    if (!cloudinary || !publicId) return null;
     try {
         return cloudinary.url(publicId, {
             resource_type: resourceType,
@@ -76,6 +78,7 @@ const generateBlurredThumbnail = (publicId, resourceType = "image") => {
             ]
         });
     } catch (e) {
+        console.log("Blurred thumbnail generation error:", e.message);
         return null;
     }
 };
@@ -84,7 +87,7 @@ const generateBlurredThumbnail = (publicId, resourceType = "image") => {
  * Get video duration from Cloudinary
  */
 const getVideoDuration = async (publicId) => {
-    if (!cloudinary) return null;
+    if (!cloudinary || !publicId) return null;
     try {
         const result = await cloudinary.api.resource(publicId, {
             resource_type: "video",
@@ -92,6 +95,7 @@ const getVideoDuration = async (publicId) => {
         });
         return result.duration || null;
     } catch (e) {
+        console.log("Get video duration error:", e.message);
         return null;
     }
 };
@@ -101,6 +105,11 @@ const getVideoDuration = async (publicId) => {
  */
 const validateFile = (file) => {
     const errors = [];
+
+    if (!file) {
+        errors.push("No file received");
+        return errors;
+    }
 
     if (file.size > MAX_FILE_SIZE) {
         errors.push(`File ${file.originalname} exceeds maximum size of 100MB`);
@@ -114,13 +123,41 @@ const validateFile = (file) => {
     return errors;
 };
 
+/**
+ * Normalize price & isFree so it matches posts.js logic
+ */
+const normalizePricing = (isFreeRaw, priceRaw) => {
+    const numericPrice = Math.max(0, parseInt(priceRaw, 10) || 0);
+    const requestedFree = isFreeRaw === true || isFreeRaw === "true";
+
+    // Betaald content wint altijd als er een prijs > 0 is
+    const isFree = numericPrice > 0 ? false : requestedFree;
+
+    return { price: numericPrice, isFree };
+};
+
+/**
+ * Parse tags from string/array
+ */
+const parseTags = (tags) => {
+    if (!tags) return [];
+    if (Array.isArray(tags)) return tags.filter(Boolean);
+    if (typeof tags === "string") {
+        return tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean);
+    }
+    return [];
+};
+
 // ===========================================
 // UPLOAD ROUTES
 // ===========================================
 
 /**
  * POST /api/upload
- * Upload files and create posts
+ * Upload multiple files and create posts
  */
 router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, res) => {
     try {
@@ -129,6 +166,13 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
             return res.status(400).json({
                 success: false,
                 error: "No files uploaded"
+            });
+        }
+
+        if (req.files.length > MAX_FILES) {
+            return res.status(400).json({
+                success: false,
+                error: `Maximum ${MAX_FILES} files allowed per upload`
             });
         }
 
@@ -146,10 +190,11 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
             allowDownload = false
         } = req.body;
 
-        // Get user info
-        const user = await User.findById(req.userId)
-            .select("username avatar isVerified");
+        // Normalize pricing
+        const { price: normalizedPrice, isFree: normalizedIsFree } = normalizePricing(isFree, price);
 
+        // Get user info
+        const user = await User.findById(req.userId).select("username avatar isVerified followers");
         if (!user) {
             return res.status(404).json({
                 success: false,
@@ -157,6 +202,7 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
             });
         }
 
+        const parsedTags = parseTags(tags).slice(0, 10);
         const posts = [];
         const errors = [];
 
@@ -172,32 +218,26 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
 
                 const type = getFileType(file.mimetype);
 
-                // Generate thumbnail for videos
+                // Generate thumbnails & duration
                 let thumbnail = "";
                 let blurredThumbnail = "";
                 let duration = null;
 
+                const isPaid = !normalizedIsFree && normalizedPrice > 0;
+
                 if (type === "video" && file.filename) {
                     thumbnail = generateVideoThumbnail(file.filename);
-                    if (!isFree || price > 0) {
+                    if (isPaid) {
                         blurredThumbnail = generateBlurredThumbnail(file.filename, "video");
                     }
                     duration = await getVideoDuration(file.filename);
                 }
 
-                if (type === "image" && file.filename && (!isFree || price > 0)) {
+                if (type === "image" && file.filename && isPaid) {
                     blurredThumbnail = generateBlurredThumbnail(file.filename, "image");
                 }
 
-                // Parse tags
-                let parsedTags = [];
-                if (tags) {
-                    if (typeof tags === "string") {
-                        parsedTags = tags.split(",").map(t => t.trim()).filter(Boolean);
-                    } else if (Array.isArray(tags)) {
-                        parsedTags = tags;
-                    }
-                }
+
 
                 // Create post
                 const post = new Post({
@@ -205,11 +245,11 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
                     username: user.username,
                     avatar: user.avatar || "",
                     isVerified: user.isVerified || false,
-                    title: title?.trim() || "Untitled",
-                    description: description?.trim() || "",
+                    title: title?.trim()?.substring(0, 200) || "Untitled",
+                    description: description?.trim()?.substring(0, 2000) || "",
                     type,
                     category: CATEGORIES.includes(category) ? category : "General",
-                    tags: parsedTags.slice(0, 10),
+                    tags: parsedTags,
                     fileUrl: file.path,
                     fileName: file.filename,
                     fileSize: file.size,
@@ -217,8 +257,8 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
                     thumbnail,
                     blurredThumbnail,
                     duration,
-                    isFree: isFree === true || isFree === "true",
-                    price: Math.max(0, parseInt(price) || 0),
+                    isFree: !isPaid,                        // gratis als price == 0
+                    price: normalizedPrice,
                     isPremium: isPremium === true || isPremium === "true",
                     isExclusive: isExclusive === true || isExclusive === "true",
                     visibility,
@@ -250,9 +290,8 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
                     });
 
                     // Notify followers
-                    const userDoc = await User.findById(req.userId).select("followers");
-                    if (userDoc?.followers?.length > 0) {
-                        userDoc.followers.slice(0, 1000).forEach(followerId => {
+                    if (user.followers && user.followers.length > 0) {
+                        user.followers.slice(0, 1000).forEach((followerId) => {
                             io.to(`user_${followerId}`).emit("following_posted", {
                                 userId: req.userId,
                                 username: user.username,
@@ -263,6 +302,7 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
                         });
                     }
                 }
+
 
                 console.log(`📤 Upload: ${type} "${saved.title}" by ${user.username}`);
 
@@ -307,7 +347,7 @@ router.post("/", authMiddleware, upload.array("files", MAX_FILES), async (req, r
 
 /**
  * POST /api/upload/single
- * Upload a single file
+ * Upload a single file and create post
  */
 router.post("/single", authMiddleware, upload.single("file"), async (req, res) => {
     try {
@@ -315,6 +355,16 @@ router.post("/single", authMiddleware, upload.single("file"), async (req, res) =
             return res.status(400).json({
                 success: false,
                 error: "No file uploaded"
+            });
+        }
+
+        // Validate file
+        const validationErrors = validateFile(req.file);
+        if (validationErrors.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Invalid file",
+                errors: validationErrors
             });
         }
 
@@ -329,9 +379,10 @@ router.post("/single", authMiddleware, upload.single("file"), async (req, res) =
             visibility = "public"
         } = req.body;
 
-        const user = await User.findById(req.userId)
-            .select("username avatar isVerified");
+        const { price: normalizedPrice, isFree: normalizedIsFree } = normalizePricing(isFree, price);
+        const isPaid = !normalizedIsFree && normalizedPrice > 0;
 
+        const user = await User.findById(req.userId).select("username avatar isVerified followers");
         if (!user) {
             return res.status(404).json({
                 success: false,
@@ -348,35 +399,28 @@ router.post("/single", authMiddleware, upload.single("file"), async (req, res) =
 
         if (type === "video" && file.filename) {
             thumbnail = generateVideoThumbnail(file.filename);
-            if (!isFree || price > 0) {
+            if (isPaid) {
                 blurredThumbnail = generateBlurredThumbnail(file.filename, "video");
             }
             duration = await getVideoDuration(file.filename);
         }
 
-        if (type === "image" && file.filename && (!isFree || price > 0)) {
+        if (type === "image" && file.filename && isPaid) {
             blurredThumbnail = generateBlurredThumbnail(file.filename, "image");
         }
 
-        let parsedTags = [];
-        if (tags) {
-            if (typeof tags === "string") {
-                parsedTags = tags.split(",").map(t => t.trim()).filter(Boolean);
-            } else if (Array.isArray(tags)) {
-                parsedTags = tags;
-            }
-        }
+        const parsedTags = parseTags(tags).slice(0, 10);
 
         const post = new Post({
             userId: req.userId,
             username: user.username,
             avatar: user.avatar || "",
             isVerified: user.isVerified || false,
-            title: title?.trim() || "Untitled",
-            description: description?.trim() || "",
+            title: title?.trim()?.substring(0, 200) || "Untitled",
+            description: description?.trim()?.substring(0, 2000) || "",
             type,
             category: CATEGORIES.includes(category) ? category : "General",
-            tags: parsedTags.slice(0, 10),
+            tags: parsedTags,
             fileUrl: file.path,
             fileName: file.filename,
             fileSize: file.size,
@@ -384,11 +428,18 @@ router.post("/single", authMiddleware, upload.single("file"), async (req, res) =
             thumbnail,
             blurredThumbnail,
             duration,
-            isFree: isFree === true || isFree === "true",
-            price: Math.max(0, parseInt(price) || 0),
+            isFree: !isPaid,
+            price: normalizedPrice,
             isPremium: isPremium === true || isPremium === "true",
             visibility,
-            status: "published"
+            status: "published",
+            likes: 0,
+            likedBy: [],
+            views: 0,
+            comments: [],
+            shares: 0,
+            saves: 0,
+            purchasedBy: []
         });
 
         const saved = await post.save();
@@ -404,8 +455,21 @@ router.post("/single", authMiddleware, upload.single("file"), async (req, res) =
                 userId: req.userId,
                 username: user.username,
                 title: saved.title,
-                type: saved.type
+                type: saved.type,
+                thumbnail: saved.thumbnail
             });
+
+            if (user.followers && user.followers.length > 0) {
+                user.followers.slice(0, 1000).forEach((followerId) => {
+                    io.to(`user_${followerId}`).emit("following_posted", {
+                        userId: req.userId,
+                        username: user.username,
+                        postId: saved._id,
+                        title: saved.title,
+                        type: saved.type
+                    });
+                });
+            }
         }
 
         console.log(`📤 Single upload: ${type} "${saved.title}" by ${user.username}`);
@@ -608,7 +672,7 @@ router.delete("/:publicId", authMiddleware, async (req, res) => {
             });
         }
 
-        // Delete from Cloudinary
+
         const result = await cloudinary.uploader.destroy(publicId, {
             resource_type: resourceType
         });

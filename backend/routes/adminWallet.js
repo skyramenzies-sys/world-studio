@@ -1,12 +1,13 @@
 // backend/routes/adminWallet.js
-// World-Studio.live - Admin Wallet Routes
+// World-Studio.live - Admin Wallet Routes (UNIVERSUM EDITION 💸)
 // Platform wallet management and financial reporting
 
 const express = require("express");
 const router = express.Router();
+
 const PlatformWallet = require("../models/PlatformWallet");
 const User = require("../models/User");
-const Gift = require("../models/Gift");
+const Gift = require("../models/Gift"); // eventueel voor toekomstige uitbreidingen
 const auth = require("../middleware/auth");
 const requireAdmin = require("../middleware/requireAdmin");
 
@@ -34,7 +35,15 @@ const getDateRanges = () => {
 
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
-    return { now, todayStart, weekStart, monthStart, lastMonthStart, lastMonthEnd, yearStart };
+    return {
+        now,
+        todayStart,
+        weekStart,
+        monthStart,
+        lastMonthStart,
+        lastMonthEnd,
+        yearStart
+    };
 };
 
 // ===========================================
@@ -47,6 +56,13 @@ const getDateRanges = () => {
  */
 router.get("/", auth, requireAdmin, async (req, res) => {
     try {
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
 
         if (!wallet) {
@@ -89,6 +105,13 @@ router.get("/", auth, requireAdmin, async (req, res) => {
  */
 router.get("/dashboard", auth, requireAdmin, async (req, res) => {
     try {
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const stats = await PlatformWallet.getDashboardStats();
 
         res.json({
@@ -123,6 +146,13 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
             status
         } = req.query;
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
 
         if (!wallet) {
@@ -132,27 +162,27 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        let history = [...wallet.history];
+        let history = Array.isArray(wallet.history) ? [...wallet.history] : [];
 
         // Filter by type
         if (type && type !== "all") {
-            history = history.filter(tx => tx.type === type);
+            history = history.filter((tx) => tx.type === type);
         }
 
         // Filter by status
         if (status && status !== "all") {
-            history = history.filter(tx => tx.status === status);
+            history = history.filter((tx) => tx.status === status);
         }
 
         // Filter by date range
         if (startDate) {
             const start = new Date(startDate);
-            history = history.filter(tx => new Date(tx.date) >= start);
+            history = history.filter((tx) => new Date(tx.date) >= start);
         }
         if (endDate) {
             const end = new Date(endDate);
             end.setHours(23, 59, 59, 999);
-            history = history.filter(tx => new Date(tx.date) <= end);
+            history = history.filter((tx) => new Date(tx.date) <= end);
         }
 
         // Sort by date (newest first)
@@ -160,17 +190,17 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
 
         // Pagination
         const total = history.length;
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const paginatedHistory = history.slice(skip, skip + parseInt(limit));
+        const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+        const paginatedHistory = history.slice(skip, skip + parseInt(limit, 10));
 
         res.json({
             success: true,
             history: paginatedHistory,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page: parseInt(page, 10),
+                limit: parseInt(limit, 10),
                 total,
-                pages: Math.ceil(total / parseInt(limit))
+                pages: Math.ceil(total / parseInt(limit, 10))
             }
         });
     } catch (err) {
@@ -190,6 +220,13 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
     try {
         const { startDate, endDate, type } = req.query;
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
         if (!wallet) {
             return res.status(404).json({
@@ -198,27 +235,37 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        let history = [...wallet.history];
+        let history = Array.isArray(wallet.history) ? [...wallet.history] : [];
 
         // Apply filters
         if (type && type !== "all") {
-            history = history.filter(tx => tx.type === type);
+            history = history.filter((tx) => tx.type === type);
         }
         if (startDate) {
-            history = history.filter(tx => new Date(tx.date) >= new Date(startDate));
+            history = history.filter((tx) => new Date(tx.date) >= new Date(startDate));
         }
         if (endDate) {
             const end = new Date(endDate);
             end.setHours(23, 59, 59, 999);
-            history = history.filter(tx => new Date(tx.date) <= end);
+            history = history.filter((tx) => new Date(tx.date) <= end);
         }
 
         // Sort by date
         history.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         // Create CSV
-        const headers = ["Date", "Type", "Amount", "From User", "To User", "Description", "Status", "Balance After"];
-        const rows = history.map(tx => [
+        const headers = [
+            "Date",
+            "Type",
+            "Amount",
+            "From User",
+            "To User",
+            "Description",
+            "Status",
+            "Balance After"
+        ];
+
+        const rows = history.map((tx) => [
             new Date(tx.date).toISOString(),
             tx.type,
             tx.amount,
@@ -231,11 +278,14 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
 
         const csv = [
             headers.join(","),
-            ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+            ...rows.map((row) => row.map((cell) => `"${cell}"`).join(","))
         ].join("\n");
 
         res.setHeader("Content-Type", "text/csv");
-        res.setHeader("Content-Disposition", `attachment; filename=platform-wallet-${new Date().toISOString().split("T")[0]}.csv`);
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename=platform-wallet-${new Date().toISOString().split("T")[0]}.csv`
+        );
         res.send(csv);
     } catch (err) {
         console.error("❌ Export error:", err);
@@ -259,7 +309,15 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
         const { startDate, endDate, period = "month" } = req.query;
         const { todayStart, weekStart, monthStart, yearStart } = getDateRanges();
 
-        let start, end;
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
+        let start;
+        let end;
 
         // Determine date range
         if (startDate && endDate) {
@@ -275,17 +333,16 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
                     start = weekStart;
                     end = new Date();
                     break;
-                case "month":
-                    start = monthStart;
-                    end = new Date();
-                    break;
+
                 case "year":
                     start = yearStart;
                     end = new Date();
                     break;
+                case "month":
                 default:
                     start = monthStart;
                     end = new Date();
+                    break;
             }
         }
 
@@ -312,6 +369,13 @@ router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
     try {
         const { days = 30 } = req.query;
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
         if (!wallet) {
             return res.status(404).json({
@@ -320,9 +384,13 @@ router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
             });
         }
 
+        const history = Array.isArray(wallet.history) ? wallet.history : [];
+
         // Group transactions by day
         const chartData = [];
-        for (let i = parseInt(days) - 1; i >= 0; i--) {
+        const daysInt = parseInt(days, 10);
+
+        for (let i = daysInt - 1; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
             date.setHours(0, 0, 0, 0);
@@ -331,24 +399,31 @@ router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
             nextDate.setDate(nextDate.getDate() + 1);
 
             // Get transactions for this day
-            const dayTransactions = wallet.history.filter(tx => {
+            const dayTransactions = history.filter((tx) => {
                 const txDate = new Date(tx.date);
-                return txDate >= date && txDate < nextDate && tx.status === "completed";
+                return (
+                    txDate >= date &&
+                    txDate < nextDate &&
+                    tx.status === "completed"
+                );
             });
 
             let revenue = 0;
             let expenses = 0;
 
-            dayTransactions.forEach(tx => {
+            dayTransactions.forEach((tx) => {
                 if (["refund", "payout", "stripe_fee"].includes(tx.type)) {
-                    expenses += Math.abs(tx.amount);
+                    expenses += Math.abs(tx.amount || 0);
                 } else if (tx.amount > 0) {
                     revenue += tx.amount;
                 }
             });
 
             chartData.push({
-                date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                date: date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric"
+                }),
                 fullDate: date.toISOString().split("T")[0],
                 revenue,
                 expenses,
@@ -382,6 +457,13 @@ router.get("/transactions/:type", auth, requireAdmin, async (req, res) => {
         const { type } = req.params;
         const { limit = 100 } = req.query;
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
         if (!wallet) {
             return res.status(404).json({
@@ -390,7 +472,17 @@ router.get("/transactions/:type", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        const transactions = wallet.getTransactionsByType(type, parseInt(limit));
+        if (typeof wallet.getTransactionsByType !== "function") {
+            return res.status(500).json({
+                success: false,
+                error: "getTransactionsByType is not implemented on wallet"
+            });
+        }
+
+        const transactions = wallet.getTransactionsByType(
+            type,
+            parseInt(limit, 10)
+        ) || [];
 
         res.json({
             success: true,
@@ -417,6 +509,13 @@ router.get("/transactions/:type", auth, requireAdmin, async (req, res) => {
  */
 router.get("/fees", auth, requireAdmin, async (req, res) => {
     try {
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
         if (!wallet) {
             return res.status(404).json({
@@ -454,6 +553,13 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
             coinExchangeRate
         } = req.body;
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
         if (!wallet) {
             return res.status(404).json({
@@ -488,20 +594,32 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
             if (subscriptionFeePercent < 0 || subscriptionFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Subscription fee must be between 0% and 50%"
+                    error: "Subscription fee must be between 0% en 50%"
                 });
             }
             newConfig.subscriptionFeePercent = subscriptionFeePercent;
         }
 
-        if (withdrawalFeePercent !== undefined) newConfig.withdrawalFeePercent = withdrawalFeePercent;
-        if (withdrawalFeeFixed !== undefined) newConfig.withdrawalFeeFixed = withdrawalFeeFixed;
-        if (minWithdrawal !== undefined) newConfig.minWithdrawal = minWithdrawal;
-        if (coinExchangeRate !== undefined) newConfig.coinExchangeRate = coinExchangeRate;
+        if (withdrawalFeePercent !== undefined) {
+            newConfig.withdrawalFeePercent = withdrawalFeePercent;
+        }
+        if (withdrawalFeeFixed !== undefined) {
+            newConfig.withdrawalFeeFixed = withdrawalFeeFixed;
+        }
+        if (minWithdrawal !== undefined) {
+            newConfig.minWithdrawal = minWithdrawal;
+        }
+        if (coinExchangeRate !== undefined) {
+            newConfig.coinExchangeRate = coinExchangeRate;
+        }
 
         await wallet.updateFeeConfig(newConfig);
 
-        console.log(`💰 Fee config updated by admin: ${JSON.stringify(newConfig)}`);
+        console.log(
+            `💰 Fee config updated by admin ${req.user?.username || "unknown"}: ${JSON.stringify(
+                newConfig
+            )}`
+        );
 
         res.json({
             success: true,
@@ -535,16 +653,19 @@ router.get("/payouts", auth, requireAdmin, async (req, res) => {
                     status: "pending"
                 }
             }
-        }).select("username email avatar wallet").lean();
+        })
+            .select("username email avatar wallet")
+            .lean();
 
         const pendingPayouts = [];
 
-        usersWithPendingWithdrawals.forEach(user => {
-            const pendingTx = user.wallet?.transactions?.filter(
-                tx => tx.type === "withdraw" && tx.status === "pending"
-            ) || [];
+        usersWithPendingWithdrawals.forEach((user) => {
+            const pendingTx =
+                user.wallet?.transactions?.filter(
+                    (tx) => tx.type === "withdraw" && tx.status === "pending"
+                ) || [];
 
-            pendingTx.forEach(tx => {
+            pendingTx.forEach((tx) => {
                 pendingPayouts.push({
                     userId: user._id,
                     username: user.username,
@@ -558,7 +679,9 @@ router.get("/payouts", auth, requireAdmin, async (req, res) => {
         });
 
         // Sort by date
-        pendingPayouts.sort((a, b) => new Date(a.requestedAt) - new Date(b.requestedAt));
+        pendingPayouts.sort(
+            (a, b) => new Date(a.requestedAt) - new Date(b.requestedAt)
+        );
 
         res.json({
             success: true,
@@ -590,21 +713,40 @@ router.post("/payouts/:userId/process", auth, requireAdmin, async (req, res) => 
             });
         }
 
-        // Record payout in platform wallet
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
-        await wallet.recordPayout(amount, user._id, user.username, paymentMethod);
+        if (!wallet) {
+            return res.status(404).json({
+                success: false,
+                error: "Platform wallet not found"
+            });
+        }
+
+        // Record payout in platform wallet
+        if (typeof wallet.recordPayout === "function") {
+            await wallet.recordPayout(amount, user._id, user.username, paymentMethod);
+        } else {
+            console.warn("recordPayout not implemented on PlatformWallet");
+        }
 
         // Update user's pending withdrawal to completed
-        const withdrawalIndex = user.wallet.transactions.findIndex(
-            tx => tx.type === "withdraw" && tx.status === "pending"
+        const txList = user.wallet?.transactions || [];
+        const withdrawalIndex = txList.findIndex(
+            (tx) => tx.type === "withdraw" && tx.status === "pending"
         );
 
         if (withdrawalIndex !== -1) {
             user.wallet.transactions[withdrawalIndex].status = "completed";
             user.wallet.transactions[withdrawalIndex].meta = {
-                ...user.wallet.transactions[withdrawalIndex].meta,
+                ...(user.wallet.transactions[withdrawalIndex].meta || {}),
                 processedAt: new Date(),
-                processedBy: req.user._id,
+                processedBy: req.user?._id,
                 paymentMethod,
                 transactionRef
             };
@@ -612,15 +754,20 @@ router.post("/payouts/:userId/process", auth, requireAdmin, async (req, res) => 
         }
 
         // Notify user
-        if (user.addNotification) {
+        if (typeof user.addNotification === "function") {
             await user.addNotification({
-                message: `💸 Your withdrawal of €${(amount / 100).toFixed(2)} has been processed!`,
+                message: `💸 Your withdrawal of €${(amount / 100).toFixed(
+                    2
+                )} has been processed!`,
                 type: "payout",
                 amount
             });
         }
 
-        console.log(`💸 Payout of ${amount} processed for ${user.username} by admin`);
+        console.log(
+            `💸 Payout of ${amount} processed for ${user.username} by admin ${req.user?.username ||
+            "unknown"}`
+        );
 
         res.json({
             success: true,
@@ -651,9 +798,9 @@ router.post("/payouts/:userId/reject", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        // Find and update the pending withdrawal
-        const withdrawalIndex = user.wallet.transactions.findIndex(
-            tx => tx.type === "withdraw" && tx.status === "pending"
+        const txList = user.wallet?.transactions || [];
+        const withdrawalIndex = txList.findIndex(
+            (tx) => tx.type === "withdraw" && tx.status === "pending"
         );
 
         if (withdrawalIndex === -1) {
@@ -663,29 +810,33 @@ router.post("/payouts/:userId/reject", auth, requireAdmin, async (req, res) => {
             });
         }
 
-        const amount = user.wallet.transactions[withdrawalIndex].amount;
+        const amount = user.wallet.transactions[withdrawalIndex].amount || 0;
 
         // Refund the amount back to user's balance
-        user.wallet.balance += Math.abs(amount);
+        user.wallet.balance = (user.wallet.balance || 0) + Math.abs(amount);
         user.wallet.transactions[withdrawalIndex].status = "cancelled";
         user.wallet.transactions[withdrawalIndex].meta = {
-            ...user.wallet.transactions[withdrawalIndex].meta,
+            ...(user.wallet.transactions[withdrawalIndex].meta || {}),
             rejectedAt: new Date(),
-            rejectedBy: req.user._id,
+            rejectedBy: req.user?._id,
             rejectionReason: reason
         };
 
         await user.save();
 
         // Notify user
-        if (user.addNotification) {
+        if (typeof user.addNotification === "function") {
             await user.addNotification({
-                message: `❌ Your withdrawal request was declined. Reason: ${reason || "Not specified"}. The amount has been returned to your wallet.`,
+                message: `❌ Your withdrawal request was declined. Reason: ${reason || "Not specified"
+                    }. The amount has been returned to your wallet.`,
                 type: "system"
             });
         }
 
-        console.log(`❌ Payout rejected for ${user.username}. Reason: ${reason}`);
+        console.log(
+            `❌ Payout rejected for ${user.username} by ${req.user?.username ||
+            "unknown"}. Reason: ${reason}`
+        );
 
         res.json({
             success: true,
@@ -726,7 +877,20 @@ router.post("/adjustment", auth, requireAdmin, async (req, res) => {
             });
         }
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
+        if (!wallet) {
+            return res.status(404).json({
+                success: false,
+                error: "Platform wallet not found"
+            });
+        }
 
         const isRevenue = amount > 0;
         await wallet.addTransaction({
@@ -735,12 +899,15 @@ router.post("/adjustment", auth, requireAdmin, async (req, res) => {
             reason: `Manual adjustment: ${reason}`,
             isRevenue,
             metadata: {
-                adjustedBy: req.user._id,
-                adjustedByUsername: req.user.username
+                adjustedBy: req.user?._id,
+                adjustedByUsername: req.user?.username
             }
         });
 
-        console.log(`📝 Manual adjustment of ${amount} by ${req.user.username}. Reason: ${reason}`);
+        console.log(
+            `📝 Manual adjustment of ${amount} by ${req.user?.username ||
+            "unknown"}. Reason: ${reason}`
+        );
 
         res.json({
             success: true,
@@ -768,15 +935,29 @@ router.post("/audit", auth, requireAdmin, async (req, res) => {
     try {
         const { notes } = req.body;
 
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
+
         const wallet = await PlatformWallet.getWallet();
+        if (!wallet) {
+            return res.status(404).json({
+                success: false,
+                error: "Platform wallet not found"
+            });
+        }
 
         wallet.lastAuditDate = new Date();
         wallet.lastAuditBalance = wallet.balance;
-        wallet.auditNotes = notes || `Audit performed by ${req.user.username}`;
+        wallet.auditNotes =
+            notes || `Audit performed by ${req.user?.username || "admin"}`;
 
         await wallet.save();
 
-        console.log(`📋 Audit recorded by ${req.user.username}`);
+        console.log(`📋 Audit recorded by ${req.user?.username || "admin"}`);
 
         res.json({
             success: true,
@@ -806,7 +987,20 @@ router.post("/audit", auth, requireAdmin, async (req, res) => {
  */
 router.get("/summary", auth, requireAdmin, async (req, res) => {
     try {
-        const { todayStart, weekStart, monthStart, lastMonthStart, lastMonthEnd } = getDateRanges();
+        const {
+            todayStart,
+            weekStart,
+            monthStart,
+            lastMonthStart,
+            lastMonthEnd
+        } = getDateRanges();
+
+        if (!PlatformWallet) {
+            return res.status(503).json({
+                success: false,
+                error: "Platform wallet model not available"
+            });
+        }
 
         const wallet = await PlatformWallet.getWallet();
         if (!wallet) {
@@ -817,13 +1011,23 @@ router.get("/summary", auth, requireAdmin, async (req, res) => {
         }
 
         // Calculate current period stats
-        const currentMonthReport = await PlatformWallet.getRevenueReport(monthStart, new Date());
-        const lastMonthReport = await PlatformWallet.getRevenueReport(lastMonthStart, lastMonthEnd);
+        const currentMonthReport = await PlatformWallet.getRevenueReport(
+            monthStart,
+            new Date()
+        );
+        const lastMonthReport = await PlatformWallet.getRevenueReport(
+            lastMonthStart,
+            lastMonthEnd
+        );
 
         // Calculate growth percentages
-        const revenueGrowth = lastMonthReport.revenue.total > 0
-            ? Math.round(((currentMonthReport.revenue.total - lastMonthReport.revenue.total) / lastMonthReport.revenue.total) * 100)
-            : 0;
+        const lastRevenue = lastMonthReport?.revenue?.total || 0;
+        const currentRevenue = currentMonthReport?.revenue?.total || 0;
+
+        const revenueGrowth =
+            lastRevenue > 0
+                ? Math.round(((currentRevenue - lastRevenue) / lastRevenue) * 100)
+                : 0;
 
         res.json({
             success: true,
@@ -833,21 +1037,26 @@ router.get("/summary", auth, requireAdmin, async (req, res) => {
                 pendingBalance: wallet.pendingBalance,
 
                 thisMonth: {
-                    revenue: currentMonthReport.revenue.total,
-                    expenses: currentMonthReport.expenses.total,
-                    profit: currentMonthReport.netProfit,
-                    transactions: currentMonthReport.transactionCount
+                    revenue: currentRevenue,
+                    expenses: currentMonthReport?.expenses?.total || 0,
+                    profit: currentMonthReport?.netProfit || 0,
+                    transactions: currentMonthReport?.transactionCount || 0
                 },
 
                 lastMonth: {
-                    revenue: lastMonthReport.revenue.total,
-                    expenses: lastMonthReport.expenses.total,
-                    profit: lastMonthReport.netProfit
+                    revenue: lastRevenue,
+                    expenses: lastMonthReport?.expenses?.total || 0,
+                    profit: lastMonthReport?.netProfit || 0
                 },
 
                 growth: {
                     revenue: revenueGrowth,
-                    trend: revenueGrowth > 0 ? "up" : revenueGrowth < 0 ? "down" : "stable"
+                    trend:
+                        revenueGrowth > 0
+                            ? "up"
+                            : revenueGrowth < 0
+                                ? "down"
+                                : "stable"
                 },
 
                 lifetime: wallet.lifetimeStats,

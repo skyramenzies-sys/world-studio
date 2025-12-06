@@ -1,9 +1,10 @@
 // backend/routes/gifts.route.js
-// World-Studio.live - Gift System Routes
+// World-Studio.live - Gift System Routes (UNIVERSE EDITION 🎁🌌)
 // Handles sending gifts, history, leaderboards, and analytics
 
 const express = require("express");
 const router = express.Router();
+
 const User = require("../models/User");
 const Gift = require("../models/Gift");
 const Stream = require("../models/Stream");
@@ -11,374 +12,490 @@ const PlatformWallet = require("../models/PlatformWallet");
 const authMiddleware = require("../middleware/authMiddleware");
 
 // ===========================================
-// GIFT DEFINITIONS
+// GIFT DEFINITIONS (HIGH LEVEL TYPES)
+// Deze zijn voor API /types, GiftShop, etc.
+// (Frontend GiftPanel heeft eigen visuele lijst)
 // ===========================================
 const GIFT_TYPES = {
     // Basic Gifts
-    "Rose": { icon: "🌹", minAmount: 10, category: "basic" },
-    "Heart": { icon: "❤️", minAmount: 25, category: "basic" },
-    "Star": { icon: "⭐", minAmount: 5, category: "basic" },
-    "Fire": { icon: "🔥", minAmount: 15, category: "basic" },
+    Rose: { icon: "🌹", minAmount: 10, category: "basic" },
+    Heart: { icon: "❤️", minAmount: 25, category: "basic" },
+    Star: { icon: "⭐", minAmount: 5, category: "basic" },
+    Fire: { icon: "🔥", minAmount: 15, category: "basic" },
 
     // Premium Gifts
-    "Diamond": { icon: "💎", minAmount: 50, category: "premium" },
-    "Crown": { icon: "👑", minAmount: 100, category: "premium" },
-    "Trophy": { icon: "🏆", minAmount: 150, category: "premium" },
+    Diamond: { icon: "💎", minAmount: 50, category: "premium" },
+    Crown: { icon: "👑", minAmount: 100, category: "premium" },
+    Trophy: { icon: "🏆", minAmount: 150, category: "premium" },
 
     // Luxury Gifts
-    "Rocket": { icon: "🚀", minAmount: 250, category: "luxury" },
-    "Universe": { icon: "🌌", minAmount: 500, category: "luxury" },
-    "Planet": { icon: "🪐", minAmount: 1000, category: "luxury" },
+    Rocket: { icon: "🚀", minAmount: 250, category: "luxury" },
+    Universe: { icon: "🌌", minAmount: 500, category: "luxury" },
+    Planet: { icon: "🪐", minAmount: 1000, category: "luxury" },
 
     // Special
-    "Coins": { icon: "💰", minAmount: 1, category: "tip" },
+    Coins: { icon: "💰", minAmount: 1, category: "tip" },
 };
 
-// Platform takes 15%, creator gets 85%
-const PLATFORM_FEE_PERCENT = 15;
-const CREATOR_SHARE_PERCENT = 85;
+// Platform takes e.g. 15%, creator gets 85%
+// Config: GIFTS_PLATFORM_FEE in .env (fallback 15)
+const PLATFORM_FEE_PERCENT = Number(process.env.GIFTS_PLATFORM_FEE || 15);
+const CREATOR_SHARE_PERCENT = 100 - PLATFORM_FEE_PERCENT;
 
-// Export for use in other files
+// Export for reuse
 router.GIFT_TYPES = GIFT_TYPES;
 
 // ===========================================
-// GET GIFT TYPES
+// HELPERS
 // ===========================================
 
 /**
- * GET /api/gifts/types
- * Get all available gift types
+ * Bouw payload voor Socket.io & frontend (GiftPanel)
+ * amount = coins die ONTVANGER krijgt (na fee)
+ * spent  = coins die SENDER heeft uitgegeven
  */
+function buildGiftEventPayload({ gift, sender, recipient, creatorShare, platformFee, rawAmount, isAnonymous }) {
+    return {
+        giftId: gift._id.toString(),
+
+        senderId: isAnonymous ? null : sender._id.toString(),
+        recipientId: recipient._id.toString(),
+
+        senderUsername: isAnonymous ? "Anonymous" : sender.username,
+        senderAvatar: isAnonymous ? "" : sender.avatar,
+        recipientUsername: recipient.username,
+        recipientAvatar: recipient.avatar,
+
+        // belangrijk voor GiftPanel:
+        item: gift.itemName || gift.item || "Coins",
+        icon: gift.icon || "🎁",
+
+        // 🌟 universe keuze:
+        // amount = wat recipient erbij krijgt (creatorShare)
+        amount: creatorShare,
+        spent: rawAmount, // volledige coins die sender betaalde
+
+        message: gift.message,
+        context: gift.context || (gift.streamId ? "stream" : "profile"),
+
+        streamId: gift.streamId,
+        postId: gift.postId,
+        pkBattleId: gift.pkBattleId,
+
+        platformFee,
+        creatorShare,
+        timestamp: gift.createdAt || new Date(),
+        status: gift.status || "completed",
+    };
+}
+
+// ===========================================
+// GET /api/gifts/types
+// All available high-level gift types
+// ===========================================
 router.get("/types", (req, res) => {
     const gifts = Object.entries(GIFT_TYPES).map(([name, data]) => ({
         name,
-        ...data
+        ...data,
     }));
 
     res.json({
         success: true,
         gifts,
         platformFee: `${PLATFORM_FEE_PERCENT}%`,
-        creatorShare: `${CREATOR_SHARE_PERCENT}%`
+        creatorShare: `${CREATOR_SHARE_PERCENT}%`,
     });
 });
 
 // ===========================================
-// SEND GIFT
+// POST /api/gifts
+// Send a gift (used by GiftPanel & GiftShop)
 // ===========================================
 
-/**
- * POST /api/gifts
- * Send a gift to a user
- */
+
 router.post("/", authMiddleware, async (req, res) => {
     try {
         const {
             recipientId,
-            item = "Coins",
+            item = "Coins",         // bv. "Neon Spark" of "Coins"
             amount,
             message,
             streamId,
             pkBattleId,
-            isAnonymous = false
+            postId,
+            context,               // "stream", "profile", "post", etc.
+            isAnonymous = false,
         } = req.body;
 
         const sender = req.user;
+        const senderId = sender._id;
 
-        // Validation
+        // -----------------------------
+        // Validatie
+        // -----------------------------
         if (!recipientId) {
             return res.status(400).json({
                 success: false,
-                error: "Recipient is required"
+                error: "Recipient is required",
+                code: "MISSING_RECIPIENT",
             });
         }
 
-        if (!amount || amount < 1) {
+        if (!amount || amount < 1 || !Number.isInteger(Number(amount))) {
             return res.status(400).json({
                 success: false,
-                error: "Amount must be at least 1 coin"
+                error: "Amount must be at least 1 coin and a whole number",
+                code: "INVALID_AMOUNT",
             });
         }
 
-        if (amount > 100000) {
+        if (amount > 1000000) {
             return res.status(400).json({
                 success: false,
-                error: "Maximum gift is 100,000 coins"
+                error: "Maximum gift is 1,000,000 coins",
+                code: "AMOUNT_TOO_HIGH",
             });
         }
 
-        if (recipientId === sender._id.toString()) {
+        if (recipientId === senderId.toString()) {
             return res.status(400).json({
                 success: false,
-                error: "Cannot send gift to yourself"
+                error: "Cannot send gift to yourself",
+                code: "SELF_GIFT_NOT_ALLOWED",
             });
         }
 
-        // Check balance
+        // Sender balance check
         const senderBalance = sender.wallet?.balance || 0;
         if (senderBalance < amount) {
             return res.status(400).json({
                 success: false,
                 error: "Insufficient balance",
+                code: "INSUFFICIENT_BALANCE",
                 balance: senderBalance,
-                required: amount
+                required: amount,
             });
         }
 
-        // Find recipient
+        // Recipient lookup
         const recipient = await User.findById(recipientId);
         if (!recipient) {
             return res.status(404).json({
                 success: false,
-                error: "Recipient not found"
+                error: "Recipient not found",
+                code: "RECIPIENT_NOT_FOUND",
             });
         }
 
-        if (recipient.isBanned) {
+        if (recipient.isBanned || recipient.status === "banned") {
             return res.status(400).json({
                 success: false,
-                error: "Cannot send gift to this user"
+                error: "Cannot send gift to this user",
+                code: "RECIPIENT_BANNED",
             });
         }
 
-        // Get gift type info
+        // Gift type info (optioneel, voor icon & minAmount)
         const giftType = GIFT_TYPES[item] || GIFT_TYPES["Coins"];
-        const icon = giftType.icon;
+        const icon = giftType.icon || "💰";
 
-        // Validate minimum amount
-        if (amount < giftType.minAmount) {
+        // Min amount check alleen als type bekend is
+        if (giftType && amount < giftType.minAmount) {
             return res.status(400).json({
                 success: false,
-                error: `Minimum for ${item} is ${giftType.minAmount} coins`
+                error: `Minimum for ${item} is ${giftType.minAmount} coins`,
+                code: "MIN_AMOUNT",
             });
         }
 
-        // Calculate shares (85% creator, 15% platform)
-        const platformFee = Math.floor(amount * (PLATFORM_FEE_PERCENT / 100));
-        const creatorShare = amount - platformFee;
+        // -----------------------------
+        // Fee & shares
+        // -----------------------------
+        const rawAmount = Number(amount);
+        const platformFee = Math.floor(
+            rawAmount * (PLATFORM_FEE_PERCENT / 100)
+        );
+        const creatorShare = rawAmount - platformFee;
 
-        // Create gift record
+        // -----------------------------
+        // Gift record opslaan
+        // -----------------------------
         const gift = await Gift.create({
-            senderId: sender._id,
+            senderId: senderId,
             senderUsername: isAnonymous ? "Anonymous" : sender.username,
             senderAvatar: isAnonymous ? "" : sender.avatar,
+
             recipientId: recipient._id,
             recipientUsername: recipient.username,
             recipientAvatar: recipient.avatar,
-            item: item || "Coins",
+
+            item: (item || "Coins").toString().toLowerCase(), // wordt in model gemapt
             itemName: item,
             icon,
-            amount,
-            coinValue: amount,
+
+            amount: rawAmount,
+            coinValue: rawAmount,
+
             message: message?.slice(0, 200) || "",
             streamId: streamId || null,
+            postId: postId || null,
             pkBattleId: pkBattleId || null,
+
+            context:
+                context ||
+                (streamId
+                    ? "stream"
+                    : postId
+                        ? "post"
+                        : "profile"),
+
             platformFee: PLATFORM_FEE_PERCENT,
             recipientReceives: creatorShare,
             isAnonymous,
-            status: "completed"
+            status: "completed",
         });
 
-        // Deduct from sender
-        await User.findByIdAndUpdate(sender._id, {
+        // -----------------------------
+        // Wallet updates
+        // -----------------------------
+        // Sender ↓
+        await User.findByIdAndUpdate(senderId, {
             $inc: {
-                "wallet.balance": -amount,
-                "wallet.totalSpent": amount,
+                "wallet.balance": -rawAmount,
+                "wallet.totalSpent": rawAmount,
                 "stats.totalGiftsSent": 1,
-                "stats.totalGiftsSentValue": amount
+                "stats.totalGiftsSentValue": rawAmount,
             },
             $push: {
                 "wallet.transactions": {
-                    $each: [{
-                        type: "gift_sent",
-                        amount: -amount,
-                        description: `Sent ${icon} ${item} to ${recipient.username}`,
-                        status: "completed",
-                        relatedUserId: recipient._id,
-                        relatedUsername: recipient.username,
-                        giftId: gift._id,
-                        createdAt: new Date()
-                    }],
-                    $slice: -500
-                }
-            }
+                    $each: [
+                        {
+                            type: "gift_sent",
+                            amount: -rawAmount,
+                            description: `Sent ${icon} ${item} to ${recipient.username}`,
+                            status: "completed",
+                            relatedUserId: recipient._id,
+                            relatedUsername: recipient.username,
+                            giftId: gift._id,
+                            createdAt: new Date(),
+                        },
+                    ],
+                    $slice: -500,
+                },
+            },
         });
 
-        // Add to recipient (creator share only)
+        // Recipient ↑
         await User.findByIdAndUpdate(recipient._id, {
             $inc: {
                 "wallet.balance": creatorShare,
                 "wallet.totalReceived": creatorShare,
                 "wallet.totalEarned": creatorShare,
                 "stats.totalGiftsReceived": 1,
-                "stats.totalGiftsReceivedValue": amount
+                "stats.totalGiftsReceivedValue": rawAmount,
+                unreadNotifications: 1,
             },
             $push: {
                 "wallet.transactions": {
-                    $each: [{
-                        type: "gift_received",
-                        amount: creatorShare,
-                        description: `Received ${icon} ${item} from ${isAnonymous ? "Anonymous" : sender.username}`,
-                        status: "completed",
-                        relatedUserId: isAnonymous ? null : sender._id,
-                        relatedUsername: isAnonymous ? "Anonymous" : sender.username,
-                        giftId: gift._id,
-                        meta: { originalAmount: amount, platformFee, item, icon },
-                        createdAt: new Date()
-                    }],
-                    $slice: -500
+                    $each: [
+                        {
+                            type: "gift_received",
+                            amount: creatorShare,
+                            description: `Received ${icon} ${item} from ${isAnonymous ? "Anonymous" : sender.username
+                                }`,
+                            status: "completed",
+                            relatedUserId: isAnonymous ? null : sender._id,
+                            relatedUsername: isAnonymous
+                                ? "Anonymous"
+                                : sender.username,
+                            giftId: gift._id,
+                            meta: {
+                                originalAmount: rawAmount,
+                                platformFee,
+                                item,
+                                icon,
+                            },
+                            createdAt: new Date(),
+                        },
+                    ],
+                    $slice: -500,
                 },
                 notifications: {
-                    $each: [{
-                        message: `${isAnonymous ? "Someone" : sender.username} sent you ${icon} ${item} (${amount} coins)${message ? `: "${message}"` : ""}`,
-                        type: "gift",
-                        fromUser: isAnonymous ? null : sender._id,
-                        fromUsername: isAnonymous ? "Anonymous" : sender.username,
-                        fromAvatar: isAnonymous ? "" : sender.avatar,
-                        giftId: gift._id,
-                        amount,
-                        icon,
-                        read: false,
-                        createdAt: new Date(),
-                    }],
-                    $slice: -100
-                }
+                    $each: [
+                        {
+                            message: `${isAnonymous ? "Someone" : sender.username
+                                } sent you ${icon} ${item} (${rawAmount} coins)${message ? `: "${message}"` : ""
+                                }`,
+                            type: "gift",
+                            fromUser: isAnonymous ? null : sender._id,
+                            fromUsername: isAnonymous
+                                ? "Anonymous"
+                                : sender.username,
+                            fromAvatar: isAnonymous ? "" : sender.avatar,
+                            giftId: gift._id,
+                            amount: rawAmount,
+                            icon,
+                            read: false,
+                            createdAt: new Date(),
+                        },
+                    ],
+                    $slice: -100,
+                },
             },
-            $inc: { unreadNotifications: 1 }
+
         });
 
-        // Record platform fee
+        // -----------------------------
+        // Platform wallet (fee)
+        // -----------------------------
         try {
             if (PlatformWallet && platformFee > 0) {
                 const wallet = await PlatformWallet.getWallet();
                 if (wallet && wallet.recordGiftFee) {
-                    await wallet.recordGiftFee(amount, sender._id, sender.username, gift._id);
+                    await wallet.recordGiftFee(
+                        rawAmount,
+                        sender._id,
+                        sender.username,
+                        gift._id
+                    );
                 }
             }
         } catch (err) {
-            console.log("Platform fee recording skipped:", err.message);
+            console.log(
+                "Platform fee recording skipped:",
+                err.message
+            );
         }
 
-        // Update stream if applicable
+        // -----------------------------
+        // Stream stats update (optioneel)
+        // -----------------------------
         if (streamId && Stream) {
             try {
                 await Stream.findByIdAndUpdate(streamId, {
                     $inc: {
-                        totalGifts: amount,
-                        totalGiftsCount: 1
+                        totalGifts: rawAmount,
+                        totalGiftsCount: 1,
                     },
                     $push: {
                         recentGifts: {
-                            $each: [{
-                                userId: sender._id,
-                                username: isAnonymous ? "Anonymous" : sender.username,
-                                giftType: item,
-                                icon,
-                                amount,
-                                coins: amount,
-                                timestamp: new Date()
-                            }],
-                            $slice: -50
-                        }
-                    }
+                            $each: [
+                                {
+                                    userId: sender._id,
+                                    username: isAnonymous
+                                        ? "Anonymous"
+                                        : sender.username,
+                                    giftType: item,
+                                    icon,
+                                    amount: rawAmount,
+                                    coins: rawAmount,
+                                    timestamp: new Date(),
+                                },
+                            ],
+                            $slice: -50,
+                        },
+                    },
                 });
             } catch (err) {
                 console.log("Stream gift update skipped");
             }
         }
 
-        // Emit socket events
+        // -----------------------------
+        // Socket events (Universe ready)
+        // -----------------------------
         const io = req.app.get("io");
-        if (io) {
-            const giftEvent = {
-                _id: gift._id,
-                senderId: isAnonymous ? null : sender._id,
-                senderUsername: isAnonymous ? "Anonymous" : sender.username,
-                senderAvatar: isAnonymous ? "" : sender.avatar,
-                recipientId: recipient._id,
-                recipientUsername: recipient.username,
-                item,
-                icon,
-                amount,
-                creatorShare,
-                message,
-                timestamp: new Date()
-            };
+        const payload = buildGiftEventPayload({
+            gift,
+            sender,
+            recipient,
+            creatorShare,
+            platformFee,
+            rawAmount,
+            isAnonymous,
+        });
 
-            // Notify recipient
-            io.to(`user_${recipient._id}`).emit("gift_received", giftEvent);
+        if (io) {
+            // rooms: user_...  (zoals je bestaande systeem)
+            io.to(`user_${recipient._id}`).emit(
+                "gift_received",
+                payload
+            );
             io.to(`user_${recipient._id}`).emit("notification", {
                 type: "gift",
-                message: `${isAnonymous ? "Someone" : sender.username} sent you ${icon}!`,
-                amount,
-                icon
-            });
-            io.to(`user_${recipient._id}`).emit("wallet_update", {
-                balance: (recipient.wallet?.balance || 0) + creatorShare
+                message: `${isAnonymous ? "Someone" : sender.username
+                    } sent you ${payload.icon}!`,
+                amount: rawAmount,
+                icon: payload.icon,
             });
 
-            // Notify sender
+
             io.to(`user_${sender._id}`).emit("gift_sent", {
                 success: true,
-                gift: giftEvent,
-                newBalance: senderBalance - amount
+                gift: payload,
+                newBalance: senderBalance - rawAmount,
             });
             io.to(`user_${sender._id}`).emit("wallet_update", {
-                balance: senderBalance - amount
+                balance: senderBalance - rawAmount,
             });
 
             // Stream events
             if (streamId) {
-                io.to(streamId).emit("stream_gift", giftEvent);
-                io.to(`stream_${streamId}`).emit("stream_gift", giftEvent);
+                io.to(streamId).emit("stream_gift", payload);
+                io.to(`stream_${streamId}`).emit(
+                    "stream_gift",
+                    payload
+                );
             }
 
-            // PK battle events
+            // PK events
             if (pkBattleId) {
-                io.to(`pk_${pkBattleId}`).emit("pk_gift", {
-                    ...giftEvent,
-                    recipientId: recipient._id
-                });
+                io.to(`pk_${pkBattleId}`).emit("pk_gift", payload);
             }
+
+            // Global event (optioneel, voor live ticker)
+            io.emit("gift_global", payload);
         }
 
-        console.log(`🎁 Gift: ${sender.username} → ${recipient.username}: ${amount} ${item}`);
+        console.log(
+            `🎁 Gift: ${sender.username} → ${recipient.username}: ${rawAmount} ${item}`
+        );
 
-        res.status(201).json({
+        return res.status(201).json({
             success: true,
             message: "Gift sent successfully!",
             gift: {
                 _id: gift._id,
                 item,
                 icon,
-                amount,
-                recipientUsername: recipient.username,
+                amount: rawAmount,
                 creatorShare,
-                platformFee
+                platformFee,
+                recipientUsername: recipient.username,
+                message: gift.message,
             },
-            newBalance: senderBalance - amount
+            newBalance: senderBalance - rawAmount,
         });
 
     } catch (err) {
         console.error("❌ Gift send error:", err);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
-            error: "Failed to send gift"
+            error: "Failed to send gift",
+            code: "GIFT_SEND_ERROR",
         });
     }
 });
 
 // ===========================================
 // GIFT HISTORY
+// GET /api/gifts/history
 // ===========================================
 
-/**
- * GET /api/gifts/history
- * Get user's gift history
- */
+
 router.get("/history", authMiddleware, async (req, res) => {
     try {
-        const userId = req.userId;
+        const userId = req.userId || req.user._id;
         const { type = "all", limit = 50, skip = 0 } = req.query;
 
         let query = {};
@@ -396,7 +513,7 @@ router.get("/history", authMiddleware, async (req, res) => {
                 .skip(parseInt(skip))
                 .limit(parseInt(limit))
                 .lean(),
-            Gift.countDocuments(query)
+            Gift.countDocuments(query),
         ]);
 
         res.json({
@@ -406,80 +523,73 @@ router.get("/history", authMiddleware, async (req, res) => {
                 total,
                 limit: parseInt(limit),
                 skip: parseInt(skip),
-                hasMore: parseInt(skip) + gifts.length < total
-            }
+                hasMore:
+                    parseInt(skip) + gifts.length < total,
+            },
         });
     } catch (err) {
         console.error("❌ Gift history error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch gift history"
+            error: "Failed to fetch gift history",
         });
     }
 });
 
-/**
- * GET /api/gifts/received
- * Get gifts received by user
- */
+// ===========================================
+// RECEIVED / SENT
+// ===========================================
 router.get("/received", authMiddleware, async (req, res) => {
     try {
+        const userId = req.userId || req.user._id;
         const { limit = 50 } = req.query;
 
-        const gifts = await Gift.find({ recipientId: req.userId })
+        const gifts = await Gift.find({ recipientId: userId })
             .sort({ createdAt: -1 })
             .limit(parseInt(limit))
             .lean();
 
-        const totalAgg = await Gift.aggregate([
-            { $match: { recipientId: req.userId } },
-            { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-        ]);
+        const agg = await Gift.getTotalReceived(userId);
 
         res.json({
             success: true,
             gifts,
-            totalReceived: totalAgg[0]?.total || 0,
-            count: totalAgg[0]?.count || 0
+            totalReceived: agg.total || 0,
+            count: agg.count || 0,
         });
     } catch (err) {
         console.error("❌ Received gifts error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch received gifts"
+            error: "Failed to fetch received gifts",
         });
     }
 });
 
-/**
- * GET /api/gifts/sent
- * Get gifts sent by user
- */
+
 router.get("/sent", authMiddleware, async (req, res) => {
     try {
+        const userId = req.userId || req.user._id;
         const { limit = 50 } = req.query;
 
-        const gifts = await Gift.find({ senderId: req.userId })
+        const gifts = await Gift.find({ senderId: userId })
             .sort({ createdAt: -1 })
             .limit(parseInt(limit))
             .lean();
 
-        const totalAgg = await Gift.aggregate([
-            { $match: { senderId: req.userId } },
-            { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-        ]);
+        const agg = await Gift.getTotalSent(userId);
 
         res.json({
             success: true,
             gifts,
-            totalSent: totalAgg[0]?.total || 0,
-            count: totalAgg[0]?.count || 0
+            totalSent: agg.total || 0,
+            count: agg.count || 0,
         });
     } catch (err) {
         console.error("❌ Sent gifts error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch sent gifts"
+            error: "Failed to fetch sent gifts",
         });
     }
 });
@@ -488,105 +598,78 @@ router.get("/sent", authMiddleware, async (req, res) => {
 // LEADERBOARDS
 // ===========================================
 
-/**
- * GET /api/gifts/leaderboard
- * Get top gifters leaderboard
- */
+
 router.get("/leaderboard", async (req, res) => {
     try {
         const { period = "week", limit = 10 } = req.query;
 
-        let startDate = new Date();
-        switch (period) {
-            case "day":
-                startDate.setDate(startDate.getDate() - 1);
-                break;
-            case "week":
-                startDate.setDate(startDate.getDate() - 7);
-                break;
-            case "month":
-                startDate.setMonth(startDate.getMonth() - 1);
-                break;
-            case "all":
-                startDate = new Date(0);
-                break;
-            default:
-                startDate.setDate(startDate.getDate() - 7);
-        }
+        const leaderboard = await Gift.getLeaderboard(
+            period,
+            parseInt(limit)
+        );
 
-        const leaderboard = await Gift.aggregate([
-            { $match: { createdAt: { $gte: startDate }, status: "completed" } },
-            {
-                $group: {
-                    _id: "$senderId",
-                    totalGifted: { $sum: "$amount" },
-                    giftCount: { $sum: 1 },
-                    username: { $first: "$senderUsername" },
-                    avatar: { $first: "$senderAvatar" },
-                    lastGift: { $max: "$createdAt" }
-                }
-            },
-            { $sort: { totalGifted: -1 } },
-            { $limit: parseInt(limit) }
-        ]);
-
-        // Add rank
+        // Voeg rank toe
         const ranked = leaderboard.map((entry, index) => ({
             rank: index + 1,
-            userId: entry._id,
-            ...entry
+            ...entry,
         }));
 
         res.json({
             success: true,
             period,
-            leaderboard: ranked
+            leaderboard: ranked,
         });
     } catch (err) {
         console.error("❌ Leaderboard error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch leaderboard"
+            error: "Failed to fetch leaderboard",
         });
     }
 });
 
-/**
- * GET /api/gifts/top-creators
- * Get top earning creators
- */
+// ===========================================
+// TOP CREATORS
+// GET /api/gifts/top-creators
 router.get("/top-creators", async (req, res) => {
     try {
         const { period = "week", limit = 10 } = req.query;
 
-        let startDate = new Date();
-        switch (period) {
-            case "day":
-                startDate.setDate(startDate.getDate() - 1);
-                break;
-            case "week":
-                startDate.setDate(startDate.getDate() - 7);
-                break;
-            case "month":
-                startDate.setMonth(startDate.getMonth() - 1);
-                break;
-            case "all":
-                startDate = new Date(0);
-                break;
-            default:
-                startDate.setDate(startDate.getDate() - 7);
+        // Hergebruik getLeaderboard (per recipient)
+        const now = new Date();
+        let startDate = new Date(0);
+
+        if (period === "day") {
+            startDate = new Date(
+                now.getTime() - 24 * 60 * 60 * 1000
+            );
+        } else if (period === "week") {
+            startDate = new Date(
+                now.getTime() - 7 * 24 * 60 * 60 * 1000
+            );
+        } else if (period === "month") {
+            startDate = new Date(
+                now.getTime() - 30 * 24 * 60 * 60 * 1000
+            );
         }
 
         const topCreators = await Gift.aggregate([
-            { $match: { createdAt: { $gte: startDate }, status: "completed" } },
+            {
+                $match: {
+                    createdAt: { $gte: startDate },
+                    status: "completed",
+                },
+            },
             {
                 $group: {
                     _id: "$recipientId",
-                    totalReceived: { $sum: "$amount" },
+                    totalReceived: {
+                        $sum: "$recipientReceives",
+                    },
                     giftCount: { $sum: 1 },
                     uniqueGifters: { $addToSet: "$senderId" },
-                    username: { $first: "$recipientUsername" }
-                }
+                    username: { $first: "$recipientUsername" },
+                },
             },
             { $sort: { totalReceived: -1 } },
             { $limit: parseInt(limit) },
@@ -595,58 +678,63 @@ router.get("/top-creators", async (req, res) => {
                     _id: 1,
                     totalReceived: 1,
                     giftCount: 1,
-                    uniqueGifterCount: { $size: "$uniqueGifters" },
-                    username: 1
-                }
-            }
+                    uniqueGifterCount: {
+                        $size: "$uniqueGifters",
+                    },
+                    username: 1,
+                },
+            },
         ]);
 
-        // Get avatars and verification status
-        const userIds = topCreators.map(c => c._id);
-        const users = await User.find({ _id: { $in: userIds } })
+        const userIds = topCreators.map((c) => c._id);
+        const users = await User.find({
+            _id: { $in: userIds },
+        })
             .select("avatar isVerified followersCount")
             .lean();
 
         const userMap = {};
-        users.forEach(u => {
+        users.forEach((u) => {
             userMap[u._id.toString()] = {
                 avatar: u.avatar,
                 isVerified: u.isVerified,
-                followersCount: u.followersCount
+                followersCount: u.followersCount,
             };
         });
 
         const result = topCreators.map((c, index) => ({
             rank: index + 1,
-            userId: c._id,
             ...c,
-            avatar: userMap[c._id?.toString()]?.avatar || "",
-            isVerified: userMap[c._id?.toString()]?.isVerified || false,
-            followersCount: userMap[c._id?.toString()]?.followersCount || 0
+            avatar:
+                userMap[c._id?.toString()]?.avatar || "",
+            isVerified:
+                userMap[c._id?.toString()]?.isVerified ||
+                false,
+            followersCount:
+                userMap[c._id?.toString()]
+                    ?.followersCount || 0,
         }));
 
         res.json({
             success: true,
             period,
-            creators: result
+            creators: result,
         });
     } catch (err) {
         console.error("❌ Top creators error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch top creators"
+            error: "Failed to fetch top creators",
         });
     }
 });
 
 // ===========================================
 // STREAM GIFTS
+// GET /api/gifts/stream/:streamId
 // ===========================================
 
-/**
- * GET /api/gifts/stream/:streamId
- * Get gifts for a stream
- */
+
 router.get("/stream/:streamId", async (req, res) => {
     try {
         const { streamId } = req.params;
@@ -654,51 +742,29 @@ router.get("/stream/:streamId", async (req, res) => {
 
         const gifts = await Gift.find({
             streamId,
-            status: "completed"
+            status: "completed",
         })
             .sort({ createdAt: -1 })
             .limit(parseInt(limit))
             .lean();
 
-        // Get stats
-        const stats = await Gift.aggregate([
-            { $match: { streamId, status: "completed" } },
-            {
-                $group: {
-                    _id: null,
-                    total: { $sum: "$amount" },
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        // Get top gifters
-        const topGifters = await Gift.aggregate([
-            { $match: { streamId, status: "completed" } },
-            {
-                $group: {
-                    _id: "$senderId",
-                    total: { $sum: "$amount" },
-                    count: { $sum: 1 },
-                    username: { $first: "$senderUsername" },
-                    avatar: { $first: "$senderAvatar" }
-                }
-            },
-            { $sort: { total: -1 } },
-            { $limit: 10 }
-        ]);
+        const stats = await Gift.getStreamStats(streamId);
+        const topGifters = await Gift.getTopGifters(
+            streamId,
+            10
+        );
 
         res.json({
             success: true,
             gifts,
-            stats: stats[0] || { total: 0, count: 0 },
-            topGifters
+            stats,
+            topGifters,
         });
     } catch (err) {
         console.error("❌ Stream gifts error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch stream gifts"
+            error: "Failed to fetch stream gifts",
         });
     }
 });
@@ -707,31 +773,45 @@ router.get("/stream/:streamId", async (req, res) => {
 // USER STATS
 // ===========================================
 
-/**
- * GET /api/gifts/stats/:userId
- * Get gift statistics for a user
- */
+
 router.get("/stats/:userId", async (req, res) => {
     try {
         const { userId } = req.params;
 
-        const [received, sent] = await Promise.all([
-            Gift.aggregate([
-                { $match: { recipientId: userId } },
-                { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-            ]),
-            Gift.aggregate([
-                { $match: { senderId: userId } },
-                { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-            ])
-        ]);
-
-        // Unique gifters
-        const uniqueGifters = await Gift.aggregate([
-            { $match: { recipientId: userId } },
-            { $group: { _id: "$senderId" } },
-            { $count: "count" }
-        ]);
+        const [received, sent, uniqueGifters] =
+            await Promise.all([
+                Gift.aggregate([
+                    {
+                        $match: { recipientId: userId },
+                    },
+                    {
+                        $group: {
+                            _id: null,
+                            total: { $sum: "$amount" },
+                            count: { $sum: 1 },
+                        },
+                    },
+                ]),
+                Gift.aggregate([
+                    {
+                        $match: { senderId: userId },
+                    },
+                    {
+                        $group: {
+                            _id: null,
+                            total: { $sum: "$amount" },
+                            count: { $sum: 1 },
+                        },
+                    },
+                ]),
+                Gift.aggregate([
+                    {
+                        $match: { recipientId: userId },
+                    },
+                    { $group: { _id: "$senderId" } },
+                    { $count: "count" },
+                ]),
+            ]);
 
         res.json({
             success: true,
@@ -740,53 +820,66 @@ router.get("/stats/:userId", async (req, res) => {
                 receivedCount: received[0]?.count || 0,
                 totalSent: sent[0]?.total || 0,
                 sentCount: sent[0]?.count || 0,
-                uniqueGifters: uniqueGifters[0]?.count || 0
-            }
+                uniqueGifters:
+                    uniqueGifters[0]?.count || 0,
+            },
         });
     } catch (err) {
         console.error("❌ Gift stats error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch gift stats"
+            error: "Failed to fetch gift stats",
         });
     }
 });
 
-/**
- * GET /api/gifts/my-stats
- * Get current user's gift statistics
- */
+// ===========================================
+// MY STATS
+// GET /api/gifts/my-stats
+// ===========================================
 router.get("/my-stats", authMiddleware, async (req, res) => {
     try {
-        const userId = req.userId;
+        const userId = req.userId || req.user._id;
 
         const [received, sent] = await Promise.all([
             Gift.aggregate([
                 { $match: { recipientId: userId } },
-                { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$amount" },
+                        count: { $sum: 1 },
+                    },
+                },
             ]),
             Gift.aggregate([
                 { $match: { senderId: userId } },
-                { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }
-            ])
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$amount" },
+                        count: { $sum: 1 },
+                    },
+                },
+            ]),
         ]);
 
         res.json({
             success: true,
             received: {
                 total: received[0]?.total || 0,
-                count: received[0]?.count || 0
+                count: received[0]?.count || 0,
             },
             sent: {
                 total: sent[0]?.total || 0,
-                count: sent[0]?.count || 0
-            }
+                count: sent[0]?.count || 0,
+            },
         });
     } catch (err) {
         console.error("❌ My stats error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to fetch stats"
+            error: "Failed to fetch stats",
         });
     }
 });

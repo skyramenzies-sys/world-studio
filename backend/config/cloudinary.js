@@ -1,10 +1,14 @@
 // backend/cloudinary.js
-// World-Studio.live - Cloudinary Configuration for Media Uploads
+// World-Studio.live - Cloudinary Configuration for Media Uploads (UNIVERSE EDITION 🚀)
 // Handles images, videos, and audio uploads with automatic optimization
+
+"use strict";
 
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
+
+const isProduction = process.env.NODE_ENV === "production";
 
 // ===========================================
 // ENVIRONMENT VALIDATION
@@ -15,25 +19,43 @@ const requiredEnvVars = [
     "CLOUDINARY_API_SECRET",
 ];
 
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
+const isCloudinaryConfigured = missingVars.length === 0;
 
-if (missingVars.length > 0) {
-    console.error("❌ Missing Cloudinary environment variables:", missingVars.join(", "));
-    throw new Error(`Cloudinary environment variables missing: ${missingVars.join(", ")}`);
+if (!isCloudinaryConfigured) {
+    console.error(
+        "❌ Cloudinary not fully configured. Missing environment variables:",
+        missingVars.join(", ")
+    );
+
+    // In productie: hard fail zodat je het meteen merkt
+    if (isProduction) {
+        throw new Error(
+            `Cloudinary environment variables missing: ${missingVars.join(", ")}`
+        );
+    } else {
+        console.warn(
+            "⚠️ Cloudinary will be disabled in this environment (non-production). Uploads may fail."
+        );
+    }
 }
 
 // ===========================================
 // CLOUDINARY CONFIGURATION
 // ===========================================
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-    secure: true, // Always use HTTPS
-});
+if (isCloudinaryConfigured) {
+    cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+        secure: true, // Always use HTTPS
+    });
 
-console.log("✅ Cloudinary configured for World-Studio.live");
-console.log(`   Cloud Name: ${process.env.CLOUDINARY_CLOUD_NAME}`);
+    if (!isProduction) {
+        console.log("✅ Cloudinary configured for World-Studio.live");
+        console.log(`   Cloud Name: ${process.env.CLOUDINARY_CLOUD_NAME}`);
+    }
+}
 
 // ===========================================
 // UPLOAD LIMITS & ALLOWED TYPES
@@ -51,7 +73,14 @@ const UPLOAD_LIMITS = {
     },
     audio: {
         maxSize: 50 * 1024 * 1024, // 50MB
-        allowedTypes: ["audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/m4a", "audio/aac"],
+        allowedTypes: [
+            "audio/mpeg",
+            "audio/mp3",
+            "audio/wav",
+            "audio/ogg",
+            "audio/m4a",
+            "audio/aac",
+        ],
         folder: "world-studio/audio",
     },
     avatar: {
@@ -76,11 +105,8 @@ const UPLOAD_LIMITS = {
  * @returns {string} - Sanitized filename
  */
 const sanitizeFilename = (filename) => {
-    // Remove extension
     const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
-    // Replace special characters with underscores
     const sanitized = nameWithoutExt.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-    // Limit length
     return sanitized.substring(0, 50);
 };
 
@@ -113,129 +139,162 @@ const getFolder = (mimetype, customFolder = null) => {
 
 // ===========================================
 // CLOUDINARY STORAGE CONFIGURATIONS
+// (alleen als Cloudinary geconfigureerd is)
 // ===========================================
 
-/**
- * General purpose storage (images, videos, audio)
- */
-const generalStorage = new CloudinaryStorage({
-    cloudinary,
-    params: async (req, file) => {
-        const cleanName = sanitizeFilename(file.originalname);
-        const resourceType = getResourceType(file.mimetype);
-        const folder = getFolder(file.mimetype, req.body?.folder);
+let generalStorage;
+let avatarStorage;
+let thumbnailStorage;
+let videoStorage;
+let audioStorage;
 
-        const params = {
-            folder,
-            resource_type: resourceType,
-            public_id: `${Date.now()}-${cleanName}`,
-            allowed_formats: ["jpg", "jpeg", "png", "gif", "webp", "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a"],
-        };
+if (isCloudinaryConfigured) {
+    /**
+     * General purpose storage (images, videos, audio)
+     */
+    generalStorage = new CloudinaryStorage({
+        cloudinary,
+        params: async (req, file) => {
+            const cleanName = sanitizeFilename(file.originalname);
+            const resourceType = getResourceType(file.mimetype);
+            const folder = getFolder(file.mimetype, req.body?.folder);
 
-        // Add transformations for images
-        if (resourceType === "image") {
-            params.transformation = [
-                { quality: "auto:good" },
-                { fetch_format: "auto" },
-            ];
-        }
+            const params = {
+                folder,
+                resource_type: resourceType,
+                public_id: `${Date.now()}-${cleanName}`,
+                allowed_formats: [
+                    "jpg",
+                    "jpeg",
+                    "png",
+                    "gif",
+                    "webp",
+                    "mp4",
+                    "webm",
+                    "mov",
+                    "mp3",
+                    "wav",
+                    "ogg",
+                    "m4a",
+                ],
+            };
 
-        // Add eager transformations for videos (thumbnails)
-        if (resourceType === "video") {
-            params.eager = [
-                { width: 300, height: 200, crop: "fill", format: "jpg" },
-            ];
-            params.eager_async = true;
-        }
+            if (resourceType === "image") {
+                params.transformation = [
+                    { quality: "auto:good" },
+                    { fetch_format: "auto" },
+                ];
+            }
 
-        return params;
-    },
-});
+            if (resourceType === "video") {
+                params.eager = [
+                    { width: 300, height: 200, crop: "fill", format: "jpg" },
+                ];
+                params.eager_async = true;
+            }
 
-/**
- * Avatar-specific storage (optimized for profile pictures)
- */
-const avatarStorage = new CloudinaryStorage({
-    cloudinary,
-    params: async (req, file) => {
-        const userId = req.user?.id || req.user?._id || "unknown";
+            return params;
+        },
+    });
 
-        return {
-            folder: UPLOAD_LIMITS.avatar.folder,
-            resource_type: "image",
-            public_id: `avatar-${userId}-${Date.now()}`,
-            allowed_formats: ["jpg", "jpeg", "png", "webp"],
-            transformation: [
-                { width: 400, height: 400, crop: "fill", gravity: "face" },
-                { quality: "auto:good" },
-                { fetch_format: "auto" },
-            ],
-        };
-    },
-});
+    /**
+     * Avatar-specific storage (optimized for profile pictures)
+     */
+    avatarStorage = new CloudinaryStorage({
+        cloudinary,
+        params: async (req, file) => {
+            const userId = req.user?.id || req.user?._id || "unknown";
 
-/**
- * Thumbnail storage (for live streams, posts)
- */
-const thumbnailStorage = new CloudinaryStorage({
-    cloudinary,
-    params: async (req, file) => {
-        const cleanName = sanitizeFilename(file.originalname);
+            return {
+                folder: UPLOAD_LIMITS.avatar.folder,
+                resource_type: "image",
+                public_id: `avatar-${userId}-${Date.now()}`,
+                allowed_formats: ["jpg", "jpeg", "png", "webp"],
+                transformation: [
+                    { width: 400, height: 400, crop: "fill", gravity: "face" },
+                    { quality: "auto:good" },
+                    { fetch_format: "auto" },
+                ],
+            };
+        },
+    });
 
-        return {
-            folder: UPLOAD_LIMITS.thumbnail.folder,
-            resource_type: "image",
-            public_id: `thumb-${Date.now()}-${cleanName}`,
-            allowed_formats: ["jpg", "jpeg", "png", "webp"],
-            transformation: [
-                { width: 640, height: 360, crop: "fill" },
-                { quality: "auto:good" },
-                { fetch_format: "auto" },
-            ],
-        };
-    },
-});
+    /**
+     * Thumbnail storage (for live streams, posts)
+     */
+    thumbnailStorage = new CloudinaryStorage({
+        cloudinary,
+        params: async (req, file) => {
+            const cleanName = sanitizeFilename(file.originalname);
 
-/**
- * Video storage with optimizations
- */
-const videoStorage = new CloudinaryStorage({
-    cloudinary,
-    params: async (req, file) => {
-        const cleanName = sanitizeFilename(file.originalname);
+            return {
+                folder: UPLOAD_LIMITS.thumbnail.folder,
+                resource_type: "image",
+                public_id: `thumb-${Date.now()}-${cleanName}`,
+                allowed_formats: ["jpg", "jpeg", "png", "webp"],
+                transformation: [
+                    { width: 640, height: 360, crop: "fill" },
+                    { quality: "auto:good" },
+                    { fetch_format: "auto" },
+                ],
+            };
+        },
+    });
 
-        return {
-            folder: UPLOAD_LIMITS.video.folder,
-            resource_type: "video",
-            public_id: `video-${Date.now()}-${cleanName}`,
-            allowed_formats: ["mp4", "webm", "mov"],
-            eager: [
-                // Generate thumbnail
-                { width: 640, height: 360, crop: "fill", format: "jpg" },
-                // Generate preview GIF
-                { width: 320, height: 180, crop: "fill", format: "gif", video_sampling: 6 },
-            ],
-            eager_async: true,
-        };
-    },
-});
+    /**
+     * Video storage with optimizations
+     */
+    videoStorage = new CloudinaryStorage({
+        cloudinary,
+        params: async (req, file) => {
+            const cleanName = sanitizeFilename(file.originalname);
 
-/**
- * Audio storage
- */
-const audioStorage = new CloudinaryStorage({
-    cloudinary,
-    params: async (req, file) => {
-        const cleanName = sanitizeFilename(file.originalname);
+            return {
+                folder: UPLOAD_LIMITS.video.folder,
+                resource_type: "video",
+                public_id: `video-${Date.now()}-${cleanName}`,
+                allowed_formats: ["mp4", "webm", "mov"],
+                eager: [
+                    { width: 640, height: 360, crop: "fill", format: "jpg" },
+                    {
+                        width: 320,
+                        height: 180,
+                        crop: "fill",
+                        format: "gif",
+                        video_sampling: 6,
+                    },
+                ],
+                eager_async: true,
+            };
+        },
+    });
 
-        return {
-            folder: UPLOAD_LIMITS.audio.folder,
-            resource_type: "video", // Cloudinary uses 'video' for audio
-            public_id: `audio-${Date.now()}-${cleanName}`,
-            allowed_formats: ["mp3", "wav", "ogg", "m4a", "aac"],
-        };
-    },
-});
+    /**
+     * Audio storage
+     */
+    audioStorage = new CloudinaryStorage({
+        cloudinary,
+        params: async (req, file) => {
+            const cleanName = sanitizeFilename(file.originalname);
+
+            return {
+                folder: UPLOAD_LIMITS.audio.folder,
+                resource_type: "video", // Cloudinary uses 'video' for audio
+                public_id: `audio-${Date.now()}-${cleanName}`,
+                allowed_formats: ["mp3", "wav", "ogg", "m4a", "aac"],
+            };
+        },
+    });
+} else {
+    // Fallback: eenvoudige memory storage zodat backend niet crasht
+    // maar uploads zullen server-side verder moeten worden afgehandeld.
+    const fallbackStorage = multer.memoryStorage();
+    generalStorage = fallbackStorage;
+    avatarStorage = fallbackStorage;
+    thumbnailStorage = fallbackStorage;
+    videoStorage = fallbackStorage;
+    audioStorage = fallbackStorage;
+}
 
 // ===========================================
 // MULTER UPLOAD CONFIGURATIONS
@@ -251,7 +310,10 @@ const createFileFilter = (allowedTypes) => {
         if (allowedTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error(`Invalid file type. Allowed: ${allowedTypes.join(", ")}`), false);
+            cb(
+                new Error(`Invalid file type. Allowed: ${allowedTypes.join(", ")}`),
+                false
+            );
         }
     };
 };
@@ -339,6 +401,9 @@ const uploadImage = multer({
  * @returns {Promise<object>} - Deletion result
  */
 const deleteFile = async (publicId, resourceType = "image") => {
+    if (!isCloudinaryConfigured) {
+        throw new Error("Cloudinary is not configured");
+    }
     try {
         const result = await cloudinary.uploader.destroy(publicId, {
             resource_type: resourceType,
@@ -358,6 +423,9 @@ const deleteFile = async (publicId, resourceType = "image") => {
  * @returns {Promise<object>} - Deletion result
  */
 const deleteFiles = async (publicIds, resourceType = "image") => {
+    if (!isCloudinaryConfigured) {
+        throw new Error("Cloudinary is not configured");
+    }
     try {
         const result = await cloudinary.api.delete_resources(publicIds, {
             resource_type: resourceType,
@@ -377,6 +445,7 @@ const deleteFiles = async (publicIds, resourceType = "image") => {
  * @returns {string} - Optimized URL
  */
 const getOptimizedUrl = (publicId, options = {}) => {
+    if (!isCloudinaryConfigured) return "";
     const defaultOptions = {
         quality: "auto",
         fetch_format: "auto",
@@ -393,6 +462,7 @@ const getOptimizedUrl = (publicId, options = {}) => {
  * @returns {string} - Thumbnail URL
  */
 const getVideoThumbnail = (publicId, options = {}) => {
+    if (!isCloudinaryConfigured) return "";
     const defaultOptions = {
         resource_type: "video",
         format: "jpg",
@@ -412,6 +482,9 @@ const getVideoThumbnail = (publicId, options = {}) => {
  * @returns {Promise<object>} - Upload result
  */
 const uploadFromUrl = async (url, options = {}) => {
+    if (!isCloudinaryConfigured) {
+        throw new Error("Cloudinary is not configured");
+    }
     try {
         const result = await cloudinary.uploader.upload(url, {
             folder: options.folder || "world-studio/uploads",
@@ -433,6 +506,10 @@ const uploadFromUrl = async (url, options = {}) => {
  * @returns {Promise<object>} - Upload result
  */
 const uploadFromBuffer = async (buffer, options = {}) => {
+    if (!isCloudinaryConfigured) {
+        throw new Error("Cloudinary is not configured");
+    }
+
     return new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
             {
@@ -460,10 +537,13 @@ const uploadFromBuffer = async (buffer, options = {}) => {
  * @returns {Promise<object>} - Usage stats
  */
 const getUsageStats = async () => {
+    if (!isCloudinaryConfigured) {
+        throw new Error("Cloudinary is not configured");
+    }
     try {
         const result = await cloudinary.api.usage();
         return {
-            used: result.credits.used_percent,
+            used: result.credits?.used_percent,
             bandwidth: result.bandwidth,
             storage: result.storage,
             transformations: result.transformations,
@@ -480,6 +560,9 @@ const getUsageStats = async () => {
 module.exports = {
     // Cloudinary instance
     cloudinary,
+
+    // Flag
+    isCloudinaryConfigured,
 
     // Storages
     storage: generalStorage,

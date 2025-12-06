@@ -6,10 +6,14 @@ import { io } from "socket.io-client";
 import GiftPanel from "./GiftPanel";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (U.E.)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+const SOCKET_URL = API_BASE_URL;
 
 // Create API instance
 const api = axios.create({
@@ -109,7 +113,9 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
         const m = Math.floor((s % 3600) / 60);
         const sec = s % 60;
         if (h > 0) {
-            return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+            return `${h}:${m.toString().padStart(2, "0")}:${sec
+                .toString()
+                .padStart(2, "0")}`;
         }
         return `${m}:${sec.toString().padStart(2, "0")}`;
     };
@@ -143,7 +149,9 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                     if (!active) return;
                     const [remoteStream] = event.streams;
                     if (videoRef.current && remoteStream) {
-                        videoRef.current.srcObject = remoteStream;
+                        if (videoRef.current.srcObject !== remoteStream) {
+                            videoRef.current.srcObject = remoteStream;
+                        }
                         setIsConnected(true);
                         setIsConnecting(false);
                     }
@@ -151,11 +159,14 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
 
                 // Connection state monitoring
                 pc.onconnectionstatechange = () => {
-                    console.log("Connection state:", pc.connectionState);
+                    console.log("Viewer connection state:", pc.connectionState);
                     if (pc.connectionState === "connected") {
                         setIsConnected(true);
                         setIsConnecting(false);
-                    } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+                    } else if (
+                        pc.connectionState === "disconnected" ||
+                        pc.connectionState === "failed"
+                    ) {
                         setIsConnected(false);
                         setError("Connection lost. Stream may have ended.");
                     }
@@ -178,13 +189,15 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                 // 4) WebRTC signaling
 
                 // Offer from broadcaster
-                socket.on("offer", async ({ sdp, broadcasterId }) => {
+                const handleOffer = async ({ sdp, broadcasterId }) => {
                     if (!active) return;
                     try {
                         if (broadcasterId) {
                             broadcasterIdRef.current = broadcasterId;
                         }
-                        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                        await pc.setRemoteDescription(
+                            new RTCSessionDescription(sdp)
+                        );
                         const answer = await pc.createAnswer();
                         await pc.setLocalDescription(answer);
 
@@ -196,62 +209,87 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                         console.error("Offer handling error:", err);
                         setError("Failed to establish connection");
                     }
-                });
+                };
 
                 // ICE from broadcaster
-                socket.on("candidate", async ({ candidate }) => {
+                const handleCandidate = async ({ candidate }) => {
                     if (!active || !candidate) return;
                     try {
                         await pc.addIceCandidate(new RTCIceCandidate(candidate));
                     } catch (err) {
                         console.warn("ICE candidate error:", err);
                     }
-                });
+                };
 
-                // Viewer count
-                socket.on("viewer_count", (data) => {
+                const handleViewerCount = (data) => {
                     setViewers(data.viewers || data.count || 0);
-                });
+                };
 
-                // Chat messages
-                socket.on("chat_message", (message) => {
+                const handleChatMessage = (message) => {
+                    if (message.roomId && message.roomId !== roomId) return;
                     setChat((prev) => [...prev.slice(-100), message]);
-                });
+                };
 
-                // Gifts
-                socket.on("gift_received", (gift) => {
-                    setGifts((prev) => [...prev.slice(-10), { ...gift, timestamp: Date.now() }]);
-                    toast.success(`🎁 ${gift.senderUsername} sent ${gift.icon || "💝"}!`);
+                const handleGiftReceived = (gift) => {
+                    const timestamp = Date.now();
+                    const giftObj = {
+                        ...gift,
+                        timestamp,
+                    };
+                    setGifts((prev) => [
+                        ...prev.slice(-10),
+                        giftObj,
+                    ]);
+                    toast.success(
+                        `🎁 ${gift.senderUsername} sent ${gift.icon || "💝"
+                        }!`
+                    );
 
-                    // Auto-remove after 5 seconds
+                    // Auto-remove this specific gift after 5 seconds
                     setTimeout(() => {
-                        setGifts((prev) => prev.filter(g => g.timestamp !== gift.timestamp));
+                        setGifts((prev) =>
+                            prev.filter((g) => g.timestamp !== timestamp)
+                        );
                     }, 5000);
-                });
+                };
 
-                // Stream ended
-                socket.on("stream_ended", () => {
+                const handleStreamEnded = () => {
                     setIsConnected(false);
                     setError("Stream has ended");
                     toast.error("Stream has ended");
-                });
+                };
 
-                socket.on("live_ended", () => {
-                    setIsConnected(false);
-                    setError("Stream has ended");
-                    toast.error("Stream has ended");
-                });
+                socket.on("offer", handleOffer);
+                socket.on("candidate", handleCandidate);
+                socket.on("viewer_count", handleViewerCount);
+                socket.on("chat_message", handleChatMessage);
+                socket.on("gift_received", handleGiftReceived);
+                socket.on("stream_ended", handleStreamEnded);
+                socket.on("live_ended", handleStreamEnded);
 
                 // Connection timeout
                 setTimeout(() => {
+                    if (active && !pcRef.current) return;
                     if (active && !isConnected && isConnecting) {
                         setIsConnecting(false);
-                        if (!error) {
-                            setError("Could not connect to stream. It may not be live.");
-                        }
+                        setError(
+                            (prev) =>
+                                prev ||
+                                "Could not connect to stream. It may not be live."
+                        );
                     }
                 }, 15000);
 
+                // Cleanup for this connectToStream
+                return () => {
+                    socket.off("offer", handleOffer);
+                    socket.off("candidate", handleCandidate);
+                    socket.off("viewer_count", handleViewerCount);
+                    socket.off("chat_message", handleChatMessage);
+                    socket.off("gift_received", handleGiftReceived);
+                    socket.off("stream_ended", handleStreamEnded);
+                    socket.off("live_ended", handleStreamEnded);
+                };
             } catch (err) {
                 console.error("Connection error:", err);
                 setError("Failed to connect to stream");
@@ -259,53 +297,68 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
             }
         };
 
-        connectToStream();
+        const cleanupFnPromise = connectToStream();
 
         return () => {
             active = false;
 
-            socket.off("offer");
-            socket.off("candidate");
-            socket.off("viewer_count");
-            socket.off("chat_message");
-            socket.off("stream_ended");
-            socket.off("live_ended");
-            socket.off("gift_received");
-
-            socket.emit("leave_stream", { streamId: roomId, roomId });
+            const socket = socketRef.current;
+            socket?.emit("leave_stream", { streamId: roomId, roomId });
 
             if (pcRef.current) {
                 pcRef.current.close();
                 pcRef.current = null;
             }
+
+            // Stop remote stream tracks if still attached
+            if (videoRef.current?.srcObject instanceof MediaStream) {
+                videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+                videoRef.current.srcObject = null;
+            }
+
+            // If connectToStream returned a cleanup function (because of local handlers)
+            if (typeof cleanupFnPromise === "function") {
+                cleanupFnPromise();
+            }
         };
-    }, [roomId]);
+    }, [roomId, isConnected, isConnecting]);
 
     // Send chat message
     const sendMessage = (e) => {
         e.preventDefault();
         const text = chatInput.trim();
-        if (!text) return;
+        if (!text || !socketRef.current) return;
 
-        const socket = socketRef.current;
+
         const message = {
             streamId: roomId,
             roomId,
             username: currentUser?.username || "Anonymous",
             userId: currentUser?._id || currentUser?.id,
+            isHost: false,
             text,
             timestamp: new Date().toISOString(),
         };
 
-        socket.emit("chat_message", message);
+        socketRef.current.emit("chat_message", message);
         setChatInput("");
     };
 
     // Leave stream
     const handleLeave = () => {
         const socket = socketRef.current;
-        socket.emit("leave_stream", { streamId: roomId, roomId });
-        if (pcRef.current) pcRef.current.close();
+        socket?.emit("leave_stream", { streamId: roomId, roomId });
+
+        if (pcRef.current) {
+            pcRef.current.close();
+            pcRef.current = null;
+        }
+
+        if (videoRef.current?.srcObject instanceof MediaStream) {
+            videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+            videoRef.current.srcObject = null;
+        }
+
         onLeave?.();
     };
 
@@ -345,14 +398,19 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                             <span className="font-semibold text-white truncate">
                                 {streamInfo.title || "Live Stream"}
                             </span>
-                            {(streamInfo.host?.username || streamInfo.hostUsername) && (
-                                <span className="text-white/50 hidden md:inline">
-                                    • {streamInfo.host?.username || streamInfo.hostUsername}
-                                </span>
-                            )}
+                            {(streamInfo.host?.username ||
+                                streamInfo.hostUsername) && (
+                                    <span className="text-white/50 hidden md:inline">
+                                        •{" "}
+                                        {streamInfo.host?.username ||
+                                            streamInfo.hostUsername}
+                                    </span>
+                                )}
                         </div>
                     ) : (
-                        <span className="text-white/50">Room: {roomId?.slice(0, 15)}...</span>
+                        <span className="text-white/50">
+                            Room: {roomId?.slice(0, 15)}...
+                        </span>
                     )}
                 </div>
 
@@ -364,13 +422,19 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                 )}
 
                 {/* Connection status */}
-                <div className={`px-3 py-1 rounded-full text-sm ${isConnected
-                        ? "bg-green-500/20 text-green-400"
+                <div
+                    className={`px-3 py-1 rounded-full text-sm ${isConnected
+                            ? "bg-green-500/20 text-green-400"
+                            : isConnecting
+                                ? "bg-yellow-500/20 text-yellow-400"
+                                : "bg-red-500/20 text-red-400"
+                        }`}
+                >
+                    {isConnected
+                        ? "Connected"
                         : isConnecting
-                            ? "bg-yellow-500/20 text-yellow-400"
-                            : "bg-red-500/20 text-red-400"
-                    }`}>
-                    {isConnected ? "Connected" : isConnecting ? "Connecting..." : "Offline"}
+                            ? "Connecting..."
+                            : "Offline"}
                 </div>
 
                 {/* Viewer count */}
@@ -402,7 +466,9 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                         <div className="absolute inset-0 flex items-center justify-center z-10">
                             <div className="text-center">
                                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4" />
-                                <p className="text-white/60">Connecting to stream...</p>
+                                <p className="text-white/60">
+                                    Connecting to stream...
+                                </p>
                             </div>
                         </div>
                     )}
@@ -412,7 +478,8 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                         ref={videoRef}
                         autoPlay
                         playsInline
-                        className={`w-full h-full object-contain ${isConnecting ? "opacity-0" : "opacity-100"}`}
+                        className={`w-full h-full object-contain ${isConnecting ? "opacity-0" : "opacity-100"
+                            }`}
                     />
 
                     {/* Gift animations */}
@@ -420,12 +487,21 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                         {gifts.slice(-5).map((gift, i) => (
                             <div
                                 key={gift.timestamp || i}
-                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color || "from-purple-500/80 to-pink-500/80"} px-3 py-2 rounded-lg animate-slideIn`}
+                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color ||
+                                    "from-purple-500/80 to-pink-500/80"
+                                    } px-3 py-2 rounded-lg animate-slideIn`}
                             >
-                                <span className="text-2xl animate-bounce">{gift.icon || "🎁"}</span>
+                                <span className="text-2xl animate-bounce">
+                                    {gift.icon || "🎁"}
+                                </span>
                                 <div>
-                                    <p className="text-sm font-semibold text-white">{gift.senderUsername}</p>
-                                    <p className="text-xs text-white/80">sent {gift.item || "gift"} x{gift.amount}</p>
+                                    <p className="text-sm font-semibold text-white">
+                                        {gift.senderUsername}
+                                    </p>
+                                    <p className="text-xs text-white/80">
+                                        sent {gift.item || "gift"} x
+                                        {gift.amount}
+                                    </p>
                                 </div>
                             </div>
                         ))}
@@ -445,19 +521,29 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                             </div>
                             <GiftPanel
                                 recipient={{
-                                    _id: streamInfo.streamerId || streamInfo.hostId || streamInfo.host?._id,
-                                    username: streamInfo.streamerName || streamInfo.hostUsername || streamInfo.host?.username,
-                                    avatar: streamInfo.host?.avatar || streamInfo.hostAvatar,
+                                    _id:
+                                        streamInfo.streamerId ||
+                                        streamInfo.hostId ||
+                                        streamInfo.host?._id,
+                                    username:
+                                        streamInfo.streamerName ||
+                                        streamInfo.hostUsername ||
+                                        streamInfo.host?.username,
+                                    avatar:
+                                        streamInfo.host?.avatar ||
+                                        streamInfo.hostAvatar,
                                 }}
                                 onClose={() => setShowGiftPanel(false)}
                                 onGiftSent={(gift) => {
                                     const socket = socketRef.current;
-                                    socket.emit("gift_sent", {
+                                    socket?.emit("gift_sent", {
                                         ...gift,
                                         streamId: roomId,
                                         roomId,
                                         senderUsername: currentUser?.username,
-                                        senderId: currentUser?._id || currentUser?.id,
+                                        senderId:
+                                            currentUser?._id ||
+                                            currentUser?.id,
                                     });
                                     setShowGiftPanel(false);
                                 }}
@@ -471,7 +557,9 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                     <div className="p-3 border-b border-white/10">
                         <h3 className="font-semibold flex items-center gap-2">
                             💬 Live Chat
-                            <span className="text-xs text-white/40">({chat.length})</span>
+                            <span className="text-xs text-white/40">
+                                ({chat.length})
+                            </span>
                         </h3>
                     </div>
 
@@ -482,11 +570,25 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                             </p>
                         ) : (
                             chat.map((msg, i) => (
-                                <div key={i} className={`text-sm break-words p-2 rounded-lg ${msg.isHost ? "bg-cyan-500/20" : "bg-white/5"}`}>
-                                    <span className={`font-semibold ${msg.isHost ? "text-cyan-400" : "text-purple-400"}`}>
-                                        {msg.username || msg.user}{msg.isHost ? " 👑" : ""}:
+                                <div
+                                    key={i}
+                                    className={`text-sm break-words p-2 rounded-lg ${msg.isHost
+                                            ? "bg-cyan-500/20"
+                                            : "bg-white/5"
+                                        }`}
+                                >
+                                    <span
+                                        className={`font-semibold ${msg.isHost
+                                                ? "text-cyan-400"
+                                                : "text-purple-400"
+                                            }`}
+                                    >
+                                        {msg.username || msg.user}
+                                        {msg.isHost ? " 👑" : ""}:
                                     </span>{" "}
-                                    <span className="text-white/80">{msg.text}</span>
+                                    <span className="text-white/80">
+                                        {msg.text}
+                                    </span>
                                 </div>
                             ))
                         )}
@@ -494,20 +596,31 @@ export default function LiveViewer({ roomId, currentUser, onLeave }) {
                     </div>
 
                     {/* Chat input */}
-                    <form onSubmit={sendMessage} className="p-3 border-t border-white/10">
+                    <form
+                        onSubmit={sendMessage}
+                        className="p-3 border-t border-white/10"
+                    >
                         <div className="flex gap-2">
                             <input
                                 type="text"
                                 value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                placeholder={currentUser ? "Send a message..." : "Log in to chat"}
+                                onChange={(e) =>
+                                    setChatInput(e.target.value)
+                                }
+                                placeholder={
+                                    currentUser
+                                        ? "Send a message..."
+                                        : "Log in to chat"
+                                }
                                 disabled={!currentUser}
                                 maxLength={200}
                                 className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white placeholder-white/40 outline-none focus:border-cyan-400 disabled:opacity-50 transition"
                             />
                             <button
                                 type="submit"
-                                disabled={!chatInput.trim() || !currentUser}
+                                disabled={
+                                    !chatInput.trim() || !currentUser
+                                }
                                 className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition"
                             >
                                 Send

@@ -1,15 +1,8 @@
-// src/components/HomePage.jsx - WORLD STUDIO LIVE EDITION 🏠 (MASTER)
+// src/components/HomePage.jsx - WORLD STUDIO LIVE EDITION 🏠 (MASTER U.E.)
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-    Plus,
-    RefreshCw,
-    TrendingUp,
-    Users,
-    Radio,
-    Search,
-} from "lucide-react";
+import { Plus, RefreshCw, TrendingUp, Users, Radio, Search } from "lucide-react";
 import { toast } from "react-hot-toast";
 import useSWR from "swr";
 import PostCard from "./PostCard";
@@ -22,9 +15,10 @@ import { getSocket } from "../api/socket";
 const fetcher = (url) => api.get(url).then((r) => r.data);
 
 /* ============================================================
-   LIVE STORIES COMPONENT
+   LIVE STORIES COMPONENT (U.E.)
    ============================================================ */
 const LiveStories = ({ lives, onWatch }) => {
+    const navigate = useNavigate();
     const list = Array.isArray(lives) ? lives : [];
     if (list.length === 0) return null;
 
@@ -38,47 +32,58 @@ const LiveStories = ({ lives, onWatch }) => {
                 Live Now
             </h3>
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                {list.map((live) => (
-                    <button
-                        key={live._id || live.roomId}
-                        onClick={() => onWatch(live)}
-                        className="flex-shrink-0 flex flex-col items-center gap-2 group"
-                    >
-                        <div className="relative">
-                            <div className="w-16 h-16 rounded-full p-[3px] bg-gradient-to-tr from-red-500 via-pink-500 to-purple-500 group-hover:scale-105 transition">
-                                <img
-                                    src={
-                                        live.host?.avatar ||
-                                        live.streamerAvatar ||
-                                        "/defaults/default-avatar.png"
-                                    }
-                                    alt={live.host?.username || live.streamerName || "Live"}
-                                    className="w-full h-full rounded-full object-cover border-2 border-gray-900"
-                                    onError={(e) => {
-                                        e.target.src = "/defaults/default-avatar.png";
-                                    }}
-                                />
-                            </div>
-                            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shadow-lg">
-                                LIVE
-                            </span>
-                            {live.viewers > 0 && (
-                                <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-black/80 text-white text-[9px] rounded-full">
-                                    {live.viewers > 999
-                                        ? `${(live.viewers / 1000).toFixed(1)}k`
-                                        : live.viewers}
-                                </span>
-                            )}
-                        </div>
-                        <span className="text-xs text-white/70 truncate max-w-[70px] group-hover:text-white transition">
-                            {live.host?.username || live.streamerName || "Creator"}
-                        </span>
-                    </button>
-                ))}
+                {list.map((live) => {
+                    const viewers =
+                        live.viewers || live.viewerCount || live.currentViewers || 0;
+                    const username =
+                        live.host?.username ||
+                        live.streamerName ||
+                        live.username ||
+                        "Creator";
+                    const avatar =
+                        live.host?.avatar ||
+                        live.streamerAvatar ||
+                        live.avatar ||
+                        "/defaults/default-avatar.png";
 
-                {/* Go Live Button */}
+                    return (
+                        <button
+                            key={live._id || live.roomId}
+                            onClick={() => onWatch?.(live)}
+                            className="flex-shrink-0 flex flex-col items-center gap-2 group"
+                        >
+                            <div className="relative">
+                                <div className="w-16 h-16 rounded-full p-[3px] bg-gradient-to-tr from-red-500 via-pink-500 to-purple-500 group-hover:scale-105 transition">
+                                    <img
+                                        src={avatar}
+                                        alt={username}
+                                        className="w-full h-full rounded-full object-cover border-2 border-gray-900"
+                                        onError={(e) => {
+                                            e.target.src = "/defaults/default-avatar.png";
+                                        }}
+                                    />
+                                </div>
+                                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shadow-lg">
+                                    LIVE
+                                </span>
+                                {viewers > 0 && (
+                                    <span className="absolute -top-1 -right-1 px-1.5 py-0.5 bg-black/80 text-white text-[9px] rounded-full">
+                                        {viewers > 999
+                                            ? `${(viewers / 1000).toFixed(1)}k`
+                                            : viewers}
+                                    </span>
+                                )}
+                            </div>
+                            <span className="text-xs text-white/70 truncate max-w-[70px] group-hover:text-white transition">
+                                {username}
+                            </span>
+                        </button>
+                    );
+                })}
+
+                {/* Go Live Button (U.E. met navigate) */}
                 <button
-                    onClick={() => (window.location.href = "/go-live")}
+                    onClick={() => navigate("/go-live")}
                     className="flex-shrink-0 flex flex-col items-center gap-2 group"
                 >
                     <div className="w-16 h-16 rounded-full border-2 border-dashed border-white/30 flex items-center justify-center group-hover:border-cyan-400 transition">
@@ -180,7 +185,7 @@ export default function HomePage() {
     const [filter, setFilter] = useState("all");
     const [searchQuery, setSearchQuery] = useState("");
     const [showSearch, setShowSearch] = useState(false);
-    const [isRefreshing, setIsRefreshing] = useState(false);
+    the[isRefreshing, setIsRefreshing] = useState(false);
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const [allPosts, setAllPosts] = useState([]);
@@ -227,30 +232,29 @@ export default function HomePage() {
     }, []);
 
     // Fetch posts
-    const {
-        data,
-        error,
-        isLoading,
-        mutate,
-    } = useSWR(`/api/posts?page=${page}&limit=20`, fetcher, {
-        refreshInterval: 30000,
-        revalidateOnFocus: true,
-        onSuccess: (newData) => {
-            const posts = Array.isArray(newData)
-                ? newData
-                : newData?.posts || [];
-            if (page === 1) {
-                setAllPosts(posts);
-            } else {
-                setAllPosts((prev) => {
-                    const existingIds = new Set(prev.map((p) => p._id));
-                    const newPosts = posts.filter((p) => !existingIds.has(p._id));
-                    return [...prev, ...newPosts];
-                });
-            }
-            setHasMore(posts.length === 20);
-        },
-    });
+    const { data, error, isLoading, mutate } = useSWR(
+        `/api/posts?page=${page}&limit=20`,
+        fetcher,
+        {
+            refreshInterval: 30000,
+            revalidateOnFocus: true,
+            onSuccess: (newData) => {
+                const posts = Array.isArray(newData)
+                    ? newData
+                    : newData?.posts || [];
+                if (page === 1) {
+                    setAllPosts(posts);
+                } else {
+                    setAllPosts((prev) => {
+                        const existingIds = new Set(prev.map((p) => p._id));
+                        const newPosts = posts.filter((p) => !existingIds.has(p._id));
+                        return [...prev, ...newPosts];
+                    });
+                }
+                setHasMore(posts.length === 20);
+            },
+        }
+    );
 
     // Fetch live streams
     const { data: liveData } = useSWR("/api/live?isLive=true", fetcher, {
@@ -313,7 +317,7 @@ export default function HomePage() {
         });
 
         socket.on("live_started", (stream) => {
-            toast(`🔴 ${stream.streamerName || stream.host?.username} is live!`, {
+            toast(`🔴 ${stream.streamerName || stream.host?.username || "Someone"} is live!`, {
                 icon: "📺",
                 duration: 5000,
             });
@@ -401,8 +405,7 @@ export default function HomePage() {
         }
 
         if (filter === "following" && currentUser) {
-            const authorId =
-                post.userId?._id || post.userId || post.authorId;
+            const authorId = post.userId?._id || post.userId || post.authorId;
             return (currentUser.following || []).some(
                 (id) => String(id) === String(authorId)
             );
@@ -418,9 +421,12 @@ export default function HomePage() {
             )
             : filteredPosts;
 
-    const lives = Array.isArray(liveData)
+    // Lives (U.E. safe parse + only live)
+    const rawLives = Array.isArray(liveData)
         ? liveData
         : liveData?.streams || [];
+    const lives = rawLives.filter((l) => l.isLive !== false);
+
     const stats = {
         posts: allPosts.length,
         users: suggestedUsers.length,
@@ -492,12 +498,17 @@ export default function HomePage() {
                 {showSearch && (
                     <div className="mb-6 animate-fadeIn">
                         <div className="relative">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
+                            <Search
+                                className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40"
+                                size={20}
+                            />
                             <input
                                 type="text"
                                 placeholder="Search posts, users..."
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={(e) =>
+                                    setSearchQuery(e.target.value)
+                                }
                                 className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition"
                                 autoFocus
                             />

@@ -1,14 +1,14 @@
 // backend/scripts/cleanupFollowers.js
-// World-Studio.live - Followers Cleanup Script
+// World-Studio.live - Followers Cleanup Script (UNIVERSE EDITION 🚀)
 // Run: node scripts/cleanupFollowers.js [mode]
 //
 // Modes:
-//   validate  - Check and remove invalid references (default, safe)
-//   reset     - Reset ALL followers/following to empty (destructive!)
-//   sync      - Sync follower counts with actual array lengths
-//   orphans   - Remove orphaned follow references only
+//   validate   - Check and remove invalid references (default, safe)
+//   reset      - Reset ALL followers/following to empty (destructive!)
+//   sync       - Sync follower counts with actual array lengths
+//   orphans    - Remove orphaned follow references only
 //   duplicates - Remove duplicate follows only
-//   --dry-run - Preview changes without applying
+//   --dry-run  - Preview changes without applying
 
 require("dotenv").config();
 const mongoose = require("mongoose");
@@ -16,6 +16,9 @@ const mongoose = require("mongoose");
 const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
 const DRY_RUN = process.argv.includes("--dry-run");
 
+// ===========================================
+// VALIDATE (orphans + duplicates + counts)
+// ===========================================
 async function validateFollowers(db) {
     console.log("\n🔍 VALIDATING FOLLOWERS...\n");
 
@@ -24,8 +27,23 @@ async function validateFollowers(db) {
     let orphanedCount = 0;
     let duplicatesRemoved = 0;
 
-    const users = await usersCollection.find({}).toArray();
-    console.log(`Checking ${users.length} users...\n`);
+    // 1️⃣ Haal alle geldige userIds op (één keer)
+    const allUsersIds = await usersCollection.find({})
+        .project({ _id: 1 })
+        .toArray();
+    const validIds = new Set(allUsersIds.map(u => u._id.toString()));
+
+    console.log(`Found ${validIds.size} valid users in database\n`);
+
+    // 2️⃣ Alleen users met follow-data ophalen
+    const users = await usersCollection.find({
+        $or: [
+            { followers: { $exists: true, $ne: [] } },
+            { following: { $exists: true, $ne: [] } }
+        ]
+    }).toArray();
+
+    console.log(`Checking ${users.length} users with follow data...\n`);
 
     for (const user of users) {
         const validFollowers = [];
@@ -34,12 +52,12 @@ async function validateFollowers(db) {
         const seenFollowing = new Set();
         let changed = false;
 
-        // Validate and dedupe followers
+        // Validate + dedupe followers
         if (user.followers?.length > 0) {
             for (const followerId of user.followers) {
                 const idStr = followerId.toString();
 
-                // Skip duplicates
+                // duplicates skippen
                 if (seenFollowers.has(idStr)) {
                     duplicatesRemoved++;
                     changed = true;
@@ -47,9 +65,8 @@ async function validateFollowers(db) {
                 }
                 seenFollowers.add(idStr);
 
-                // Check if user exists
-                const exists = await usersCollection.findOne({ _id: followerId });
-                if (exists) {
+                // orphan check via validIds set
+                if (validIds.has(idStr)) {
                     validFollowers.push(followerId);
                 } else {
                     orphanedCount++;
@@ -58,7 +75,7 @@ async function validateFollowers(db) {
             }
         }
 
-        // Validate and dedupe following
+        // Validate + dedupe following
         if (user.following?.length > 0) {
             for (const followingId of user.following) {
                 const idStr = followingId.toString();
@@ -70,8 +87,7 @@ async function validateFollowers(db) {
                 }
                 seenFollowing.add(idStr);
 
-                const exists = await usersCollection.findOne({ _id: followingId });
-                if (exists) {
+                if (validIds.has(idStr)) {
                     validFollowing.push(followingId);
                 } else {
                     orphanedCount++;
@@ -80,10 +96,13 @@ async function validateFollowers(db) {
             }
         }
 
-        // Update if changed
+        // Opslaan indien nodig
         if (changed) {
             fixedCount++;
-            console.log(`  📝 ${user.username}: ${user.followers?.length || 0} → ${validFollowers.length} followers, ${user.following?.length || 0} → ${validFollowing.length} following`);
+            console.log(
+                `  📝 ${user.username}: ${user.followers?.length || 0} → ${validFollowers.length} followers, ` +
+                `${user.following?.length || 0} → ${validFollowing.length} following`
+            );
 
             if (!DRY_RUN) {
                 await usersCollection.updateOne(
@@ -102,19 +121,24 @@ async function validateFollowers(db) {
     }
 
     console.log(`\n✅ Validation complete:`);
-    console.log(`   Users fixed: ${fixedCount}`);
+    console.log(`   Users fixed:           ${fixedCount}`);
     console.log(`   Orphaned refs removed: ${orphanedCount}`);
-    console.log(`   Duplicates removed: ${duplicatesRemoved}`);
+    console.log(`   Duplicates removed:    ${duplicatesRemoved}`);
 
     return fixedCount;
 }
 
+// ===========================================
+// RESET ALL
+// ===========================================
 async function resetAllFollowers(db) {
     console.log("\n⚠️  RESETTING ALL FOLLOWERS...\n");
     console.log("This will remove ALL follow relationships!\n");
 
+    const usersCollection = db.collection("users");
+
     if (DRY_RUN) {
-        const count = await db.collection("users").countDocuments({
+        const count = await usersCollection.countDocuments({
             $or: [
                 { followers: { $exists: true, $ne: [] } },
                 { following: { $exists: true, $ne: [] } }
@@ -124,7 +148,7 @@ async function resetAllFollowers(db) {
         return count;
     }
 
-    // Ask for confirmation
+
     const readline = require("readline");
     const rl = readline.createInterface({
         input: process.stdin,
@@ -141,7 +165,7 @@ async function resetAllFollowers(db) {
                 return;
             }
 
-            const result = await db.collection("users").updateMany(
+            const result = await usersCollection.updateMany(
                 {},
                 {
                     $set: {
@@ -159,13 +183,21 @@ async function resetAllFollowers(db) {
     });
 }
 
+// ===========================================
+// SYNC COUNTS ONLY
+// ===========================================
 async function syncFollowerCounts(db) {
     console.log("\n🔄 SYNCING FOLLOWER COUNTS...\n");
 
     const usersCollection = db.collection("users");
     let syncedCount = 0;
 
-    const users = await usersCollection.find({}).toArray();
+    const users = await usersCollection.find({
+        $or: [
+            { followers: { $exists: true } },
+            { following: { $exists: true } }
+        ]
+    }).toArray();
 
     for (const user of users) {
         const actualFollowers = user.followers?.length || 0;
@@ -175,7 +207,10 @@ async function syncFollowerCounts(db) {
 
         if (actualFollowers !== storedFollowers || actualFollowing !== storedFollowing) {
             syncedCount++;
-            console.log(`  📝 ${user.username}: followers ${storedFollowers} → ${actualFollowers}, following ${storedFollowing} → ${actualFollowing}`);
+            console.log(
+                `  📝 ${user.username}: followers ${storedFollowers} → ${actualFollowers}, ` +
+                `following ${storedFollowing} → ${actualFollowing}`
+            );
 
             if (!DRY_RUN) {
                 await usersCollection.updateOne(
@@ -195,14 +230,19 @@ async function syncFollowerCounts(db) {
     return syncedCount;
 }
 
+// ===========================================
+// REMOVE ORPHANS ONLY
+// ===========================================
 async function removeOrphans(db) {
     console.log("\n🗑️  REMOVING ORPHANED REFERENCES...\n");
 
     const usersCollection = db.collection("users");
     let orphanedCount = 0;
 
-    // Get all valid user IDs
-    const allUsers = await usersCollection.find({}).project({ _id: 1 }).toArray();
+    // Alle geldige userIds
+    const allUsers = await usersCollection.find({})
+        .project({ _id: 1 })
+        .toArray();
     const validIds = new Set(allUsers.map(u => u._id.toString()));
 
     console.log(`Found ${validIds.size} valid users\n`);
@@ -215,15 +255,22 @@ async function removeOrphans(db) {
     }).toArray();
 
     for (const user of usersWithFollows) {
-        const validFollowers = (user.followers || []).filter(id => validIds.has(id.toString()));
-        const validFollowing = (user.following || []).filter(id => validIds.has(id.toString()));
+        const validFollowers = (user.followers || []).filter(id =>
+            validIds.has(id.toString())
+        );
+        const validFollowing = (user.following || []).filter(id =>
+            validIds.has(id.toString())
+        );
 
         const removedFollowers = (user.followers?.length || 0) - validFollowers.length;
         const removedFollowing = (user.following?.length || 0) - validFollowing.length;
 
         if (removedFollowers > 0 || removedFollowing > 0) {
             orphanedCount += removedFollowers + removedFollowing;
-            console.log(`  📝 ${user.username}: removed ${removedFollowers} invalid followers, ${removedFollowing} invalid following`);
+            console.log(
+                `  📝 ${user.username}: removed ${removedFollowers} invalid followers, ` +
+                `${removedFollowing} invalid following`
+            );
 
             if (!DRY_RUN) {
                 await usersCollection.updateOne(
@@ -245,6 +292,9 @@ async function removeOrphans(db) {
     return orphanedCount;
 }
 
+// ===========================================
+// REMOVE DUPLICATES ONLY
+// ===========================================
 async function removeDuplicates(db) {
     console.log("\n🔄 REMOVING DUPLICATE FOLLOWS...\n");
 
@@ -310,6 +360,9 @@ async function removeDuplicates(db) {
     return duplicatesRemoved;
 }
 
+// ===========================================
+// STATS
+// ===========================================
 async function showStats(db) {
     console.log("\n📊 FOLLOWER STATISTICS\n");
 
@@ -339,12 +392,12 @@ async function showStats(db) {
 
     if (stats.length > 0) {
         const s = stats[0];
-        console.log(`   Total users: ${s.totalUsers}`);
+        console.log(`   Total users:              ${s.totalUsers}`);
         console.log(`   Total follow relationships: ${s.totalFollowers}`);
-        console.log(`   Max followers: ${s.maxFollowers}`);
-        console.log(`   Max following: ${s.maxFollowing}`);
-        console.log(`   Avg followers: ${s.avgFollowers?.toFixed(1)}`);
-        console.log(`   Avg following: ${s.avgFollowing?.toFixed(1)}`);
+        console.log(`   Max followers:            ${s.maxFollowers}`);
+        console.log(`   Max following:            ${s.maxFollowing}`);
+        console.log(`   Avg followers:            ${s.avgFollowers?.toFixed(1)}`);
+        console.log(`   Avg following:            ${s.avgFollowing?.toFixed(1)}`);
     }
 
     // Top 5 by followers
@@ -365,12 +418,15 @@ async function showStats(db) {
     }
 }
 
+// ===========================================
+// MAIN
+// ===========================================
 async function main() {
     const args = process.argv.slice(2).filter(a => !a.startsWith("--"));
     const mode = args[0] || "validate";
 
     console.log("╔════════════════════════════════════════╗");
-    console.log("║  👥 FOLLOWERS CLEANUP UTILITY          ║");
+    console.log("║  👥 FOLLOWERS CLEANUP UTILITY (U.E.)   ║");
     console.log("╚════════════════════════════════════════╝\n");
 
     if (DRY_RUN) {
@@ -378,7 +434,7 @@ async function main() {
     }
 
     if (!MONGO_URI) {
-        console.error("❌ No MONGO_URI found in .env");
+        console.error("❌ No MONGO_URI / MONGODB_URI found in .env");
         process.exit(1);
     }
 
@@ -389,7 +445,7 @@ async function main() {
 
         const db = mongoose.connection.db;
 
-        // Show stats first
+        // Altijd eerst een overzicht
         await showStats(db);
 
         let result = 0;
@@ -411,12 +467,16 @@ async function main() {
                 result = await removeDuplicates(db);
                 break;
             default:
-                console.log("Unknown mode. Available: validate, reset, sync, orphans, duplicates");
+                console.log(
+                    "Unknown mode. Available: validate, reset, sync, orphans, duplicates"
+                );
                 break;
         }
 
         if (DRY_RUN && result > 0) {
-            console.log(`\n⚠️  Would affect ${result} records. Run without --dry-run to apply.`);
+            console.log(
+                `\n⚠️  Would affect ${result} records. Run without --dry-run to apply.`
+            );
         }
 
     } catch (err) {

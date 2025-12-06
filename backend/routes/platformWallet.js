@@ -1,18 +1,28 @@
 // backend/routes/platformWallet.js
-// World-Studio.live - Platform Wallet Routes
+// World-Studio.live - Platform Wallet Routes (UNIVERSE EDITION 🚀)
 // Handles platform revenue, fees, transactions, and financial reporting
 
 const express = require("express");
 const router = express.Router();
 const PlatformWallet = require("../models/PlatformWallet");
 const User = require("../models/User");
-const Gift = require("../models/Gift");
-const authMiddleware = require("../middleware/authMiddleware");
+// Gift is momenteel niet nodig in deze router; later kun je 'm hier weer gebruiken als je wilt.
+// const Gift = require("../models/Gift");
+const auth = require("../middleware/authMiddleware");
 const requireAdmin = require("../middleware/requireAdmin");
 
 // ===========================================
 // HELPER FUNCTIONS
 // ===========================================
+
+/**
+ * Safe positive integer parser
+ */
+const toPositiveInt = (value, fallback) => {
+    const n = parseInt(value, 10);
+    if (Number.isNaN(n) || n <= 0) return fallback;
+    return n;
+};
 
 /**
  * Get date ranges for reporting
@@ -34,7 +44,15 @@ const getDateRanges = () => {
 
     const yearStart = new Date(now.getFullYear(), 0, 1);
 
-    return { now, todayStart, weekStart, monthStart, lastMonthStart, lastMonthEnd, yearStart };
+    return {
+        now,
+        todayStart,
+        weekStart,
+        monthStart,
+        lastMonthStart,
+        lastMonthEnd,
+        yearStart,
+    };
 };
 
 /**
@@ -54,7 +72,7 @@ const ensureWallet = async () => {
                 totalRevenue: 0,
                 totalFees: 0,
                 totalPayouts: 0,
-                totalRefunds: 0
+                totalRefunds: 0,
             },
             feeConfig: {
                 giftFeePercent: 15,
@@ -62,8 +80,10 @@ const ensureWallet = async () => {
                 subscriptionFeePercent: 20,
                 withdrawalFeePercent: 0,
                 withdrawalFeeFixed: 0,
-                minWithdrawal: 1000
-            }
+                minWithdrawal: 1000,
+                coinExchangeRate: 100, // 100 coins = €1
+            },
+            currency: "coins",
         });
         await wallet.save();
     }
@@ -72,30 +92,34 @@ const ensureWallet = async () => {
 };
 
 // ===========================================
-// PUBLIC ENDPOINTS
+// PUBLIC / ADMIN ENDPOINTS
 // ===========================================
 
 /**
  * GET /api/platform-wallet/balance
  * Get platform balance (admin only)
  */
-router.get("/balance", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/balance", auth, requireAdmin, async (req, res) => {
     try {
         const wallet = await ensureWallet();
 
+        const balance = wallet.balance || 0;
+        const pendingBalance = wallet.pendingBalance || 0;
+        const reservedBalance = wallet.reservedBalance || 0;
+
         res.json({
             success: true,
-            balance: wallet.balance || 0,
-            pendingBalance: wallet.pendingBalance || 0,
-            reservedBalance: wallet.reservedBalance || 0,
-            availableBalance: (wallet.balance || 0) - (wallet.reservedBalance || 0),
-            currency: wallet.currency || "coins"
+            balance,
+            pendingBalance,
+            reservedBalance,
+            availableBalance: balance - reservedBalance,
+            currency: wallet.currency || "coins",
         });
     } catch (err) {
         console.error("❌ Platform balance error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get platform balance"
+            error: "Failed to get platform balance",
         });
     }
 });
@@ -104,64 +128,77 @@ router.get("/balance", authMiddleware, requireAdmin, async (req, res) => {
  * GET /api/platform-wallet/stats
  * Get platform wallet statistics
  */
-router.get("/stats", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/stats", auth, requireAdmin, async (req, res) => {
     try {
         const wallet = await ensureWallet();
         const { todayStart, weekStart, monthStart } = getDateRanges();
 
-        // Calculate period stats from history
+
         const history = wallet.history || [];
 
         const calculatePeriodStats = (startDate) => {
             const periodTransactions = history.filter(
-                tx => new Date(tx.date) >= startDate && tx.status === "completed"
+                (tx) =>
+                    new Date(tx.date) >= startDate &&
+                    tx.status === "completed"
             );
 
             let revenue = 0;
             let payouts = 0;
             let refunds = 0;
 
-            periodTransactions.forEach(tx => {
+            periodTransactions.forEach((tx) => {
+                const amount = tx.amount || 0;
                 if (tx.type === "payout" || tx.type === "withdrawal") {
-                    payouts += Math.abs(tx.amount || 0);
+                    payouts += Math.abs(amount);
                 } else if (tx.type === "refund") {
-                    refunds += Math.abs(tx.amount || 0);
-                } else if (tx.amount > 0) {
-                    revenue += tx.amount;
+                    refunds += Math.abs(amount);
+                } else if (amount > 0) {
+                    revenue += amount;
                 }
             });
 
-            return { revenue, payouts, refunds, transactions: periodTransactions.length };
+            return {
+                revenue,
+                payouts,
+                refunds,
+                transactions: periodTransactions.length,
+            };
         };
 
         const todayStats = calculatePeriodStats(todayStart);
         const weekStats = calculatePeriodStats(weekStart);
         const monthStats = calculatePeriodStats(monthStart);
 
+        const balance = wallet.balance || 0;
+        const reservedBalance = wallet.reservedBalance || 0;
+        const pendingBalance = wallet.pendingBalance || 0;
+
         res.json({
             success: true,
             balance: {
-                current: wallet.balance,
-                pending: wallet.pendingBalance,
-                reserved: wallet.reservedBalance,
-                available: wallet.balance - wallet.reservedBalance
+                current: balance,
+                pending: pendingBalance,
+                reserved: reservedBalance,
+                available: balance - reservedBalance,
             },
             today: todayStats,
             thisWeek: weekStats,
             thisMonth: monthStats,
-            lifetime: wallet.lifetimeStats || {
-                totalRevenue: 0,
-                totalFees: 0,
-                totalPayouts: 0,
-                totalRefunds: 0
-            },
-            feeConfig: wallet.feeConfig
+            lifetime:
+                wallet.lifetimeStats || {
+                    totalRevenue: 0,
+                    totalFees: 0,
+                    totalPayouts: 0,
+                    totalRefunds: 0,
+                },
+            feeConfig: wallet.feeConfig,
         });
     } catch (err) {
         console.error("❌ Platform stats error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get platform stats"
+            error: "Failed to get platform stats",
         });
     }
 });
@@ -173,6 +210,7 @@ router.get("/stats", authMiddleware, requireAdmin, async (req, res) => {
 /**
  * POST /api/platform-wallet/fee
  * Record a platform fee
+ * (Use from internal services / server-side only)
  */
 router.post("/fee", async (req, res) => {
     try {
@@ -185,28 +223,29 @@ router.post("/fee", async (req, res) => {
             giftId,
             streamId,
             postId,
-            metadata
+            metadata,
         } = req.body;
 
         if (!amount || amount <= 0) {
             return res.status(400).json({
                 success: false,
-                error: "Valid amount is required"
+                error: "Valid amount is required",
             });
         }
 
         const wallet = await ensureWallet();
         const numericAmount = Number(amount) || 0;
 
-        // Add to balance
-        wallet.balance += numericAmount;
+        wallet.balance = (wallet.balance || 0) + numericAmount;
 
-        // Update lifetime stats
+
         wallet.lifetimeStats = wallet.lifetimeStats || {};
-        wallet.lifetimeStats.totalFees = (wallet.lifetimeStats.totalFees || 0) + numericAmount;
-        wallet.lifetimeStats.totalRevenue = (wallet.lifetimeStats.totalRevenue || 0) + numericAmount;
+        wallet.lifetimeStats.totalFees =
+            (wallet.lifetimeStats.totalFees || 0) + numericAmount;
+        wallet.lifetimeStats.totalRevenue =
+            (wallet.lifetimeStats.totalRevenue || 0) + numericAmount;
 
-        // Add to history
+
         wallet.history.unshift({
             amount: numericAmount,
             type,
@@ -219,10 +258,10 @@ router.post("/fee", async (req, res) => {
             metadata,
             status: "completed",
             balanceAfter: wallet.balance,
-            date: new Date()
+            date: new Date(),
         });
 
-        // Keep history manageable (last 10000 entries)
+
         if (wallet.history.length > 10000) {
             wallet.history = wallet.history.slice(0, 10000);
         }
@@ -232,13 +271,13 @@ router.post("/fee", async (req, res) => {
         res.json({
             success: true,
             balance: wallet.balance,
-            transactionId: wallet.history[0]._id
+            transactionId: wallet.history[0]._id,
         });
     } catch (err) {
         console.error("❌ Fee record error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to record fee"
+            error: "Failed to record fee",
         });
     }
 });
@@ -256,7 +295,7 @@ router.post("/gift-fee", async (req, res) => {
             recipientId,
             recipientUsername,
             giftId,
-            streamId
+            streamId,
         } = req.body;
 
         const wallet = await ensureWallet();
@@ -267,14 +306,16 @@ router.post("/gift-fee", async (req, res) => {
             return res.json({
                 success: true,
                 fee: 0,
-                balance: wallet.balance
+                balance: wallet.balance,
             });
         }
 
-        wallet.balance += platformFee;
+        wallet.balance = (wallet.balance || 0) + platformFee;
         wallet.lifetimeStats = wallet.lifetimeStats || {};
-        wallet.lifetimeStats.totalFees = (wallet.lifetimeStats.totalFees || 0) + platformFee;
-        wallet.lifetimeStats.totalRevenue = (wallet.lifetimeStats.totalRevenue || 0) + platformFee;
+        wallet.lifetimeStats.totalFees =
+            (wallet.lifetimeStats.totalFees || 0) + platformFee;
+        wallet.lifetimeStats.totalRevenue =
+            (wallet.lifetimeStats.totalRevenue || 0) + platformFee;
 
         wallet.history.unshift({
             amount: platformFee,
@@ -289,11 +330,11 @@ router.post("/gift-fee", async (req, res) => {
             metadata: {
                 originalAmount: giftAmount,
                 feePercent,
-                creatorReceived: giftAmount - platformFee
+                creatorReceived: giftAmount - platformFee,
             },
             status: "completed",
             balanceAfter: wallet.balance,
-            date: new Date()
+            date: new Date(),
         });
 
         if (wallet.history.length > 10000) {
@@ -305,13 +346,13 @@ router.post("/gift-fee", async (req, res) => {
         res.json({
             success: true,
             fee: platformFee,
-            balance: wallet.balance
+            balance: wallet.balance,
         });
     } catch (err) {
         console.error("❌ Gift fee error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to record gift fee"
+            error: "Failed to record gift fee",
         });
     }
 });
@@ -329,7 +370,7 @@ router.post("/content-fee", async (req, res) => {
             sellerId,
             sellerUsername,
             postId,
-            contentType
+            contentType,
         } = req.body;
 
         const wallet = await ensureWallet();
@@ -340,14 +381,16 @@ router.post("/content-fee", async (req, res) => {
             return res.json({
                 success: true,
                 fee: 0,
-                balance: wallet.balance
+                balance: wallet.balance,
             });
         }
 
-        wallet.balance += platformFee;
+        wallet.balance = (wallet.balance || 0) + platformFee;
         wallet.lifetimeStats = wallet.lifetimeStats || {};
-        wallet.lifetimeStats.totalFees = (wallet.lifetimeStats.totalFees || 0) + platformFee;
-        wallet.lifetimeStats.totalRevenue = (wallet.lifetimeStats.totalRevenue || 0) + platformFee;
+        wallet.lifetimeStats.totalFees =
+            (wallet.lifetimeStats.totalFees || 0) + platformFee;
+        wallet.lifetimeStats.totalRevenue =
+            (wallet.lifetimeStats.totalRevenue || 0) + platformFee;
 
         wallet.history.unshift({
             amount: platformFee,
@@ -362,11 +405,11 @@ router.post("/content-fee", async (req, res) => {
                 originalAmount: saleAmount,
                 feePercent,
                 contentType,
-                creatorReceived: saleAmount - platformFee
+                creatorReceived: saleAmount - platformFee,
             },
             status: "completed",
             balanceAfter: wallet.balance,
-            date: new Date()
+            date: new Date(),
         });
 
         if (wallet.history.length > 10000) {
@@ -378,13 +421,13 @@ router.post("/content-fee", async (req, res) => {
         res.json({
             success: true,
             fee: platformFee,
-            balance: wallet.balance
+            balance: wallet.balance,
         });
     } catch (err) {
         console.error("❌ Content fee error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to record content fee"
+            error: "Failed to record content fee",
         });
     }
 });
@@ -397,7 +440,7 @@ router.post("/content-fee", async (req, res) => {
  * GET /api/platform-wallet/history
  * Get transaction history
  */
-router.get("/history", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/history", auth, requireAdmin, async (req, res) => {
     try {
         const {
             page = 1,
@@ -405,73 +448,76 @@ router.get("/history", authMiddleware, requireAdmin, async (req, res) => {
             type,
             startDate,
             endDate,
-            status
+            status,
         } = req.query;
 
         const wallet = await ensureWallet();
-        let history = [...wallet.history];
+        let history = [...(wallet.history || [])];
 
-        // Filter by type
+
         if (type && type !== "all") {
-            history = history.filter(tx => tx.type === type);
+            history = history.filter((tx) => tx.type === type);
         }
 
-        // Filter by status
+
         if (status && status !== "all") {
-            history = history.filter(tx => tx.status === status);
+            history = history.filter((tx) => tx.status === status);
         }
 
-        // Filter by date range
+
         if (startDate) {
             const start = new Date(startDate);
-            history = history.filter(tx => new Date(tx.date) >= start);
+            history = history.filter((tx) => new Date(tx.date) >= start);
         }
         if (endDate) {
             const end = new Date(endDate);
             end.setHours(23, 59, 59, 999);
-            history = history.filter(tx => new Date(tx.date) <= end);
+            history = history.filter((tx) => new Date(tx.date) <= end);
         }
 
-        // Pagination
-        const total = history.length;
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const paginatedHistory = history.slice(skip, skip + parseInt(limit));
 
-        // Calculate totals for filtered results
+        const total = history.length;
+        const pageNum = toPositiveInt(page, 1);
+        const limitNum = toPositiveInt(limit, 50);
+        const skip = (pageNum - 1) * limitNum;
+        const paginatedHistory = history.slice(skip, skip + limitNum);
+
+
         let totalAmount = 0;
         let revenueAmount = 0;
         let payoutAmount = 0;
 
-        history.forEach(tx => {
+        history.forEach((tx) => {
+            const amt = tx.amount || 0;
             if (tx.type === "payout" || tx.type === "withdrawal" || tx.type === "refund") {
-                payoutAmount += Math.abs(tx.amount || 0);
-            } else if (tx.amount > 0) {
-                revenueAmount += tx.amount;
+                payoutAmount += Math.abs(amt);
+            } else if (amt > 0) {
+                revenueAmount += amt;
             }
-            totalAmount += tx.amount || 0;
+            totalAmount += amt;
         });
 
         res.json({
             success: true,
             history: paginatedHistory,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page: pageNum,
+                limit: limitNum,
                 total,
-                pages: Math.ceil(total / parseInt(limit))
+                pages: Math.ceil(total / limitNum),
             },
             summary: {
                 totalAmount,
                 revenueAmount,
                 payoutAmount,
-                netAmount: revenueAmount - payoutAmount
-            }
+                netAmount: revenueAmount - payoutAmount,
+            },
         });
     } catch (err) {
         console.error("❌ History error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get history"
+            error: "Failed to get history",
         });
     }
 });
@@ -480,29 +526,40 @@ router.get("/history", authMiddleware, requireAdmin, async (req, res) => {
  * GET /api/platform-wallet/history/export
  * Export transaction history as CSV
  */
-router.get("/history/export", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/history/export", auth, requireAdmin, async (req, res) => {
     try {
         const { startDate, endDate, type } = req.query;
 
         const wallet = await ensureWallet();
-        let history = [...wallet.history];
+        let history = [...(wallet.history || [])];
 
-        // Apply filters
+
         if (type && type !== "all") {
-            history = history.filter(tx => tx.type === type);
+            history = history.filter((tx) => tx.type === type);
         }
         if (startDate) {
-            history = history.filter(tx => new Date(tx.date) >= new Date(startDate));
+            history = history.filter(
+                (tx) => new Date(tx.date) >= new Date(startDate)
+            );
         }
         if (endDate) {
             const end = new Date(endDate);
             end.setHours(23, 59, 59, 999);
-            history = history.filter(tx => new Date(tx.date) <= end);
+            history = history.filter((tx) => new Date(tx.date) <= end);
         }
 
-        // Create CSV
-        const headers = ["Date", "Type", "Amount", "From User", "To User", "Reason", "Status", "Balance After"];
-        const rows = history.map(tx => [
+        const headers = [
+            "Date",
+            "Type",
+            "Amount",
+            "From User",
+            "To User",
+            "Reason",
+            "Status",
+            "Balance After",
+        ];
+
+        const rows = history.map((tx) => [
             new Date(tx.date).toISOString(),
             tx.type || "",
             tx.amount || 0,
@@ -510,22 +567,29 @@ router.get("/history/export", authMiddleware, requireAdmin, async (req, res) => 
             tx.toUsername || "",
             (tx.reason || "").replace(/,/g, ";"),
             tx.status || "",
-            tx.balanceAfter || ""
+            tx.balanceAfter || "",
         ]);
 
         const csv = [
             headers.join(","),
-            ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+            ...rows.map((row) =>
+                row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+            ),
         ].join("\n");
 
         res.setHeader("Content-Type", "text/csv");
-        res.setHeader("Content-Disposition", `attachment; filename=platform-wallet-${new Date().toISOString().split("T")[0]}.csv`);
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename=platform-wallet-${new Date()
+                .toISOString()
+                .split("T")[0]}.csv`
+        );
         res.send(csv);
     } catch (err) {
         console.error("❌ Export error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to export history"
+            error: "Failed to export history",
         });
     }
 });
@@ -538,49 +602,64 @@ router.get("/history/export", authMiddleware, requireAdmin, async (req, res) => 
  * GET /api/platform-wallet/revenue
  * Get revenue report
  */
-router.get("/revenue", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/revenue", auth, requireAdmin, async (req, res) => {
     try {
         const { period = "month" } = req.query;
-        const { todayStart, weekStart, monthStart, yearStart } = getDateRanges();
+        const { todayStart, weekStart, monthStart, yearStart } =
+            getDateRanges();
 
         const wallet = await ensureWallet();
         const history = wallet.history || [];
 
         let startDate;
         switch (period) {
-            case "today": startDate = todayStart; break;
-            case "week": startDate = weekStart; break;
-            case "month": startDate = monthStart; break;
-            case "year": startDate = yearStart; break;
-            default: startDate = monthStart;
+            case "today":
+                startDate = todayStart;
+                break;
+            case "week":
+                startDate = weekStart;
+                break;
+            case "year":
+                startDate = yearStart;
+                break;
+            case "month":
+            default:
+                startDate = monthStart;
+                break;
         }
 
         const periodTransactions = history.filter(
-            tx => new Date(tx.date) >= startDate && tx.status === "completed"
+            (tx) =>
+                new Date(tx.date) >= startDate && tx.status === "completed"
         );
 
-        // Calculate revenue by type
+
         const revenueByType = {};
         let totalRevenue = 0;
         let totalPayouts = 0;
 
-        periodTransactions.forEach(tx => {
+        periodTransactions.forEach((tx) => {
+            const amount = tx.amount || 0;
             const type = tx.type || "other";
 
             if (type === "payout" || type === "withdrawal") {
-                totalPayouts += Math.abs(tx.amount || 0);
-            } else if (tx.amount > 0) {
-                revenueByType[type] = (revenueByType[type] || 0) + tx.amount;
-                totalRevenue += tx.amount;
+                totalPayouts += Math.abs(amount);
+            } else if (amount > 0) {
+                revenueByType[type] = (revenueByType[type] || 0) + amount;
+                totalRevenue += amount;
             }
         });
 
-        // Convert to array
-        const revenueBreakdown = Object.entries(revenueByType).map(([type, amount]) => ({
-            type,
-            amount,
-            percentage: totalRevenue > 0 ? Math.round((amount / totalRevenue) * 100) : 0
-        })).sort((a, b) => b.amount - a.amount);
+        const revenueBreakdown = Object.entries(revenueByType)
+            .map(([type, amount]) => ({
+                type,
+                amount,
+                percentage:
+                    totalRevenue > 0
+                        ? Math.round((amount / totalRevenue) * 100)
+                        : 0,
+            }))
+            .sort((a, b) => b.amount - a.amount);
 
         res.json({
             success: true,
@@ -588,16 +667,16 @@ router.get("/revenue", authMiddleware, requireAdmin, async (req, res) => {
             revenue: {
                 total: totalRevenue,
                 payouts: totalPayouts,
-                net: totalRevenue - totalPayouts
+                net: totalRevenue - totalPayouts,
             },
             breakdown: revenueBreakdown,
-            transactionCount: periodTransactions.length
+            transactionCount: periodTransactions.length,
         });
     } catch (err) {
         console.error("❌ Revenue error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get revenue"
+            error: "Failed to get revenue",
         });
     }
 });
@@ -606,16 +685,16 @@ router.get("/revenue", authMiddleware, requireAdmin, async (req, res) => {
  * GET /api/platform-wallet/revenue/chart
  * Get revenue chart data
  */
-router.get("/revenue/chart", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
     try {
-        const { days = 30 } = req.query;
+        const days = toPositiveInt(req.query.days, 30);
 
         const wallet = await ensureWallet();
         const history = wallet.history || [];
 
-        // Group by day
+
         const chartData = [];
-        for (let i = parseInt(days) - 1; i >= 0; i--) {
+        for (let i = days - 1; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
             date.setHours(0, 0, 0, 0);
@@ -623,42 +702,50 @@ router.get("/revenue/chart", authMiddleware, requireAdmin, async (req, res) => {
             const nextDate = new Date(date);
             nextDate.setDate(nextDate.getDate() + 1);
 
-            const dayTransactions = history.filter(tx => {
+            const dayTransactions = history.filter((tx) => {
                 const txDate = new Date(tx.date);
-                return txDate >= date && txDate < nextDate && tx.status === "completed";
+                return (
+                    txDate >= date &&
+                    txDate < nextDate &&
+                    tx.status === "completed"
+                );
             });
 
             let revenue = 0;
             let payouts = 0;
 
-            dayTransactions.forEach(tx => {
+            dayTransactions.forEach((tx) => {
+                const amount = tx.amount || 0;
                 if (tx.type === "payout" || tx.type === "withdrawal") {
-                    payouts += Math.abs(tx.amount || 0);
-                } else if (tx.amount > 0) {
-                    revenue += tx.amount;
+                    payouts += Math.abs(amount);
+                } else if (amount > 0) {
+                    revenue += amount;
                 }
             });
 
             chartData.push({
-                date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                date: date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                }),
                 fullDate: date.toISOString().split("T")[0],
                 revenue,
                 payouts,
                 net: revenue - payouts,
-                transactions: dayTransactions.length
+                transactions: dayTransactions.length,
             });
         }
 
         res.json({
             success: true,
-            days: parseInt(days),
-            chart: chartData
+            days,
+            chart: chartData,
         });
     } catch (err) {
         console.error("❌ Chart error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get chart data"
+            error: "Failed to get chart data",
         });
     }
 });
@@ -671,27 +758,28 @@ router.get("/revenue/chart", authMiddleware, requireAdmin, async (req, res) => {
  * GET /api/platform-wallet/fees
  * Get fee configuration
  */
-router.get("/fees", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/fees", auth, requireAdmin, async (req, res) => {
     try {
         const wallet = await ensureWallet();
 
         res.json({
             success: true,
-            feeConfig: wallet.feeConfig || {
-                giftFeePercent: 15,
-                contentFeePercent: 15,
-                subscriptionFeePercent: 20,
-                withdrawalFeePercent: 0,
-                withdrawalFeeFixed: 0,
-                minWithdrawal: 1000,
-                coinExchangeRate: 100 // 100 coins = €1
-            }
+            feeConfig:
+                wallet.feeConfig || {
+                    giftFeePercent: 15,
+                    contentFeePercent: 15,
+                    subscriptionFeePercent: 20,
+                    withdrawalFeePercent: 0,
+                    withdrawalFeeFixed: 0,
+                    minWithdrawal: 1000,
+                    coinExchangeRate: 100, // 100 coins = €1
+                },
         });
     } catch (err) {
         console.error("❌ Get fees error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get fee configuration"
+            error: "Failed to get fee configuration",
         });
     }
 });
@@ -700,7 +788,7 @@ router.get("/fees", authMiddleware, requireAdmin, async (req, res) => {
  * PUT /api/platform-wallet/fees
  * Update fee configuration
  */
-router.put("/fees", authMiddleware, requireAdmin, async (req, res) => {
+router.put("/fees", auth, requireAdmin, async (req, res) => {
     try {
         const {
             giftFeePercent,
@@ -709,18 +797,18 @@ router.put("/fees", authMiddleware, requireAdmin, async (req, res) => {
             withdrawalFeePercent,
             withdrawalFeeFixed,
             minWithdrawal,
-            coinExchangeRate
+            coinExchangeRate,
         } = req.body;
 
         const wallet = await ensureWallet();
         wallet.feeConfig = wallet.feeConfig || {};
 
-        // Validate and update fees (0-50% range)
+
         if (giftFeePercent !== undefined) {
             if (giftFeePercent < 0 || giftFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Gift fee must be between 0% and 50%"
+                    error: "Gift fee must be between 0% and 50%",
                 });
             }
             wallet.feeConfig.giftFeePercent = giftFeePercent;
@@ -730,7 +818,7 @@ router.put("/fees", authMiddleware, requireAdmin, async (req, res) => {
             if (contentFeePercent < 0 || contentFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Content fee must be between 0% and 50%"
+                    error: "Content fee must be between 0% and 50%",
                 });
             }
             wallet.feeConfig.contentFeePercent = contentFeePercent;
@@ -740,18 +828,24 @@ router.put("/fees", authMiddleware, requireAdmin, async (req, res) => {
             if (subscriptionFeePercent < 0 || subscriptionFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Subscription fee must be between 0% and 50%"
+                    error: "Subscription fee must be between 0% and 50%",
                 });
             }
             wallet.feeConfig.subscriptionFeePercent = subscriptionFeePercent;
         }
 
         if (withdrawalFeePercent !== undefined) {
-            wallet.feeConfig.withdrawalFeePercent = Math.max(0, withdrawalFeePercent);
+            wallet.feeConfig.withdrawalFeePercent = Math.max(
+                0,
+                withdrawalFeePercent
+            );
         }
 
         if (withdrawalFeeFixed !== undefined) {
-            wallet.feeConfig.withdrawalFeeFixed = Math.max(0, withdrawalFeeFixed);
+            wallet.feeConfig.withdrawalFeeFixed = Math.max(
+                0,
+                withdrawalFeeFixed
+            );
         }
 
         if (minWithdrawal !== undefined) {
@@ -764,18 +858,18 @@ router.put("/fees", authMiddleware, requireAdmin, async (req, res) => {
 
         await wallet.save();
 
-        console.log(`💰 Fee config updated:`, wallet.feeConfig);
+        console.log("💰 Fee config updated:", wallet.feeConfig);
 
         res.json({
             success: true,
             message: "Fee configuration updated",
-            feeConfig: wallet.feeConfig
+            feeConfig: wallet.feeConfig,
         });
     } catch (err) {
         console.error("❌ Update fees error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to update fee configuration"
+            error: "Failed to update fee configuration",
         });
     }
 });
@@ -788,29 +882,30 @@ router.put("/fees", authMiddleware, requireAdmin, async (req, res) => {
  * POST /api/platform-wallet/add
  * Add funds to platform wallet (manual)
  */
-router.post("/add", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/add", auth, requireAdmin, async (req, res) => {
     try {
         const { amount, reason, type = "manual_add" } = req.body;
 
         if (!amount || amount <= 0) {
             return res.status(400).json({
                 success: false,
-                error: "Valid positive amount is required"
+                error: "Valid positive amount is required",
             });
         }
 
         if (!reason) {
             return res.status(400).json({
                 success: false,
-                error: "Reason is required for manual additions"
+                error: "Reason is required for manual additions",
             });
         }
 
         const wallet = await ensureWallet();
-        wallet.balance += amount;
+        wallet.balance = (wallet.balance || 0) + amount;
 
         wallet.lifetimeStats = wallet.lifetimeStats || {};
-        wallet.lifetimeStats.totalRevenue = (wallet.lifetimeStats.totalRevenue || 0) + amount;
+        wallet.lifetimeStats.totalRevenue =
+            (wallet.lifetimeStats.totalRevenue || 0) + amount;
 
         wallet.history.unshift({
             amount,
@@ -821,7 +916,7 @@ router.post("/add", authMiddleware, requireAdmin, async (req, res) => {
             status: "completed",
             balanceAfter: wallet.balance,
             metadata: { addedBy: req.userId },
-            date: new Date()
+            date: new Date(),
         });
 
         if (wallet.history.length > 10000) {
@@ -835,13 +930,13 @@ router.post("/add", authMiddleware, requireAdmin, async (req, res) => {
         res.json({
             success: true,
             message: "Funds added successfully",
-            balance: wallet.balance
+            balance: wallet.balance,
         });
     } catch (err) {
         console.error("❌ Manual add error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to add funds"
+            error: "Failed to add funds",
         });
     }
 });
@@ -850,31 +945,31 @@ router.post("/add", authMiddleware, requireAdmin, async (req, res) => {
  * POST /api/platform-wallet/deduct
  * Deduct funds from platform wallet (manual)
  */
-router.post("/deduct", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/deduct", auth, requireAdmin, async (req, res) => {
     try {
         const { amount, reason, type = "manual_deduct" } = req.body;
 
         if (!amount || amount <= 0) {
             return res.status(400).json({
                 success: false,
-                error: "Valid positive amount is required"
+                error: "Valid positive amount is required",
             });
         }
 
         if (!reason) {
             return res.status(400).json({
                 success: false,
-                error: "Reason is required for manual deductions"
+                error: "Reason is required for manual deductions",
             });
         }
 
         const wallet = await ensureWallet();
 
-        if (wallet.balance < amount) {
+        if ((wallet.balance || 0) < amount) {
             return res.status(400).json({
                 success: false,
                 error: "Insufficient platform balance",
-                currentBalance: wallet.balance
+                currentBalance: wallet.balance,
             });
         }
 
@@ -889,7 +984,7 @@ router.post("/deduct", authMiddleware, requireAdmin, async (req, res) => {
             status: "completed",
             balanceAfter: wallet.balance,
             metadata: { deductedBy: req.userId },
-            date: new Date()
+            date: new Date(),
         });
 
         if (wallet.history.length > 10000) {
@@ -903,13 +998,13 @@ router.post("/deduct", authMiddleware, requireAdmin, async (req, res) => {
         res.json({
             success: true,
             message: "Funds deducted successfully",
-            balance: wallet.balance
+            balance: wallet.balance,
         });
     } catch (err) {
         console.error("❌ Manual deduct error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to deduct funds"
+            error: "Failed to deduct funds",
         });
     }
 });
@@ -922,7 +1017,7 @@ router.post("/deduct", authMiddleware, requireAdmin, async (req, res) => {
  * POST /api/platform-wallet/record-payout
  * Record a payout to creator
  */
-router.post("/record-payout", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/record-payout", auth, requireAdmin, async (req, res) => {
     try {
         const {
             userId,
@@ -930,20 +1025,33 @@ router.post("/record-payout", authMiddleware, requireAdmin, async (req, res) => 
             amount,
             paymentMethod,
             transactionRef,
-            notes
+            notes,
         } = req.body;
 
         if (!amount || amount <= 0) {
             return res.status(400).json({
                 success: false,
-                error: "Valid amount is required"
+                error: "Valid amount is required",
             });
         }
 
         const wallet = await ensureWallet();
 
+        // ✅ Universe Edition fix: daadwerkelijk balans verlagen + saldo-check
+        if ((wallet.balance || 0) < amount) {
+            return res.status(400).json({
+                success: false,
+                error: "Insufficient platform balance for payout",
+                currentBalance: wallet.balance || 0,
+                required: amount,
+            });
+        }
+
+        wallet.balance -= amount;
+
         wallet.lifetimeStats = wallet.lifetimeStats || {};
-        wallet.lifetimeStats.totalPayouts = (wallet.lifetimeStats.totalPayouts || 0) + amount;
+        wallet.lifetimeStats.totalPayouts =
+            (wallet.lifetimeStats.totalPayouts || 0) + amount;
 
         wallet.history.unshift({
             amount: -amount,
@@ -955,11 +1063,11 @@ router.post("/record-payout", authMiddleware, requireAdmin, async (req, res) => 
                 paymentMethod,
                 transactionRef,
                 notes,
-                processedBy: req.userId
+                processedBy: req.userId,
             },
             status: "completed",
             balanceAfter: wallet.balance,
-            date: new Date()
+            date: new Date(),
         });
 
         if (wallet.history.length > 10000) {
@@ -972,13 +1080,14 @@ router.post("/record-payout", authMiddleware, requireAdmin, async (req, res) => 
 
         res.json({
             success: true,
-            message: "Payout recorded successfully"
+            message: "Payout recorded successfully",
+            balance: wallet.balance,
         });
     } catch (err) {
         console.error("❌ Record payout error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to record payout"
+            error: "Failed to record payout",
         });
     }
 });
@@ -991,23 +1100,32 @@ router.post("/record-payout", authMiddleware, requireAdmin, async (req, res) => 
  * GET /api/platform-wallet/dashboard
  * Get dashboard summary
  */
-router.get("/dashboard", authMiddleware, requireAdmin, async (req, res) => {
+router.get("/dashboard", auth, requireAdmin, async (req, res) => {
     try {
         const wallet = await ensureWallet();
-        const { todayStart, weekStart, monthStart, lastMonthStart, lastMonthEnd } = getDateRanges();
+        const {
+            todayStart,
+            weekStart,
+            monthStart,
+            lastMonthStart,
+            lastMonthEnd,
+        } = getDateRanges();
 
         const history = wallet.history || [];
 
-        // Calculate period revenues
+
         const calculateRevenue = (start, end = new Date()) => {
             return history
-                .filter(tx => {
+                .filter((tx) => {
                     const txDate = new Date(tx.date);
-                    return txDate >= start && txDate < end &&
+                    return (
+                        txDate >= start &&
+                        txDate < end &&
                         tx.status === "completed" &&
                         tx.amount > 0 &&
                         tx.type !== "payout" &&
-                        tx.type !== "withdrawal";
+                        tx.type !== "withdrawal"
+                    );
                 })
                 .reduce((sum, tx) => sum + (tx.amount || 0), 0);
         };
@@ -1017,16 +1135,19 @@ router.get("/dashboard", authMiddleware, requireAdmin, async (req, res) => {
         const monthRevenue = calculateRevenue(monthStart);
         const lastMonthRevenue = calculateRevenue(lastMonthStart, lastMonthEnd);
 
-        // Calculate growth
-        const monthGrowth = lastMonthRevenue > 0
-            ? Math.round(((monthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100)
-            : 0;
+        const monthGrowth =
+            lastMonthRevenue > 0
+                ? Math.round(
+                    ((monthRevenue - lastMonthRevenue) / lastMonthRevenue) *
+                    100
+                )
+                : 0;
 
-        // Get top fee sources
         const feesByType = {};
-        history.slice(0, 1000).forEach(tx => {
+        history.slice(0, 1000).forEach((tx) => {
             if (tx.amount > 0 && tx.type) {
-                feesByType[tx.type] = (feesByType[tx.type] || 0) + tx.amount;
+                feesByType[tx.type] =
+                    (feesByType[tx.type] || 0) + tx.amount;
             }
         });
 
@@ -1035,15 +1156,18 @@ router.get("/dashboard", authMiddleware, requireAdmin, async (req, res) => {
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 5);
 
-        // Recent transactions
+
         const recentTransactions = history.slice(0, 10);
+
+        const balance = wallet.balance || 0;
+        const reservedBalance = wallet.reservedBalance || 0;
 
         res.json({
             success: true,
             balance: {
-                current: wallet.balance,
-                pending: wallet.pendingBalance,
-                available: wallet.balance - (wallet.reservedBalance || 0)
+                current: balance,
+                pending: wallet.pendingBalance || 0,
+                available: balance - reservedBalance,
             },
             revenue: {
                 today: todayRevenue,
@@ -1051,18 +1175,23 @@ router.get("/dashboard", authMiddleware, requireAdmin, async (req, res) => {
                 thisMonth: monthRevenue,
                 lastMonth: lastMonthRevenue,
                 growth: monthGrowth,
-                growthTrend: monthGrowth > 0 ? "up" : monthGrowth < 0 ? "down" : "stable"
+                growthTrend:
+                    monthGrowth > 0
+                        ? "up"
+                        : monthGrowth < 0
+                            ? "down"
+                            : "stable",
             },
             lifetime: wallet.lifetimeStats,
             topSources,
             recentTransactions,
-            feeConfig: wallet.feeConfig
+            feeConfig: wallet.feeConfig,
         });
     } catch (err) {
         console.error("❌ Dashboard error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to get dashboard data"
+            error: "Failed to get dashboard data",
         });
     }
 });

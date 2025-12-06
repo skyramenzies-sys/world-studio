@@ -1,6 +1,6 @@
 // src/App.jsx
 // World-Studio.live - Main Application Router
-// WITH ADMIN ROUTE 👑
+// UNIVERSUM EDITION 👑🌌
 
 import React, { useState, useEffect } from "react";
 import {
@@ -12,28 +12,13 @@ import {
     useLocation,
 } from "react-router-dom";
 import { Toaster, toast } from "react-hot-toast";
-import { io } from "socket.io-client";
+
 
 // ===========================================
-// API CONFIGURATION - RAILWAY BACKEND
+// API + SOCKET CONFIG (Universe Editions)
 // ===========================================
-const API_BASE_URL = import.meta.env.VITE_API_URL || "https://world-studio-production.up.railway.app";
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "https://world-studio-production.up.railway.app";
-
-// Socket singleton
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-        });
-    }
-    return socket;
-};
+import api, { API_BASE_URL } from "./api/api";
+import socket, { joinUserRoom } from "./api/socket";
 
 // ===========================================
 // COMPONENT IMPORTS
@@ -50,15 +35,39 @@ import WalletPage from "./components/WalletPage";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import AdminDashboard from "./components/AdminDashboard";
 import Giftshop from "./components/Giftshop";
+import PostDetail from "./pages/PostDetail";
 
 import "./styles/global.css";
+
+// Kleine helper om browser-safe tokens te lezen
+const getToken = () => {
+    if (typeof window === "undefined") return null;
+    try {
+        return (
+            window.localStorage.getItem("ws_token") ||
+            window.localStorage.getItem("token")
+        );
+    } catch {
+        return null;
+    }
+};
+
+const getCurrentUser = () => {
+    if (typeof window === "undefined") return null;
+    try {
+        const stored = window.localStorage.getItem("ws_currentUser");
+        return stored ? JSON.parse(stored) : null;
+    } catch {
+        return null;
+    }
+};
 
 // ===========================================
 // ROUTE GUARDS
 // ===========================================
 
 const RequireAuth = ({ children }) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
+    const token = getToken();
     const location = useLocation();
     if (!token) {
         return <Navigate to="/login" state={{ from: location }} replace />;
@@ -68,15 +77,19 @@ const RequireAuth = ({ children }) => {
 
 // 👑 ADMIN ROUTE
 const RequireAdmin = ({ children }) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    const currentUser = JSON.parse(localStorage.getItem("ws_currentUser") || "{}");
+    const token = getToken();
+    const currentUser = getCurrentUser();
     const location = useLocation();
 
     if (!token) {
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
 
-    if (currentUser.email !== "menziesalm@gmail.com" && currentUser.role !== "admin") {
+    if (
+        !currentUser ||
+        (currentUser.email !== "menziesalm@gmail.com" &&
+            currentUser.role !== "admin")
+    ) {
         toast.error("Admin access only!");
         return <Navigate to="/" replace />;
     }
@@ -85,7 +98,7 @@ const RequireAdmin = ({ children }) => {
 };
 
 const GuestOnly = ({ children }) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
+    const token = getToken();
     if (token) {
         return <Navigate to="/" replace />;
     }
@@ -101,58 +114,73 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-    const isAdmin = currentUser?.email === "menziesalm@gmail.com" || currentUser?.role === "admin";
+    const isAdmin =
+        currentUser?.email === "menziesalm@gmail.com" || currentUser?.role === "admin";
 
     useEffect(() => {
-        if (currentUser) {
-            const fetchNotifications = async () => {
-                try {
-                    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-                    if (!token) return;
+        if (!currentUser) return;
 
-                    const res = await fetch(
-                        `${API_BASE_URL}/api/users/${currentUser._id || currentUser.id || currentUser.userId}`,
-                        { headers: { Authorization: `Bearer ${token}` } }
-                    );
-                    if (res.ok) {
-                        const data = await res.json();
-                        const unread = (data.notifications || []).filter(n => !n.read).length;
-                        setUnreadCount(unread);
-                    }
-                } catch (err) {
-                    console.error("Failed to fetch notifications:", err);
-                }
-            };
+        const userId =
+            currentUser._id || currentUser.id || currentUser.userId || null;
+        if (!userId) return;
 
-            fetchNotifications();
-            const interval = setInterval(fetchNotifications, 30000);
-            return () => clearInterval(interval);
-        }
-    }, [currentUser]);
+        const fetchNotifications = async () => {
+            try {
+                const token = getToken();
+                if (!token) return;
 
-    useEffect(() => {
-        if (currentUser) {
-            const socket = getSocket();
-
-            socket.on("notification", () => {
-                setUnreadCount(prev => prev + 1);
-            });
-
-            socket.on("followed_user_live", (data) => {
-                toast.success(`🔴 ${data.username} is now live: ${data.title}`, {
-                    duration: 5000,
-                    icon: "📺",
+                // API_BASE_URL uit api.js bevat al "/api"
+                const res = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
                 });
-            });
 
-            return () => {
-                socket.off("notification");
-                socket.off("followed_user_live");
-            };
-        }
+                if (res.ok) {
+                    const data = await res.json();
+                    const unread = (data.notifications || []).filter(
+                        (n) => !n.read
+                    ).length;
+                    setUnreadCount(unread);
+                }
+            } catch (err) {
+                console.error("Failed to fetch notifications:", err);
+            }
+        };
+
+        fetchNotifications();
+        const interval = setInterval(fetchNotifications, 30000);
+        return () => clearInterval(interval);
     }, [currentUser]);
 
-    if (location.pathname === "/login" || location.pathname === "/reset-password") return null;
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const userId =
+            currentUser._id || currentUser.id || currentUser.userId || null;
+        if (!userId) return;
+
+        // Socket listeners
+        socket.on("notification", () => {
+            setUnreadCount((prev) => prev + 1);
+        });
+
+        socket.on("followed_user_live", (data) => {
+            toast.success(`🔴 ${data.username} is now live: ${data.title}`, {
+                duration: 5000,
+                icon: "📺",
+            });
+        });
+
+        return () => {
+            socket.off("notification");
+            socket.off("followed_user_live");
+        };
+    }, [currentUser]);
+
+    if (
+        location.pathname === "/login" ||
+        location.pathname === "/reset-password"
+    )
+        return null;
 
     const isActive = (path) => location.pathname === path;
 
@@ -170,19 +198,22 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
         <nav className="bg-gradient-to-r from-purple-900 via-blue-800 to-black text-white shadow-lg sticky top-0 z-50">
             <div className="max-w-7xl mx-auto px-4">
                 <div className="flex items-center justify-between h-16">
-                    <Link to="/" className="font-bold text-cyan-400 hover:text-white transition text-lg flex items-center gap-2">
+                    <Link
+                        to="/"
+                        className="font-bold text-cyan-400 hover:text-white transition text-lg flex items-center gap-2"
+                    >
                         <span className="text-2xl">🌍</span>
                         <span className="hidden sm:inline">World-Studio</span>
                     </Link>
 
                     <div className="hidden md:flex items-center gap-1">
-                        {navLinks.map(link => (
+                        {navLinks.map((link) => (
                             <Link
                                 key={link.path}
                                 to={link.path}
                                 className={`px-3 py-2 rounded-lg transition text-sm ${isActive(link.path)
-                                    ? "text-cyan-400 bg-white/10"
-                                    : "hover:text-cyan-300 hover:bg-white/5"
+                                        ? "text-cyan-400 bg-white/10"
+                                        : "hover:text-cyan-300 hover:bg-white/5"
                                     }`}
                             >
                                 {link.emoji} {link.label}
@@ -192,7 +223,9 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                         {isAdmin && (
                             <Link
                                 to="/admin"
-                                className={`px-3 py-2 rounded-lg bg-gradient-to-r from-yellow-500 to-orange-500 font-bold text-sm ${isActive("/admin") ? "opacity-100" : "opacity-80 hover:opacity-100"
+                                className={`px-3 py-2 rounded-lg bg-gradient-to-r from-yellow-500 to-orange-500 font-bold text-sm ${isActive("/admin")
+                                        ? "opacity-100"
+                                        : "opacity-80 hover:opacity-100"
                                     }`}
                             >
                                 👑 Admin
@@ -207,14 +240,19 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                                 className={`flex items-center gap-1 bg-yellow-500/20 hover:bg-yellow-500/30 px-3 py-2 rounded-lg transition text-yellow-400 font-semibold text-sm ${isActive("/wallet") ? "bg-yellow-500/30" : ""
                                     }`}
                             >
-                                💰 <span className="hidden lg:inline">{currentUser.wallet?.balance || 0}</span>
+                                💰{" "}
+                                <span className="hidden lg:inline">
+                                    {currentUser.wallet?.balance || 0}
+                                </span>
                             </Link>
                         )}
 
                         {currentUser && (
                             <Link
                                 to="/notifications"
-                                className={`relative bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition ${isActive("/notifications") ? "bg-white/20" : ""
+                                className={`relative bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition ${isActive("/notifications")
+                                        ? "bg-white/20"
+                                        : ""
                                     }`}
                             >
                                 🔔
@@ -235,14 +273,25 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
 
                         {currentUser ? (
                             <div className="flex items-center gap-2">
-                                <Link to="/profile" className="hidden lg:flex items-center gap-2 hover:opacity-80 transition">
+                                <Link
+                                    to="/profile"
+                                    className="hidden lg:flex items-center gap-2 hover:opacity-80 transition"
+                                >
                                     <img
-                                        src={currentUser.avatar || "/defaults/default-avatar.png"}
+                                        src={
+                                            currentUser.avatar ||
+                                            "/defaults/default-avatar.png"
+                                        }
                                         alt="avatar"
                                         className="w-8 h-8 rounded-full object-cover border border-white/20"
-                                        onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                        onError={(e) => {
+                                            e.target.src =
+                                                "/defaults/default-avatar.png";
+                                        }}
                                     />
-                                    <span className="text-white/60 text-sm max-w-[100px] truncate">{currentUser.username}</span>
+                                    <span className="text-white/60 text-sm max-w-[100px] truncate">
+                                        {currentUser.username}
+                                    </span>
                                 </Link>
                                 <button
                                     onClick={onLogout}
@@ -272,14 +321,14 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                 {mobileMenuOpen && (
                     <div className="md:hidden py-4 border-t border-white/10">
                         <div className="flex flex-wrap gap-2">
-                            {navLinks.map(link => (
+                            {navLinks.map((link) => (
                                 <Link
                                     key={link.path}
                                     to={link.path}
                                     onClick={() => setMobileMenuOpen(false)}
                                     className={`px-3 py-2 rounded-lg transition text-sm ${isActive(link.path)
-                                        ? "text-cyan-400 bg-white/10"
-                                        : "hover:text-cyan-300 hover:bg-white/5"
+                                            ? "text-cyan-400 bg-white/10"
+                                            : "hover:text-cyan-300 hover:bg-white/5"
                                         }`}
                                 >
                                     {link.emoji} {link.label}
@@ -309,66 +358,75 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
 export default function App() {
     const [currentUser, setCurrentUser] = useState(null);
     const [dark, setDark] = useState(() => {
-        const saved = localStorage.getItem("theme");
-        if (saved) return saved === "dark";
-        return window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (typeof window === "undefined") return true;
+        try {
+            const saved = window.localStorage.getItem("theme");
+            if (saved) return saved === "dark";
+            return window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches;
+        } catch {
+            return true;
+        }
     });
 
     useEffect(() => {
         const loadUser = () => {
-            const storedUser = localStorage.getItem("ws_currentUser");
-            if (storedUser) {
-                try {
-                    setCurrentUser(JSON.parse(storedUser));
-                } catch (e) {
-                    setCurrentUser(null);
-                }
-            } else {
-                setCurrentUser(null);
-            }
+            const user = getCurrentUser();
+            setCurrentUser(user);
         };
 
         loadUser();
-        window.addEventListener("storage", loadUser);
-        window.addEventListener("auth-change", loadUser);
-        window.addEventListener("authChange", loadUser);
 
-        return () => {
-            window.removeEventListener("storage", loadUser);
-            window.removeEventListener("auth-change", loadUser);
-            window.removeEventListener("authChange", loadUser);
-        };
+        if (typeof window !== "undefined") {
+            window.addEventListener("storage", loadUser);
+            window.addEventListener("auth-change", loadUser);
+            window.addEventListener("authChange", loadUser);
+
+            return () => {
+                window.removeEventListener("storage", loadUser);
+                window.removeEventListener("auth-change", loadUser);
+                window.removeEventListener("authChange", loadUser);
+            };
+        }
     }, []);
 
     useEffect(() => {
-        if (currentUser) {
-            const socket = getSocket();
-            const userId = currentUser._id || currentUser.id || currentUser.userId;
-            if (userId) {
-                socket.emit("join_user_room", userId);
-            }
-        }
+        if (!currentUser) return;
+
+        const userId =
+            currentUser._id || currentUser.id || currentUser.userId || null;
+        if (!userId) return;
+
+        // Universe socket helper
+        joinUserRoom(userId);
     }, [currentUser]);
 
     useEffect(() => {
+        if (typeof document === "undefined" || typeof window === "undefined")
+            return;
+
         if (dark) {
             document.documentElement.setAttribute("data-theme", "dark");
-            localStorage.setItem("theme", "dark");
+            window.localStorage.setItem("theme", "dark");
         } else {
             document.documentElement.removeAttribute("data-theme");
-            localStorage.setItem("theme", "light");
+            window.localStorage.setItem("theme", "light");
         }
     }, [dark]);
 
     const handleLogout = () => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("ws_token");
-        localStorage.removeItem("ws_currentUser");
+        if (typeof window !== "undefined") {
+            window.localStorage.removeItem("token");
+            window.localStorage.removeItem("ws_token");
+            window.localStorage.removeItem("ws_currentUser");
+        }
         setCurrentUser(null);
-        window.dispatchEvent(new Event("auth-change"));
-        window.dispatchEvent(new Event("authChange"));
-        toast.success("Logged out!");
-        window.location.href = "/login";
+        if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("auth-change"));
+            window.dispatchEvent(new Event("authChange"));
+            toast.success("Logged out!");
+            window.location.href = "/login";
+        }
     };
 
     return (
@@ -403,34 +461,101 @@ export default function App() {
                     <Route path="/live" element={<LivePage />} />
                     <Route path="/live/:streamId" element={<LivePage />} />
                     <Route path="/shop" element={<Giftshop />} />
+                    <Route path="/posts/:id" element={<PostDetail />} />
 
                     {/* Guest Only Routes */}
-                    <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
-                    <Route path="/reset-password" element={<GuestOnly><ResetPasswordPage /></GuestOnly>} />
+                    <Route
+                        path="/login"
+                        element={
+                            <GuestOnly>
+                                <LoginPage />
+                            </GuestOnly>
+                        }
+                    />
+                    <Route
+                        path="/reset-password"
+                        element={
+                            <GuestOnly>
+                                <ResetPasswordPage />
+                            </GuestOnly>
+                        }
+                    />
 
                     {/* Protected Routes */}
-                    <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+                    <Route
+                        path="/profile"
+                        element={
+                            <RequireAuth>
+                                <ProfilePage />
+                            </RequireAuth>
+                        }
+                    />
                     <Route path="/profile/:userId" element={<ProfilePage />} />
-                    <Route path="/upload" element={<RequireAuth><UploadPage /></RequireAuth>} />
-                    <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
-                    <Route path="/wallet" element={<RequireAuth><WalletPage /></RequireAuth>} />
+                    <Route
+                        path="/upload"
+                        element={
+                            <RequireAuth>
+                                <UploadPage />
+                            </RequireAuth>
+                        }
+                    />
+                    <Route
+                        path="/notifications"
+                        element={
+                            <RequireAuth>
+                                <NotificationsPage />
+                            </RequireAuth>
+                        }
+                    />
+                    <Route
+                        path="/wallet"
+                        element={
+                            <RequireAuth>
+                                <WalletPage />
+                            </RequireAuth>
+                        }
+                    />
 
-                    {/* 👑 Admin Route */}
-                    <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
-                    <Route path="/admin/*" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+                    {/* 👑 Admin Routes */}
+                    <Route
+                        path="/admin"
+                        element={
+                            <RequireAdmin>
+                                <AdminDashboard />
+                            </RequireAdmin>
+                        }
+                    />
+                    <Route
+                        path="/admin/*"
+                        element={
+                            <RequireAdmin>
+                                <AdminDashboard />
+                            </RequireAdmin>
+                        }
+                    />
 
                     {/* 404 Page */}
-                    <Route path="*" element={
-                        <div className="min-h-screen flex items-center justify-center">
-                            <div className="text-center p-8">
-                                <h2 className="text-6xl font-bold text-white mb-4">404</h2>
-                                <p className="text-white/60 mb-6">Page not found</p>
-                                <Link to="/" className="px-6 py-3 bg-cyan-500 rounded-xl text-white font-semibold hover:bg-cyan-400 transition">
-                                    Go Home
-                                </Link>
+                    <Route
+                        path="*"
+                        element={
+                            <div className="min-h-screen flex items-center justify-center">
+                                <div className="text-center p-8">
+                                    <h2 className="text-6xl font-bold text-white mb-4">
+                                        404
+                                    </h2>
+                                    <p className="text-white/60 mb-6">
+                                        Page not found
+                                    </p>
+                                    <Link
+                                        to="/"
+                                        className="px-6 py-3 bg-cyan-500 rounded-xl text-white font-semibold hover:bg-cyan-400 transition"
+                                    >
+                                        Go Home
+                                    </Link>
+                                </div>
                             </div>
-                        </div>
-                    } />
+                        }
+                    />
                 </Routes>
             </main>
 

@@ -1,5 +1,5 @@
 // backend/routes/streamCleanupRoutes.js
-// World-Studio.live - Stream Cleanup & Maintenance Routes
+// World-Studio.live - Stream Cleanup & Maintenance Routes (UNIVERSE EDITION 🚀)
 // Handles stale stream cleanup, orphaned streams, and database maintenance
 
 const express = require("express");
@@ -59,15 +59,7 @@ const daysAgo = (days) => {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 };
 
-/**
- * Safe ObjectId creation
- */
-const safeId = (id) => {
-    if (!id) return null;
-    return mongoose.Types.ObjectId.isValid(id)
-        ? new mongoose.Types.ObjectId(id)
-        : null;
-};
+
 
 /**
  * Calculate stream duration in seconds
@@ -79,15 +71,31 @@ const calculateDuration = (startedAt, endedAt = new Date()) => {
     return Math.floor((end - start) / 1000);
 };
 
+/**
+ * Format duration in seconds to readable string
+ */
+const formatDuration = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${secs}s`;
+    }
+    return `${secs}s`;
+};
+
 // ===========================================
 // CLEANUP ROUTES
 // ===========================================
 
 /**
  * GET /api/stream-cleanup/status
- * Get cleanup status and statistics
+ * Get cleanup status and statistics (admin only)
  */
-router.get("/status", async (req, res) => {
+router.get("/status", authMiddleware, requireAdmin, async (req, res) => {
     try {
         const StreamModel = getStreamModel();
 
@@ -146,9 +154,9 @@ router.get("/status", async (req, res) => {
 
 /**
  * POST /api/stream-cleanup/run
- * Run cleanup for stale and inactive streams
+ * Run cleanup for stale and inactive streams (admin only)
  */
-router.post("/run", async (req, res) => {
+router.post("/run", authMiddleware, requireAdmin, async (req, res) => {
     try {
         const StreamModel = getStreamModel();
         const results = {
@@ -323,14 +331,16 @@ router.post("/run", async (req, res) => {
 
         // Emit socket events
         const io = req.app.get("io");
-        if (io && (results.staleEnded + results.inactiveEnded + results.orphanedEnded) > 0) {
+        const totalCleaned = results.staleEnded + results.inactiveEnded + results.orphanedEnded;
+
+        if (io && totalCleaned > 0) {
             io.emit("streams_cleaned", {
-                count: results.staleEnded + results.inactiveEnded + results.orphanedEnded,
+                count: totalCleaned,
                 timestamp: now.toISOString()
             });
         }
 
-        const totalCleaned = results.staleEnded + results.inactiveEnded + results.orphanedEnded;
+
         console.log(`🧹 Cleanup complete: ${totalCleaned} streams, ${results.userStatusReset} users`);
 
         res.json({
@@ -441,7 +451,7 @@ router.post("/end-all", authMiddleware, requireAdmin, async (req, res) => {
 
 /**
  * DELETE /api/stream-cleanup/old
- * Delete old ended streams from database
+ * Delete old ended streams from database (admin only)
  */
 router.delete("/old", authMiddleware, requireAdmin, async (req, res) => {
     try {
@@ -455,8 +465,8 @@ router.delete("/old", authMiddleware, requireAdmin, async (req, res) => {
             });
         }
 
-        const { days = 30 } = req.query;
-        const cutoffDate = daysAgo(parseInt(days));
+        const days = parseInt(req.query.days || "30", 10);
+        const cutoffDate = daysAgo(days);
 
         // Only delete ended streams older than X days
         const result = await StreamModel.deleteMany({
@@ -472,7 +482,7 @@ router.delete("/old", authMiddleware, requireAdmin, async (req, res) => {
             message: `Deleted ${result.deletedCount} old streams`,
             deleted: result.deletedCount,
             cutoffDate: cutoffDate.toISOString(),
-            daysOld: parseInt(days)
+            daysOld: days
         });
     } catch (err) {
         console.error("❌ Delete old error:", err);
@@ -485,7 +495,7 @@ router.delete("/old", authMiddleware, requireAdmin, async (req, res) => {
 
 /**
  * POST /api/stream-cleanup/stream/:id/end
- * End a specific stream
+ * End a specific stream (owner or admin)
  */
 router.post("/stream/:id/end", authMiddleware, async (req, res) => {
     try {
@@ -507,11 +517,16 @@ router.post("/stream/:id/end", authMiddleware, async (req, res) => {
             });
         }
 
-        // Check authorization (owner or admin)
+
         const streamerId = stream.streamerId || stream.host || stream.userId;
-        const user = await User.findById(req.userId);
-        const isOwner = streamerId?.toString() === req.userId?.toString();
-        const isAdmin = user?.role === "admin" || user?.email === "menziesalm@gmail.com";
+
+        let isAdmin = false;
+        let isOwner = streamerId?.toString() === req.userId?.toString();
+
+        if (User) {
+            const user = await User.findById(req.userId);
+            isAdmin = !!user && (user.role === "admin" || user.email === "menziesalm@gmail.com");
+        }
 
         if (!isOwner && !isAdmin) {
             return res.status(403).json({
@@ -554,7 +569,7 @@ router.post("/stream/:id/end", authMiddleware, async (req, res) => {
             io.to(`stream_${stream._id}`).emit("stream_ended", {
                 streamId: stream._id,
                 duration,
-                reason: "ended_by_user"
+                reason: isAdmin && !isOwner ? "ended_by_admin" : "ended_by_user"
             });
 
             io.emit("live_ended", {
@@ -570,7 +585,7 @@ router.post("/stream/:id/end", authMiddleware, async (req, res) => {
             message: "Stream ended successfully",
             streamId: stream._id,
             duration,
-            durationFormatted: `${Math.floor(duration / 60)}m ${duration % 60}s`
+            durationFormatted: formatDuration(duration)
         });
     } catch (err) {
         console.error("❌ End stream error:", err);
@@ -583,7 +598,7 @@ router.post("/stream/:id/end", authMiddleware, async (req, res) => {
 
 /**
  * POST /api/stream-cleanup/user/:userId/reset
- * Reset a user's live status
+ * Reset a user's live status (admin only)
  */
 router.post("/user/:userId/reset", authMiddleware, requireAdmin, async (req, res) => {
     try {
@@ -652,6 +667,7 @@ router.post("/user/:userId/reset", authMiddleware, requireAdmin, async (req, res
 /**
  * POST /api/stream-cleanup/cron
  * Endpoint for scheduled cleanup (cron job)
+ * Protected by CRON_SECRET / CLEANUP_API_KEY header/body
  */
 router.post("/cron", async (req, res) => {
     try {
@@ -660,7 +676,7 @@ router.post("/cron", async (req, res) => {
         const expectedSecret = process.env.CRON_SECRET || process.env.CLEANUP_API_KEY;
 
         if (!expectedSecret) {
-            console.log("⚠️ No CRON_SECRET configured, allowing cleanup");
+            console.log("⚠️ No CRON_SECRET configured, allowing cleanup (DEV MODE)");
         } else if (cronSecret !== expectedSecret) {
             return res.status(401).json({
                 success: false,
@@ -700,7 +716,7 @@ router.post("/cron", async (req, res) => {
                 endReason: "cron_stale_cleanup"
             }
         );
-        results.staleEnded = staleResult.modifiedCount;
+        results.staleEnded = staleResult.modifiedCount || staleResult.nModified || 0;
 
         // End inactive streams
         const inactiveResult = await StreamModel.updateMany(
@@ -715,7 +731,7 @@ router.post("/cron", async (req, res) => {
                 endReason: "cron_inactive_cleanup"
             }
         );
-        results.inactiveEnded = inactiveResult.modifiedCount;
+        results.inactiveEnded = inactiveResult.modifiedCount || inactiveResult.nModified || 0;
 
         // Reset stuck user statuses
         if (User) {
@@ -729,7 +745,7 @@ router.post("/cron", async (req, res) => {
                     currentStreamId: null
                 }
             );
-            results.userStatusReset = userResult.modifiedCount;
+            results.userStatusReset = userResult.modifiedCount || userResult.nModified || 0;
         }
 
         console.log(`⏰ Cron cleanup: ${results.staleEnded} stale, ${results.inactiveEnded} inactive, ${results.userStatusReset} users`);
@@ -751,9 +767,9 @@ router.post("/cron", async (req, res) => {
 
 /**
  * GET /api/stream-cleanup/active
- * Get all currently active streams
+ * Get all currently active streams (admin-only dashboard)
  */
-router.get("/active", async (req, res) => {
+router.get("/active", authMiddleware, requireAdmin, async (req, res) => {
     try {
         const StreamModel = getStreamModel();
 
@@ -769,7 +785,7 @@ router.get("/active", async (req, res) => {
 
         let query = StreamModel.find({ isLive: true })
             .sort({ viewersCount: -1, startedAt: -1 })
-            .limit(parseInt(limit));
+            .limit(parseInt(limit, 10));
 
         if (includeDetails === "true") {
             query = query.select("-__v");
@@ -781,11 +797,14 @@ router.get("/active", async (req, res) => {
 
         // Add duration to each stream
         const now = new Date();
-        const streamsWithDuration = streams.map(stream => ({
-            ...stream,
-            duration: calculateDuration(stream.startedAt, now),
-            durationFormatted: formatDuration(calculateDuration(stream.startedAt, now))
-        }));
+        const streamsWithDuration = streams.map(stream => {
+            const duration = calculateDuration(stream.startedAt, now);
+            return {
+                ...stream,
+                duration,
+                durationFormatted: formatDuration(duration)
+            };
+        });
 
         res.json({
             success: true,
@@ -801,20 +820,6 @@ router.get("/active", async (req, res) => {
     }
 });
 
-/**
- * Format duration in seconds to readable string
- */
-const formatDuration = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
 
-    if (hours > 0) {
-        return `${hours}h ${minutes}m`;
-    } else if (minutes > 0) {
-        return `${minutes}m ${secs}s`;
-    }
-    return `${secs}s`;
-};
 
 module.exports = router;

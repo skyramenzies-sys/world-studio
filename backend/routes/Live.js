@@ -1,5 +1,5 @@
 // backend/routes/Live.js
-// World-Studio.live - Live Streaming Routes (UNIVERSE EDITION)
+// World-Studio.live - Live Streaming Routes (UNIVERSE EDITION 🚀)
 // Handles stream creation, discovery, management and analytics
 
 const express = require("express");
@@ -7,7 +7,19 @@ const router = express.Router();
 const mongoose = require("mongoose");
 const Stream = require("../models/Stream");
 const User = require("../models/User");
-const Gift = require("../models/Gift");
+
+// Gift is OPTIONAL → crasht niet als model ontbreekt
+let Gift = null;
+try {
+    Gift = require("../models/Gift");
+} catch (err) {
+    console.warn(
+        "⚠️ Optional model 'Gift' not found in Live routes:",
+        err.message
+    );
+}
+
+// Gebruik dezelfde auth-middleware als in de rest van je UNIVERSE setup
 const auth = require("../middleware/authMiddleware");
 
 // ===========================================
@@ -68,7 +80,8 @@ router.get("/", async (req, res) => {
             .populate("host", "username avatar isVerified")
             .populate("streamerId", "username avatar isVerified")
             .select("-viewerList -bannedUsers -blockedWords")
-            .sort(sort);
+            .sort(sort)
+            .lean();
 
         return res.json(Array.isArray(streams) ? streams : []);
     } catch (err) {
@@ -80,7 +93,7 @@ router.get("/", async (req, res) => {
 /**
  * BACKWARDS COMPAT ENDPOINT
  * GET /api/live/streams
- * Deprecated: use /api/live/?islive=true&sortBy=vievers
+ * Deprecated: use /api/live?isLive=true&sortBy=viewers
  */
 router.get("/streams", async (req, res) => {
     try {
@@ -91,7 +104,8 @@ router.get("/streams", async (req, res) => {
             .populate("host", "username avatar isVerified")
             .populate("streamerId", "username avatar isVerified")
             .select("-viewerList -bannedUsers -blockedWords")
-            .sort({ viewers: -1 });
+            .sort({ viewers: -1 })
+            .lean();
 
         return res.json(Array.isArray(streams) ? streams : []);
     } catch (err) {
@@ -128,7 +142,7 @@ router.get("/user/:userId/status", async (req, res) => {
                 .lean();
 
             return res.json({
-                isLive: !!user?.isLive && !!user?.currentStreamId, // maar geen echte actieve stream gevonden
+                isLive: !!user?.isLive && !!user?.currentStreamId,
                 live: false,
                 stream: null,
                 user: user || null,
@@ -349,6 +363,7 @@ router.post("/:id/viewer-join", async (req, res) => {
         }
 
         const { count } = req.body;
+
         const stream = await Stream.updateViewers(
             id,
             typeof count === "number" ? count : 0
@@ -425,17 +440,19 @@ router.post("/:id/gift", auth, async (req, res) => {
 
         await Stream.addGift(id, gift);
 
-        // Optional: opslaan in Gift-collection
-        try {
-            await Gift.create({
-                fromUser: userId,
-                streamId: id,
-                type: giftType,
-                icon,
-                amount: amount || coins,
-            });
-        } catch (e) {
-            console.warn("Gift save failed (non-blocking):", e.message);
+        // Optional: opslaan in Gift-collection (alleen als model bestaat)
+        if (Gift) {
+            try {
+                await Gift.create({
+                    fromUser: userId,
+                    streamId: id,
+                    type: giftType,
+                    icon,
+                    amount: amount || coins,
+                });
+            } catch (e) {
+                console.warn("Gift save failed (non-blocking):", e.message);
+            }
         }
 
         return res.json({ success: true });

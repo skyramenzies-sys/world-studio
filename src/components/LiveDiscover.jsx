@@ -1,4 +1,4 @@
-// src/components/LiveDiscover.jsx - WORLD STUDIO LIVE EDITION 🌍 (MASTER)
+// src/components/LiveDiscover.jsx - WORLD STUDIO LIVE EDITION 🌍 (MASTER U.E.)
 
 import React, {
     useState,
@@ -48,6 +48,14 @@ const SORT_OPTIONS = [
     { id: "trending", label: "Trending", icon: "🔥" },
 ];
 
+const getCategoryIconAndLabel = (category) => {
+    if (!category) return { icon: "✨", label: "Other" };
+    const found = CATEGORIES.find(
+        (c) => c.id.toLowerCase() === category.toLowerCase()
+    );
+    return found || { icon: "✨", label: category };
+};
+
 // ------------------------------------------------------------
 // Stream Card Component
 // ------------------------------------------------------------
@@ -66,8 +74,11 @@ const StreamCard = ({ stream, onClick }) => {
     const title = stream.title || "Untitled Stream";
     const category = stream.category || "Other";
 
+    const { icon: categoryIcon, label: categoryLabel } =
+        getCategoryIconAndLabel(category);
+
     const getStreamDuration = () => {
-        const start = new Date(stream.startedAt || stream.createdAt);
+        const start = new Date(stream.startedAt || stream.createdAt || Date.now());
         const diff = Date.now() - start.getTime();
         const hours = Math.floor(diff / (1000 * 60 * 60));
         const minutes = Math.floor(
@@ -114,9 +125,7 @@ const StreamCard = ({ stream, onClick }) => {
                     </span>
                 </div>
                 <div className="absolute top-3 right-3 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full">
-                    {CATEGORIES.find((c) => c.id === category)?.icon ||
-                        "✨"}{" "}
-                    {category}
+                    {categoryIcon} {categoryLabel}
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
                     <span className="px-4 py-2 bg-cyan-500 rounded-full text-white font-semibold text-sm flex items-center gap-2">
@@ -169,6 +178,9 @@ const FeaturedStream = ({ stream, onClick }) => {
         stream.host?.avatar ||
         "/defaults/default-avatar.png";
 
+    const { icon: categoryIcon, label: categoryLabel } =
+        getCategoryIconAndLabel(stream.category || "Live");
+
     return (
         <div
             onClick={() => onClick(stream)}
@@ -189,7 +201,7 @@ const FeaturedStream = ({ stream, onClick }) => {
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
                 <div className="absolute inset-0 p-6 md:p-8 flex flex-col justify-end">
                     <div className="flex items-center gap-3 mb-3">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-sm font-bold rounded-full">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text.white text-sm font-bold rounded-full">
                             <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
                             FEATURED
                         </div>
@@ -215,7 +227,7 @@ const FeaturedStream = ({ stream, onClick }) => {
                                 {username}
                             </p>
                             <p className="text-white/60 text-sm">
-                                {stream.category || "Live"}
+                                {categoryIcon} {categoryLabel}
                             </p>
                         </div>
                         <button className="ml-auto px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 rounded-full text-white font-semibold transition flex items-center gap-2">
@@ -303,7 +315,7 @@ export default function LiveDiscover() {
     const fetchStreams = useCallback(async (showToast = false) => {
         try {
             setError(null);
-            // Nieuwe backend endpoint:
+
             const res = await api.get("/api/live?isLive=true");
             const allStreams = Array.isArray(res.data)
                 ? res.data
@@ -313,11 +325,10 @@ export default function LiveDiscover() {
                 if (!stream.isLive) return false;
 
                 const streamDate = new Date(
-                    stream.startedAt || stream.createdAt
+                    stream.startedAt || stream.createdAt || Date.now()
                 );
                 const hoursSinceStart =
-                    (Date.now() - streamDate.getTime()) /
-                    (1000 * 60 * 60);
+                    (Date.now() - streamDate.getTime()) / (1000 * 60 * 60);
 
                 // Auto-clean oude zombie streams
                 if (hoursSinceStart > 12) {
@@ -329,8 +340,7 @@ export default function LiveDiscover() {
                     ? new Date(stream.updatedAt)
                     : streamDate;
                 const hoursSinceActivity =
-                    (Date.now() - lastActivity.getTime()) /
-                    (1000 * 60 * 60);
+                    (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60);
 
                 if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
                     api.post(`/api/live/${stream._id}/end`).catch(() => { });
@@ -342,9 +352,7 @@ export default function LiveDiscover() {
 
             setStreams(verifiedStreams);
             if (showToast) {
-                toast.success(
-                    `Found ${verifiedStreams.length} live streams`
-                );
+                toast.success(`Found ${verifiedStreams.length} live streams`);
             }
         } catch (err) {
             console.error("Failed to fetch streams:", err);
@@ -387,8 +395,7 @@ export default function LiveDiscover() {
 
         const handleStreamStarted = (data) => {
             toast.success(
-                `🔴 ${data.streamerName || data.username || "Someone"
-                } went live!`,
+                `🔴 ${data.streamerName || data.username || "Someone"} went live!`,
                 { duration: 5000, icon: "📺" }
             );
             setStreams((prev) => {
@@ -415,10 +422,7 @@ export default function LiveDiscover() {
         const handleStreamEnded = (data) => {
             const endedId = data._id || data.streamId;
             setStreams((prev) =>
-                prev.filter(
-                    (s) =>
-                        s._id !== endedId && s.streamId !== endedId
-                )
+                prev.filter((s) => s._id !== endedId && s.streamId !== endedId)
             );
         };
 
@@ -430,10 +434,7 @@ export default function LiveDiscover() {
                         s.streamId === data.streamId
                         ? {
                             ...s,
-                            viewers:
-                                data.viewers ||
-                                data.count ||
-                                s.viewers,
+                            viewers: data.viewers || data.count || s.viewers,
                         }
                         : s
                 )
@@ -470,7 +471,7 @@ export default function LiveDiscover() {
         };
     }, []);
 
-    // Periodiek refresh
+    // Periodic refresh
     useEffect(() => {
         const interval = setInterval(() => fetchStreams(), 30000);
         return () => clearInterval(interval);
@@ -483,9 +484,10 @@ export default function LiveDiscover() {
 
     const filteredStreams = streams
         .filter((stream) => {
+            const categoryValue = stream.category || "Other";
             if (
                 selectedCategory !== "All" &&
-                stream.category !== selectedCategory
+                categoryValue.toLowerCase() !== selectedCategory.toLowerCase()
             )
                 return false;
             if (searchQuery) {
@@ -508,23 +510,19 @@ export default function LiveDiscover() {
                     return (b.viewers || 0) - (a.viewers || 0);
                 case "recent":
                     return (
-                        new Date(b.startedAt || b.createdAt) -
-                        new Date(a.startedAt || a.createdAt)
+                        new Date(b.startedAt || b.createdAt || 0) -
+                        new Date(a.startedAt || a.createdAt || 0)
                     );
                 case "trending": {
                     const aScore =
                         (a.viewers || 0) * 2 -
                         (Date.now() -
-                            new Date(
-                                a.startedAt || a.createdAt
-                            ).getTime()) /
+                            new Date(a.startedAt || a.createdAt || Date.now()).getTime()) /
                         3600000;
                     const bScore =
                         (b.viewers || 0) * 2 -
                         (Date.now() -
-                            new Date(
-                                b.startedAt || b.createdAt
-                            ).getTime()) /
+                            new Date(b.startedAt || b.createdAt || Date.now()).getTime()) /
                         3600000;
                     return bScore - aScore;
                 }
@@ -566,9 +564,7 @@ export default function LiveDiscover() {
             <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
-                    <p className="text-white/70">
-                        Discovering streams...
-                    </p>
+                    <p className="text-white/70">Discovering streams...</p>
                 </div>
             </div>
         );
@@ -631,9 +627,7 @@ export default function LiveDiscover() {
                         )}
                     </div>
                     <button
-                        onClick={() =>
-                            setShowFilters((prev) => !prev)
-                        }
+                        onClick={() => setShowFilters((prev) => !prev)}
                         className={`p-2.5 rounded-xl border transition ${showFilters
                                 ? "bg-cyan-500 border-cyan-500"
                                 : "bg-white/10 border-white/20 hover:bg-white/20"
@@ -716,7 +710,7 @@ export default function LiveDiscover() {
                                 setSelectedCategory(category.id)
                             }
                             className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === category.id
-                                    ? "bg-cyan-500 text.white"
+                                    ? "bg-cyan-500 text-white"
                                     : "bg-white/10 text-white/70 hover:bg-white/20"
                                 }`}
                         >
@@ -730,10 +724,7 @@ export default function LiveDiscover() {
             {filteredStreams.length === 0 ? (
                 <div className="text-center py-20">
                     <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
-                        <Radio
-                            size={40}
-                            className="text-white/30"
-                        />
+                        <Radio size={40} className="text-white/30" />
                     </div>
                     <h3 className="text-xl font-semibold mb-2">
                         No Live Streams
@@ -752,26 +743,24 @@ export default function LiveDiscover() {
                 </div>
             ) : (
                 <>
-                    {featuredStream &&
-                        filteredStreams.length > 1 && (
-                            <FeaturedStream
-                                stream={featuredStream}
-                                onClick={handleJoinStream}
-                            />
-                        )}
+                    {featuredStream && filteredStreams.length > 1 && (
+                        <FeaturedStream
+                            stream={featuredStream}
+                            onClick={handleJoinStream}
+                        />
+                    )}
                     <p className="text-white/60 mb-4 flex items-center gap-2">
                         <TrendingUp size={16} />
                         {filteredStreams.length} stream
                         {filteredStreams.length !== 1 ? "s" : ""} live
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-                        {(featuredStream &&
-                            filteredStreams.length > 1
+                        {(featuredStream && filteredStreams.length > 1
                             ? otherStreams
                             : filteredStreams
                         ).map((stream) => (
                             <StreamCard
-                                key={stream._id || stream.streamId}
+                                key={stream._id || stream.streamId || stream.roomId}
                                 stream={stream}
                                 onClick={handleJoinStream}
                             />
@@ -792,7 +781,7 @@ export default function LiveDiscover() {
                 </p>
                 <button
                     onClick={handleStartStream}
-                    className="px-8 py-4 bg-gradient.to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-xl.hover:scale-105 transition-all"
+                    className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-xl hover:scale-105 transition-all"
                 >
                     🎥 Start My Live Stream
                 </button>

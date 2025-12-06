@@ -1,28 +1,14 @@
-// src/components/GoLiveForm.jsx - WORLD STUDIO LIVE EDITION 🔴
+// src/components/GoLiveForm.jsx - WORLD STUDIO LIVE EDITION 🔴 (U.E.)
 import React, { useReducer, useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import axios from "axios";
+
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (CENTRAL API + SOCKET)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 /* ============================================================
    CONSTANTS
@@ -72,16 +58,24 @@ function reducer(state, action) {
                 ...state,
                 errors: { ...state.errors, [action.field]: action.error },
             };
-        case "CLEAR_ERROR":
+        case "CLEAR_ERROR": {
             const newErrors = { ...state.errors };
             delete newErrors[action.field];
             return { ...state, errors: newErrors };
+        }
         case "RESET":
             return { ...initialState, category: CATEGORIES[0].id };
         default:
             return state;
     }
 }
+
+/* Helper: generate roomId compatible with LiveModeSelector */
+const generateRoomId = (username) => {
+    return `${username || "room"}_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 8)}`;
+};
 
 /* ============================================================
    MAIN COMPONENT
@@ -92,6 +86,15 @@ export default function GoLiveForm({ onLiveStarted }) {
     const fileRef = useRef(null);
     const [currentUser, setCurrentUser] = useState(null);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const socketRef = useRef(null);
+
+    // Init socket (singleton)
+    useEffect(() => {
+        socketRef.current = getSocket();
+        return () => {
+            // singleton: niet disconnecten
+        };
+    }, []);
 
     // Load user
     useEffect(() => {
@@ -145,7 +148,10 @@ export default function GoLiveForm({ onLiveStarted }) {
             });
         }
 
-        dispatch({ type: "SET", payload: { uploading: true, info: "Uploading cover..." } });
+        dispatch({
+            type: "SET",
+            payload: { uploading: true, info: "Uploading cover..." },
+        });
 
         try {
             const formData = new FormData();
@@ -173,7 +179,9 @@ export default function GoLiveForm({ onLiveStarted }) {
             dispatch({
                 type: "ERROR",
                 field: "coverFile",
-                error: err.response?.data?.error || "Upload failed. Try again.",
+                error:
+                    err.response?.data?.error ||
+                    "Upload failed. Try again.",
             });
             dispatch({ type: "SET", payload: { uploading: false, info: "" } });
             toast.error("Failed to upload cover image");
@@ -216,8 +224,10 @@ export default function GoLiveForm({ onLiveStarted }) {
 
         dispatch({ type: "SET", payload: { loading: true, info: "" } });
 
+        const roomId = generateRoomId(currentUser.username);
+
         try {
-            const res = await api.post("/api/live", {
+            const payload = {
                 title: state.title.trim(),
                 category: state.category,
                 coverImage: state.coverImage,
@@ -228,10 +238,36 @@ export default function GoLiveForm({ onLiveStarted }) {
                 hostId: currentUser._id || currentUser.id,
                 hostUsername: currentUser.username,
                 hostAvatar: currentUser.avatar,
-            });
+                roomId,             // align with LiveModeSelector
+                mode: "solo",       // simple GoLiveForm = solo mode
+            };
 
-            dispatch({ type: "SET", payload: { loading: false, info: "You're live! 🔴" } });
+            const res = await api.post("/api/live", payload);
+
+            dispatch({
+                type: "SET",
+                payload: { loading: false, info: "You're live! 🔴" },
+            });
             toast.success("You're now live! 🎉");
+
+            const stream = res.data || {};
+            const streamId = stream._id || stream.streamId || roomId;
+
+            // Emit to socket so LiveDiscover / HomePage zien het direct
+            socketRef.current?.emit("stream_started", {
+                streamId,
+                roomId: stream.roomId || roomId,
+                title: payload.title,
+                category: payload.category,
+                mode: payload.mode,
+                hostId: payload.hostId,
+                hostUsername: payload.hostUsername,
+                hostAvatar: payload.hostAvatar,
+                thumbnail: payload.coverImage,
+                isLive: true,
+                viewers: stream.viewers || 0,
+                startedAt: stream.startedAt || new Date().toISOString(),
+            });
 
             // Reset form
             dispatch({ type: "RESET" });
@@ -239,14 +275,16 @@ export default function GoLiveForm({ onLiveStarted }) {
 
             // Callback with stream data
             if (onLiveStarted) {
-                onLiveStarted(res.data);
+                onLiveStarted(stream);
             } else {
-                // Navigate to the live page with the stream
-                navigate(`/live/${res.data._id || res.data.roomId}`);
+                navigate(`/live/${streamId}`);
             }
         } catch (err) {
             console.error("Go live error:", err);
-            const msg = err.response?.data?.error || err.response?.data?.message || "Failed to go live";
+            const msg =
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to go live";
 
             dispatch({
                 type: "SET",
@@ -256,7 +294,8 @@ export default function GoLiveForm({ onLiveStarted }) {
         }
     }
 
-    const selectedCategory = CATEGORIES.find(c => c.id === state.category) || CATEGORIES[0];
+    const selectedCategory =
+        CATEGORIES.find((c) => c.id === state.category) || CATEGORIES[0];
 
     return (
         <form
@@ -305,8 +344,12 @@ export default function GoLiveForm({ onLiveStarted }) {
                     ) : (
                         <div className="absolute inset-0 flex items-center justify-center">
                             <div className="text-center">
-                                <span className="text-6xl mb-2 block">{selectedCategory.icon}</span>
-                                <p className="text-white/40 text-sm">Stream Preview</p>
+                                <span className="text-6xl mb-2 block">
+                                    {selectedCategory.icon}
+                                </span>
+                                <p className="text-white/40 text-sm">
+                                    Stream Preview
+                                </p>
                             </div>
                         </div>
                     )}
@@ -321,15 +364,24 @@ export default function GoLiveForm({ onLiveStarted }) {
                     </div>
                 </div>
                 <div className="p-3">
-                    <p className="font-semibold truncate">{state.title || "Your stream title..."}</p>
+                    <p className="font-semibold truncate">
+                        {state.title || "Your stream title..."}
+                    </p>
                     <div className="flex items-center gap-2 mt-1">
                         <img
-                            src={currentUser?.avatar || "/defaults/default-avatar.png"}
+                            src={
+                                currentUser?.avatar ||
+                                "/defaults/default-avatar.png"
+                            }
                             alt=""
                             className="w-5 h-5 rounded-full"
-                            onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                            onError={(e) => {
+                                e.target.src = "/defaults/default-avatar.png";
+                            }}
                         />
-                        <span className="text-white/60 text-sm">{currentUser?.username || "You"}</span>
+                        <span className="text-white/60 text-sm">
+                            {currentUser?.username || "You"}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -348,19 +400,27 @@ export default function GoLiveForm({ onLiveStarted }) {
                             payload: { title: e.target.value },
                         })
                     }
-                    onFocus={() => dispatch({ type: "CLEAR_ERROR", field: "title" })}
+                    onFocus={() =>
+                        dispatch({ type: "CLEAR_ERROR", field: "title" })
+                    }
                     placeholder="What are you streaming today?"
                     maxLength={MAX_TITLE_LENGTH}
-                    className={`w-full px-4 py-3 rounded-xl bg-white/10 border ${state.errors.title ? "border-red-500" : "border-white/20"
+                    className={`w-full px-4 py-3 rounded-xl bg-white/10 border ${state.errors.title
+                            ? "border-red-500"
+                            : "border-white/20"
                         } outline-none focus:border-cyan-400 transition`}
                 />
                 <div className="flex justify-between mt-1">
                     {state.errors.title ? (
-                        <span className="text-red-400 text-sm">{state.errors.title}</span>
+                        <span className="text-red-400 text-sm">
+                            {state.errors.title}
+                        </span>
                     ) : (
-                        <span></span>
+                        <span />
                     )}
-                    <span className="text-white/40 text-sm">{state.title.length}/{MAX_TITLE_LENGTH}</span>
+                    <span className="text-white/40 text-sm">
+                        {state.title.length}/{MAX_TITLE_LENGTH}
+                    </span>
                 </div>
             </div>
 
@@ -372,14 +432,23 @@ export default function GoLiveForm({ onLiveStarted }) {
                         <button
                             key={cat.id}
                             type="button"
-                            onClick={() => dispatch({ type: "SET", payload: { category: cat.id } })}
+                            onClick={() =>
+                                dispatch({
+                                    type: "SET",
+                                    payload: { category: cat.id },
+                                })
+                            }
                             className={`p-3 rounded-xl text-center transition ${state.category === cat.id
-                                ? "bg-cyan-500 text-black"
-                                : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    ? "bg-cyan-500 text-black"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
                                 }`}
                         >
-                            <span className="text-xl block mb-1">{cat.icon}</span>
-                            <span className="text-xs font-medium">{cat.name}</span>
+                            <span className="text-xl block mb-1">
+                                {cat.icon}
+                            </span>
+                            <span className="text-xs font-medium">
+                                {cat.name}
+                            </span>
                         </button>
                     ))}
                 </div>
@@ -389,7 +458,9 @@ export default function GoLiveForm({ onLiveStarted }) {
             <div className="mb-5">
                 <label className="block mb-2 font-semibold">
                     Cover Image{" "}
-                    <span className="text-white/40 font-normal">(optional, max {MAX_FILE_SIZE_MB}MB)</span>
+                    <span className="text-white/40 font-normal">
+                        (optional, max {MAX_FILE_SIZE_MB}MB)
+                    </span>
                 </label>
 
                 {!state.coverImage ? (
@@ -402,20 +473,28 @@ export default function GoLiveForm({ onLiveStarted }) {
                             onChange={handleCoverUpload}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
-                        <div className={`border-2 border-dashed rounded-xl p-6 text-center transition ${state.uploading
-                            ? "border-cyan-400 bg-cyan-500/10"
-                            : "border-white/20 hover:border-white/40"
-                            }`}>
+                        <div
+                            className={`border-2 border-dashed rounded-xl p-6 text-center transition ${state.uploading
+                                    ? "border-cyan-400 bg-cyan-500/10"
+                                    : "border-white/20 hover:border-white/40"
+                                }`}
+                        >
                             {state.uploading ? (
                                 <div className="flex items-center justify-center gap-2">
                                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-cyan-400"></div>
-                                    <span className="text-cyan-400">Uploading...</span>
+                                    <span className="text-cyan-400">
+                                        Uploading...
+                                    </span>
                                 </div>
                             ) : (
                                 <>
                                     <p className="text-3xl mb-2">📷</p>
-                                    <p className="text-white/60 text-sm">Click to upload cover image</p>
-                                    <p className="text-white/40 text-xs">or drag and drop</p>
+                                    <p className="text-white/60 text-sm">
+                                        Click to upload cover image
+                                    </p>
+                                    <p className="text-white/40 text-xs">
+                                        or drag and drop
+                                    </p>
                                 </>
                             )}
                         </div>
@@ -439,7 +518,9 @@ export default function GoLiveForm({ onLiveStarted }) {
                 )}
 
                 {state.errors.coverFile && (
-                    <p className="text-red-400 text-sm mt-2">{state.errors.coverFile}</p>
+                    <p className="text-red-400 text-sm mt-2">
+                        {state.errors.coverFile}
+                    </p>
                 )}
             </div>
 
@@ -450,7 +531,12 @@ export default function GoLiveForm({ onLiveStarted }) {
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     className="flex items-center gap-2 text-white/60 hover:text-white transition text-sm"
                 >
-                    <span className={`transform transition ${showAdvanced ? "rotate-90" : ""}`}>▶</span>
+                    <span
+                        className={`transform transition ${showAdvanced ? "rotate-90" : ""
+                            }`}
+                    >
+                        ▶
+                    </span>
                     Advanced Options
                 </button>
 
@@ -458,10 +544,19 @@ export default function GoLiveForm({ onLiveStarted }) {
                     <div className="mt-4 space-y-4 p-4 bg-white/5 rounded-xl border border-white/10 animate-fadeIn">
                         {/* Description */}
                         <div>
-                            <label className="block mb-2 text-sm font-medium">Description</label>
+                            <label className="block mb-2 text-sm font-medium">
+                                Description
+                            </label>
                             <textarea
                                 value={state.description}
-                                onChange={(e) => dispatch({ type: "SET", payload: { description: e.target.value } })}
+                                onChange={(e) =>
+                                    dispatch({
+                                        type: "SET",
+                                        payload: {
+                                            description: e.target.value,
+                                        },
+                                    })
+                                }
                                 placeholder="Tell viewers what your stream is about..."
                                 rows={3}
                                 maxLength={500}
@@ -472,22 +567,49 @@ export default function GoLiveForm({ onLiveStarted }) {
                         {/* Toggles */}
                         <div className="space-y-3">
                             {[
-                                { key: "allowGifts", label: "Allow Gifts", icon: "🎁" },
-                                { key: "allowComments", label: "Allow Comments", icon: "💬" },
-                                { key: "isPrivate", label: "Private Stream", icon: "🔒" },
+                                {
+                                    key: "allowGifts",
+                                    label: "Allow Gifts",
+                                    icon: "🎁",
+                                },
+                                {
+                                    key: "allowComments",
+                                    label: "Allow Comments",
+                                    icon: "💬",
+                                },
+                                {
+                                    key: "isPrivate",
+                                    label: "Private Stream",
+                                    icon: "🔒",
+                                },
                             ].map((option) => (
-                                <label key={option.key} className="flex items-center justify-between cursor-pointer">
+                                <label
+                                    key={option.key}
+                                    className="flex items-center justify-between cursor-pointer"
+                                >
                                     <span className="flex items-center gap-2 text-sm">
                                         <span>{option.icon}</span>
                                         {option.label}
                                     </span>
                                     <div
-                                        onClick={() => dispatch({ type: "SET", payload: { [option.key]: !state[option.key] } })}
-                                        className={`w-12 h-6 rounded-full transition cursor-pointer ${state[option.key] ? "bg-cyan-500" : "bg-white/20"
+                                        onClick={() =>
+                                            dispatch({
+                                                type: "SET",
+                                                payload: {
+                                                    [option.key]:
+                                                        !state[option.key],
+                                                },
+                                            })
+                                        }
+                                        className={`w-12 h-6 rounded-full transition cursor-pointer ${state[option.key]
+                                                ? "bg-cyan-500"
+                                                : "bg-white/20"
                                             }`}
                                     >
                                         <div
-                                            className={`w-5 h-5 bg-white rounded-full shadow transition transform mt-0.5 ${state[option.key] ? "translate-x-6 ml-0.5" : "translate-x-0.5"
+                                            className={`w-5 h-5 bg-white rounded-full shadow transition transform mt-0.5 ${state[option.key]
+                                                    ? "translate-x-6 ml-0.5"
+                                                    : "translate-x-0.5"
                                                 }`}
                                         />
                                     </div>
@@ -501,10 +623,12 @@ export default function GoLiveForm({ onLiveStarted }) {
             {/* GO LIVE BUTTON */}
             <button
                 type="submit"
-                disabled={state.loading || state.uploading || !currentUser}
+                disabled={
+                    state.loading || state.uploading || !currentUser
+                }
                 className={`w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-3 ${state.loading || state.uploading || !currentUser
-                    ? "bg-gray-600 cursor-not-allowed opacity-60"
-                    : "bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-400 hover:to-pink-500 hover:shadow-lg hover:shadow-red-500/30 hover:scale-[1.02]"
+                        ? "bg-gray-600 cursor-not-allowed opacity-60"
+                        : "bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-400 hover:to-pink-500 hover:shadow-lg hover:shadow-red-500/30 hover:scale-[1.02]"
                     }`}
             >
                 {state.loading ? (
@@ -524,12 +648,16 @@ export default function GoLiveForm({ onLiveStarted }) {
 
             {/* Info message */}
             {state.info && (
-                <p className="mt-4 text-center text-cyan-400 font-medium animate-pulse">{state.info}</p>
+                <p className="mt-4 text-center text-cyan-400 font-medium animate-pulse">
+                    {state.info}
+                </p>
             )}
 
             {/* Tips */}
             <div className="mt-6 p-4 bg-white/5 rounded-xl border border-white/10">
-                <p className="text-white/60 text-xs mb-2 font-semibold">💡 Tips for a great stream:</p>
+                <p className="text-white/60 text-xs mb-2 font-semibold">
+                    💡 Tips for a great stream:
+                </p>
                 <ul className="text-white/40 text-xs space-y-1">
                     <li>• Use a catchy title to attract viewers</li>
                     <li>• Add a cover image to stand out</li>

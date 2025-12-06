@@ -1,20 +1,29 @@
 // src/api/WebrtcConfig.js
-// World-Studio.live - WebRTC Configuration for Live Streaming
+// World-Studio.live - WebRTC Configuration for Live Streaming - UNIVERSUM EDITION 🌌
 
 /**
  * WebRTC Configuration for World-Studio Live Streaming
- * 
+ *
  * STUN servers: Help peers discover their public IP addresses
  * TURN servers: Relay traffic when direct connection fails (firewall/NAT issues)
- * 
+ *
  * @see https://world-studio-production.up.railway.app/docs/webrtc
  */
 
 // ===========================================
-// API CONFIGURATION
+// API / SOCKET CONFIGURATION (dynamic)
 // ===========================================
-export const API_BASE_URL = "https://world-studio-production.up.railway.app";
-export const SOCKET_URL = "https://world-studio-production.up.railway.app";
+let baseUrl =
+    (typeof import.meta !== "undefined" &&
+        import.meta.env &&
+        import.meta.env.VITE_API_URL) ||
+    "https://world-studio-production.up.railway.app";
+
+// Strip trailing /api and slashes -> root domain
+baseUrl = baseUrl.replace(/\/api\/?$/, "").replace(/\/+$/, "");
+
+export const API_BASE_URL = baseUrl;
+export const SOCKET_URL = baseUrl;
 
 // ===========================================
 // PRIMARY RTC CONFIGURATION
@@ -77,15 +86,13 @@ export const RTC_CONFIG = {
     // ICE candidate pool size (pre-gather candidates for faster connection)
     iceCandidatePoolSize: 10,
 
-    // Bundle policy: How to bundle media streams
-    // "balanced" - Bundle audio/video separately if needed
-    // "max-bundle" - Bundle everything together (recommended for most cases)
+    // Bundle policy: "max-bundle" recommended
     bundlePolicy: "max-bundle",
 
     // RTCP Mux policy: Multiplex RTP and RTCP on same port
     rtcpMuxPolicy: "require",
 
-    // ICE transport policy
+    // ICE transport policy:
     // "all" - Use both STUN and TURN
     // "relay" - Force TURN only (useful for testing)
     iceTransportPolicy: "all",
@@ -235,10 +242,17 @@ export const modifySdpForBitrate = (sdp, videoBitrate = 2500, audioBitrate = 128
  * @returns {boolean}
  */
 export const isWebRTCSupported = () => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+
+    const RTCPeer =
+        window.RTCPeerConnection ||
+        window.webkitRTCPeerConnection ||
+        window.mozRTCPeerConnection;
+
     return !!(
         navigator.mediaDevices &&
         navigator.mediaDevices.getUserMedia &&
-        window.RTCPeerConnection
+        RTCPeer
     );
 };
 
@@ -247,6 +261,7 @@ export const isWebRTCSupported = () => {
  * @returns {boolean}
  */
 export const isScreenShareSupported = () => {
+    if (typeof navigator === "undefined") return false;
     return !!(
         navigator.mediaDevices &&
         navigator.mediaDevices.getDisplayMedia
@@ -258,9 +273,21 @@ export const isScreenShareSupported = () => {
  * @returns {Promise<{audioInputs: MediaDeviceInfo[], audioOutputs: MediaDeviceInfo[], videoInputs: MediaDeviceInfo[]}>}
  */
 export const getMediaDevices = async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices) {
+        return {
+            audioInputs: [],
+            audioOutputs: [],
+            videoInputs: [],
+        };
+    }
+
     try {
         // Request permission first to get device labels
-        await navigator.mediaDevices.getUserMedia({ audio: true, video: true }).catch(() => { });
+        try {
+            await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        } catch {
+            // Ignore; we'll still attempt enumerateDevices
+        }
 
         const devices = await navigator.mediaDevices.enumerateDevices();
         return {
@@ -281,21 +308,36 @@ export const getMediaDevices = async () => {
 /**
  * Test ICE connectivity
  * @param {RTCConfiguration} config - RTC configuration to test
- * @returns {Promise<{stun: boolean, turn: boolean, candidates: string[]}>}
+ * @returns {Promise<{stun: boolean, turn: boolean, candidates: string[], timeElapsed: number}>}
  */
 export const testIceConnectivity = async (config = RTC_CONFIG) => {
-    return new Promise((resolve) => {
-        const pc = new RTCPeerConnection(config);
-        const results = {
-            stun: false,
-            turn: false,
-            candidates: [],
-            timeElapsed: 0,
-        };
+    const fallback = {
+        stun: false,
+        turn: false,
+        candidates: [],
+        timeElapsed: 0,
+    };
 
+    if (typeof window === "undefined") {
+        // SSR / non-browser
+        return fallback;
+    }
+
+    const RTCPeer =
+        window.RTCPeerConnection ||
+        window.webkitRTCPeerConnection ||
+        window.mozRTCPeerConnection;
+
+    if (!RTCPeer) {
+        return fallback;
+    }
+
+    return new Promise(resolve => {
+        const pc = new RTCPeer(config);
+        const results = { ...fallback };
         const startTime = Date.now();
 
-        pc.onicecandidate = (event) => {
+        pc.onicecandidate = event => {
             if (event.candidate) {
                 results.candidates.push(event.candidate.candidate);
 
@@ -317,18 +359,29 @@ export const testIceConnectivity = async (config = RTC_CONFIG) => {
         };
 
         // Create dummy data channel to trigger ICE gathering
-        pc.createDataChannel("test");
-        pc.createOffer()
-            .then(offer => pc.setLocalDescription(offer))
-            .catch(err => {
-                console.error("ICE test error:", err);
-                resolve(results);
-            });
+        try {
+            pc.createDataChannel("test");
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .catch(err => {
+                    console.error("ICE test error:", err);
+                    pc.close();
+                    resolve(results);
+                });
+        } catch (err) {
+            console.error("ICE test error:", err);
+            pc.close();
+            resolve(results);
+        }
 
         // Timeout after 10 seconds
         setTimeout(() => {
             results.timeElapsed = Date.now() - startTime;
-            pc.close();
+            try {
+                pc.close();
+            } catch {
+                // ignore
+            }
             resolve(results);
         }, 10000);
     });
@@ -340,6 +393,12 @@ export const testIceConnectivity = async (config = RTC_CONFIG) => {
  */
 export const getOptimalRtcConfig = async () => {
     try {
+        // If WebRTC not supported, just return default to avoid crash
+        if (!isWebRTCSupported()) {
+            console.warn("WebRTC not fully supported, using default RTC config");
+            return RTC_CONFIG;
+        }
+
         // Test with full config first
         const results = await testIceConnectivity(RTC_CONFIG);
 
@@ -371,7 +430,13 @@ export const getOptimalRtcConfig = async () => {
  * @returns {MediaStreamConstraints}
  */
 export const getDeviceOptimizedConstraints = () => {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (typeof navigator === "undefined") {
+        // Probably SSR or non-browser – just use desktop HD as default
+        return HD_VIDEO_CONSTRAINTS;
+    }
+
+    const ua = navigator.userAgent || "";
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
     const isLowPower = navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4;
 
     if (isMobile || isLowPower) {
@@ -385,11 +450,26 @@ export const getDeviceOptimizedConstraints = () => {
 
 /**
  * Create a new peer connection with optimal settings
- * @returns {RTCPeerConnection}
+ * @returns {Promise<RTCPeerConnection|null>}
  */
 export const createPeerConnection = async () => {
+    if (typeof window === "undefined") {
+        console.error("RTCPeerConnection not available (non-browser environment)");
+        return null;
+    }
+
+    const RTCPeer =
+        window.RTCPeerConnection ||
+        window.webkitRTCPeerConnection ||
+        window.mozRTCPeerConnection;
+
+    if (!RTCPeer) {
+        console.error("WebRTC not supported in this browser");
+        return null;
+    }
+
     const config = await getOptimalRtcConfig();
-    const pc = new RTCPeerConnection(config);
+    const pc = new RTCPeer(config);
 
     // Add connection state logging
     pc.onconnectionstatechange = () => {

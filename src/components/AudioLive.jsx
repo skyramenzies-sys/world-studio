@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "react-hot-toast";
 import { io } from "socket.io-client";
 import axios from "axios";
+import GiftPanel, { GiftReceivedAlert } from "./GiftPanel";
 
 // ============================================
 // CONFIGURATION - WORLD STUDIO LIVE
@@ -24,6 +25,39 @@ api.interceptors.request.use((config) => {
     }
     return config;
 });
+
+// ============================================
+// SIMPLE GIFT MAP (voor overlay & tiers)
+// ============================================
+const GIFT_MAP = {
+    "Neon Spark": { icon: "✨", tier: "common", sound: "pop" },
+    "Pixel Heart": { icon: "💟", tier: "common", sound: "pop" },
+    "Hologram Rose": { icon: "🌹", tier: "common", sound: "pop" },
+    "Glow Stick": { icon: "🧪", tier: "common", sound: "pop" },
+
+    "Crystal Chip": { icon: "💠", tier: "rare", sound: "sparkle" },
+    "Laser Wave": { icon: "📡", tier: "rare", sound: "sparkle" },
+
+    "Cyber Panther": { icon: "🐆", tier: "epic", sound: "magic" },
+    "Teleport Gate": { icon: "🌀", tier: "epic", sound: "magic" },
+
+    "Aurora Horizon": { icon: "🌈", tier: "legendary", sound: "magic" },
+    "Digital Palace": { icon: "🏰", tier: "legendary", sound: "fanfare" },
+
+    "Phoenix Reboot": { icon: "🐦‍🔥", tier: "mythic", sound: "cosmic" },
+    "Dragon Core": { icon: "🐉", tier: "mythic", sound: "roar" },
+
+    "AI Core": { icon: "🤖", tier: "cyber", sound: "sparkle" },
+    "Neon Chip Rain": { icon: "💾", tier: "cyber", sound: "magic" },
+
+    "Galaxy Orb": { icon: "🌌", tier: "cosmic", sound: "cosmic" },
+    "Planet Drop": { icon: "🪐", tier: "cosmic", sound: "explosion" },
+
+    "SKYRA Jetpack": { icon: "🧥", tier: "skyra", sound: "rocket" },
+    "AIRPATH Beam": { icon: "🛰️", tier: "skyra", sound: "magic" },
+    "Commander Badge": { icon: "🎖️", tier: "skyra", sound: "fanfare" },
+    "SKYRA Universe": { icon: "✨", tier: "skyra", sound: "cosmic" },
+};
 
 // ============================================
 // AUDIO VISUALIZER COMPONENT
@@ -55,7 +89,7 @@ const AudioVisualizer = ({ level = 0, isActive = false }) => {
 // ============================================
 // SPEAKER CARD COMPONENT
 // ============================================
-const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted, isHost }) => {
+const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted }) => {
     const isSpeaking = audioLevel > 0.1;
     const isCurrentUser = speaker._id === currentUserId;
 
@@ -67,7 +101,8 @@ const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted, isHost }) =>
                     }`}
                 style={{
                     boxShadow: isSpeaking
-                        ? `0 0 ${20 + audioLevel * 40}px rgba(34, 211, 238, ${0.3 + audioLevel * 0.4})`
+                        ? `0 0 ${20 + audioLevel * 40}px rgba(34, 211, 238, ${0.3 + audioLevel * 0.4
+                        })`
                         : "none",
                 }}
             >
@@ -75,12 +110,16 @@ const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted, isHost }) =>
                     src={speaker.avatar || "/defaults/default-avatar.png"}
                     alt={speaker.username}
                     className="w-20 h-20 rounded-full object-cover border-2 border-white/20"
-                    onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                    onError={(e) => {
+                        e.target.src = "/defaults/default-avatar.png";
+                    }}
                 />
 
                 {/* Host crown */}
                 {speaker.isHost && (
-                    <span className="absolute -top-1 -right-1 text-lg drop-shadow-lg">👑</span>
+                    <span className="absolute -top-1 -right-1 text-lg drop-shadow-lg">
+                        👑
+                    </span>
                 )}
 
                 {/* Speaking indicator */}
@@ -174,6 +213,11 @@ export default function AudioLive({
     const [gifts, setGifts] = useState([]);
     const [totalGifts, setTotalGifts] = useState(0);
 
+    // Gift overlay state
+    const [overlayGift, setOverlayGift] = useState(null);
+    const [overlaySender, setOverlaySender] = useState("");
+    const [showGiftPanel, setShowGiftPanel] = useState(false);
+
     // Refs
     const socketRef = useRef(null);
     const audioContextRef = useRef(null);
@@ -187,7 +231,7 @@ export default function AudioLive({
     // SOCKET CONNECTION
     // ============================================
     useEffect(() => {
-        // Initialize socket connection to world-studio.live
+
         socketRef.current = io(SOCKET_URL, {
             transports: ["websocket", "polling"],
             auth: {
@@ -219,8 +263,8 @@ export default function AudioLive({
 
         // Speaker events
         socket.on("speaker_joined", (speaker) => {
-            setSpeakers(prev => {
-                if (prev.find(s => s._id === speaker._id)) return prev;
+            setSpeakers((prev) => {
+                if (prev.find((s) => s._id === speaker._id)) return prev;
                 return [...prev, speaker];
             });
             addSystemMessage(`${speaker.username} joined as speaker`);
@@ -228,12 +272,12 @@ export default function AudioLive({
         });
 
         socket.on("speaker_left", (userId) => {
-            setSpeakers(prev => {
-                const speaker = prev.find(s => s._id === userId);
+            setSpeakers((prev) => {
+                const speaker = prev.find((s) => s._id === userId);
                 if (speaker) {
                     addSystemMessage(`${speaker.username} left`);
                 }
-                return prev.filter(s => s._id !== userId);
+                return prev.filter((s) => s._id !== userId);
             });
         });
 
@@ -249,14 +293,61 @@ export default function AudioLive({
 
         // Chat
         socket.on("chat_message", (msg) => {
-            setChat(prev => [...prev.slice(-100), msg]);
+            setChat((prev) => [...prev.slice(-100), msg]);
         });
 
-        // Gifts
+        // Gifts (support both oude & nieuwe payloads)
         socket.on("gift_received", (giftData) => {
-            setGifts(prev => [...prev.slice(-10), giftData]);
-            setTotalGifts(prev => prev + giftData.value);
-            toast.success(`🎁 ${giftData.from} sent ${giftData.giftName}!`);
+            // Oude: { from, giftName, value, emoji? }
+            // Nieuwe: { senderUsername, item, amount, icon, tier, ... }
+            const senderName =
+                giftData.from ||
+                giftData.senderUsername ||
+                giftData.sender ||
+                "Someone";
+            const giftName =
+                giftData.giftName ||
+                giftData.item ||
+                giftData.name ||
+                "Gift";
+            const value =
+                giftData.value ??
+                giftData.amount ??
+                giftData.total ??
+                0;
+
+            const mapConfig = GIFT_MAP[giftName] || {};
+            const icon = giftData.icon || mapConfig.icon || "🎁";
+            const tier = mapConfig.tier || giftData.tier || "common";
+            const sound = mapConfig.sound || "sparkle";
+
+            const normalizedGift = {
+                ...giftData,
+                senderName,
+                giftName,
+                value,
+                emoji: giftData.emoji || icon,
+                icon,
+                tier,
+            };
+
+            setGifts((prev) => [
+                ...prev.slice(-10),
+                { ...normalizedGift, timestamp: Date.now() },
+            ]);
+            setTotalGifts((prev) => prev + (value || 0));
+
+            // Overlay animatie
+            setOverlayGift({
+                name: giftName,
+                icon,
+                tier,
+                sound,
+                amount: value || 0,
+            });
+            setOverlaySender(senderName);
+
+            toast.success(`🎁 ${senderName} sent ${giftName}!`);
         });
 
         // Stream ended
@@ -268,17 +359,20 @@ export default function AudioLive({
 
         // Audio level updates from other speakers
         socket.on("audio_level", ({ speakerId, level }) => {
-            setAudioLevels(prev => ({
+            setAudioLevels((prev) => ({
                 ...prev,
                 [speakerId]: level,
             }));
         });
 
         return () => {
-            socket.emit("leave_audio_live", { roomId, userId: currentUser?._id });
+            socket.emit("leave_audio_live", {
+                roomId,
+                userId: currentUser?._id,
+            });
             socket.disconnect();
         };
-    }, [roomId, currentUser]);
+    }, [roomId, currentUser, onViewerCountChange, onEnd]);
 
     // ============================================
     // AUDIO SETUP
@@ -298,9 +392,12 @@ export default function AudioLive({
             streamRef.current = stream;
 
             // Setup audio analyser
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            analyserRef.current = audioContextRef.current.createAnalyser();
-            const source = audioContextRef.current.createMediaStreamSource(stream);
+            audioContextRef.current =
+                new (window.AudioContext || window.webkitAudioContext)();
+            analyserRef.current =
+                audioContextRef.current.createAnalyser();
+            const source =
+                audioContextRef.current.createMediaStreamSource(stream);
             source.connect(analyserRef.current);
             analyserRef.current.fftSize = 256;
             analyserRef.current.smoothingTimeConstant = 0.8;
@@ -313,9 +410,13 @@ export default function AudioLive({
             console.error("Audio error:", err);
 
             if (err.name === "NotAllowedError") {
-                toast.error("Microphone access denied. Please allow microphone access.");
+                toast.error(
+                    "Microphone access denied. Please allow microphone access."
+                );
             } else if (err.name === "NotFoundError") {
-                toast.error("No microphone found. Please connect a microphone.");
+                toast.error(
+                    "No microphone found. Please connect a microphone."
+                );
             } else {
                 toast.error("Failed to access microphone");
             }
@@ -328,7 +429,9 @@ export default function AudioLive({
     const monitorAudioLevel = useCallback(() => {
         if (!analyserRef.current) return;
 
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+        const dataArray = new Uint8Array(
+            analyserRef.current.frequencyBinCount
+        );
 
         const update = () => {
             if (!analyserRef.current) return;
@@ -343,7 +446,7 @@ export default function AudioLive({
             const rms = Math.sqrt(sum / dataArray.length);
             const normalizedLevel = Math.min(1, rms / 128);
 
-            setAudioLevels(prev => ({
+            setAudioLevels((prev) => ({
                 ...prev,
                 [currentUser?._id]: normalizedLevel,
             }));
@@ -376,7 +479,7 @@ export default function AudioLive({
         }
 
         try {
-            // Create stream on server
+
             await api.post("/api/live/start", {
                 title: streamTitle,
                 category: streamCategory,
@@ -384,7 +487,7 @@ export default function AudioLive({
                 type: "audio",
             });
 
-            // Notify via socket
+
             socketRef.current?.emit("start_audio_live", {
                 roomId,
                 host: currentUser,
@@ -395,15 +498,18 @@ export default function AudioLive({
             setSpeakers([{ ...currentUser, isHost: true }]);
             setIsLive(true);
 
-            // Start duration counter
+
             durationIntervalRef.current = setInterval(() => {
-                setStreamDuration(prev => prev + 1);
+                setStreamDuration((prev) => prev + 1);
             }, 1000);
 
             toast.success("You're live! 🎙️");
         } catch (err) {
             console.error("Start stream error:", err);
-            toast.error(err.response?.data?.message || "Failed to start audio stream");
+            toast.error(
+                err.response?.data?.message ||
+                "Failed to start audio stream"
+            );
             cleanup();
         } finally {
             setIsConnecting(false);
@@ -414,7 +520,12 @@ export default function AudioLive({
     // END LIVE
     // ============================================
     const endLive = async () => {
-        if (!window.confirm("Are you sure you want to end the stream?")) return;
+        if (
+            !window.confirm(
+                "Are you sure you want to end the stream?"
+            )
+        )
+            return;
 
         try {
             await api.post(`/api/live/${roomId}/end`);
@@ -431,7 +542,7 @@ export default function AudioLive({
     const cleanup = () => {
         // Stop audio tracks
         if (streamRef.current) {
-            streamRef.current.getTracks().forEach(t => t.stop());
+            streamRef.current.getTracks().forEach((t) => t.stop());
             streamRef.current = null;
         }
 
@@ -460,7 +571,8 @@ export default function AudioLive({
     // ============================================
     const toggleMute = () => {
         if (streamRef.current) {
-            const audioTrack = streamRef.current.getAudioTracks()[0];
+            const audioTrack =
+                streamRef.current.getAudioTracks()[0];
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
                 setIsMuted(!audioTrack.enabled);
@@ -471,7 +583,11 @@ export default function AudioLive({
                     muted: !audioTrack.enabled,
                 });
 
-                toast(audioTrack.enabled ? "Microphone on 🎤" : "Microphone muted 🔇");
+                toast(
+                    audioTrack.enabled
+                        ? "Microphone on 🎤"
+                        : "Microphone muted 🔇"
+                );
             }
         }
     };
@@ -495,7 +611,10 @@ export default function AudioLive({
     };
 
     const addSystemMessage = (text) => {
-        setChat(prev => [...prev.slice(-100), { text, isSystem: true }]);
+        setChat((prev) => [
+            ...prev.slice(-100),
+            { text, isSystem: true },
+        ]);
     };
 
     // Auto scroll chat
@@ -512,39 +631,66 @@ export default function AudioLive({
         const secs = seconds % 60;
 
         if (hrs > 0) {
-            return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+            return `${hrs}:${mins
+                .toString()
+                .padStart(2, "0")}:${secs
+                    .toString()
+                    .padStart(2, "0")}`;
         }
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
+
+    const hostUser =
+        speakers.find((s) => s.isHost) || speakers[0] || null;
 
     // ============================================
     // RENDER
     // ============================================
     return (
         <div className="min-h-screen bg-gradient-to-b from-orange-900 via-red-900 to-black text-white flex flex-col">
+            {/* Gift overlay (grote animatie bovenaan) */}
+            {overlayGift && (
+                <GiftReceivedAlert
+                    gift={overlayGift}
+                    sender={overlaySender}
+                    onComplete={() => setOverlayGift(null)}
+                />
+            )}
+
             {/* Header */}
             <div className="p-4 flex items-center gap-3 bg-black/40 border-b border-white/10 backdrop-blur-sm">
                 {/* Live badge */}
                 {isLive && (
                     <div className="flex items-center gap-2 px-3 py-1 bg-red-500 rounded-full animate-pulse">
                         <span className="w-2 h-2 bg-white rounded-full" />
-                        <span className="text-sm font-bold">LIVE</span>
+                        <span className="text-sm font-bold">
+                            LIVE
+                        </span>
                     </div>
                 )}
 
                 {/* Stream info */}
                 <div className="flex-1 min-w-0">
-                    <h1 className="font-bold truncate">{streamTitle}</h1>
+                    <h1 className="font-bold truncate">
+                        {streamTitle}
+                    </h1>
                     <div className="flex items-center gap-2 text-xs text-white/50">
                         <span>🎙️ Audio Live</span>
                         {isLive && (
                             <>
                                 <span>•</span>
-                                <span>⏱️ {formatDuration(streamDuration)}</span>
+                                <span>
+                                    ⏱️{" "}
+                                    {formatDuration(
+                                        streamDuration
+                                    )}
+                                </span>
                             </>
                         )}
                         <span>•</span>
-                        <span className="px-2 py-0.5 bg-white/10 rounded">{streamCategory}</span>
+                        <span className="px-2 py-0.5 bg-white/10 rounded">
+                            {streamCategory}
+                        </span>
                     </div>
                 </div>
 
@@ -552,20 +698,30 @@ export default function AudioLive({
                 <div className="flex items-center gap-4 text-white/70">
                     <div className="flex items-center gap-1">
                         <span>👁</span>
-                        <span className="font-bold">{viewers}</span>
+                        <span className="font-bold">
+                            {viewers}
+                        </span>
                     </div>
                     {totalGifts > 0 && (
                         <div className="flex items-center gap-1">
                             <span>🎁</span>
-                            <span className="font-bold text-yellow-400">${totalGifts}</span>
+                            <span className="font-bold text-yellow-400">
+                                💰 {totalGifts.toLocaleString()}
+                            </span>
                         </div>
                     )}
                 </div>
 
                 {/* Connection status */}
-                <div className={`w-2 h-2 rounded-full ${connectionStatus === "connected" ? "bg-green-500" :
-                        connectionStatus === "error" ? "bg-red-500" : "bg-yellow-500"
-                    }`} title={`Connection: ${connectionStatus}`} />
+                <div
+                    className={`w-2 h-2 rounded-full ${connectionStatus === "connected"
+                            ? "bg-green-500"
+                            : connectionStatus === "error"
+                                ? "bg-red-500"
+                                : "bg-yellow-500"
+                        }`}
+                    title={`Connection: ${connectionStatus}`}
+                />
 
                 {/* End button */}
                 {isHost && isLive && (
@@ -588,32 +744,49 @@ export default function AudioLive({
                         <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
                             <div className="flex gap-1">
                                 {[...Array(30)].map((_, i) => {
-                                    const maxSpeakerLevel = Math.max(...Object.values(audioLevels), 0);
-                                    const height = 20 + Math.sin(i * 0.3 + Date.now() * 0.001) * 40 * (0.3 + maxSpeakerLevel * 0.7);
+                                    const maxSpeakerLevel = Math.max(
+                                        ...Object.values(audioLevels),
+                                        0
+                                    );
+                                    const height =
+                                        20 +
+                                        Math.sin(
+                                            i * 0.3 +
+                                            Date.now() *
+                                            0.001
+                                        ) *
+                                        40 *
+                                        (0.3 +
+                                            maxSpeakerLevel *
+                                            0.7);
 
                                     return (
                                         <div
                                             key={i}
                                             className="w-1 bg-gradient-to-t from-orange-500 to-yellow-500 rounded-full transition-all duration-150"
-                                            style={{ height: `${height}px` }}
+                                            style={{
+                                                height: `${height}px`,
+                                            }}
                                         />
                                     );
                                 })}
                             </div>
                         </div>
 
-                        {/* Gift animations */}
+                        {/* Gift emojis floating in de room */}
                         {gifts.slice(-5).map((gift, i) => (
                             <div
-                                key={`${gift.timestamp}-${i}`}
+                                key={`${gift.timestamp || i}`}
                                 className="absolute animate-bounce text-4xl"
                                 style={{
-                                    left: `${20 + Math.random() * 60}%`,
-                                    top: `${20 + Math.random() * 40}%`,
+                                    left: `${20 + Math.random() * 60
+                                        }%`,
+                                    top: `${20 + Math.random() * 40
+                                        }%`,
                                     animationDuration: "2s",
                                 }}
                             >
-                                {gift.emoji || "🎁"}
+                                {gift.emoji || gift.icon || "🎁"}
                             </div>
                         ))}
 
@@ -623,40 +796,58 @@ export default function AudioLive({
                                 <SpeakerCard
                                     key={speaker._id}
                                     speaker={speaker}
-                                    audioLevel={audioLevels[speaker._id] || 0}
+                                    audioLevel={
+                                        audioLevels[speaker._id] || 0
+                                    }
                                     currentUserId={currentUser?._id}
                                     isMuted={isMuted}
-                                    isHost={speaker.isHost}
+
                                 />
                             ))}
 
                             {/* Empty slots */}
-                            {speakers.length < 4 && [...Array(Math.max(0, 4 - speakers.length))].map((_, i) => (
-                                <div
-                                    key={`empty-${i}`}
-                                    className="flex flex-col items-center opacity-30"
-                                >
-                                    <div className="w-20 h-20 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center">
-                                        <span className="text-2xl">🎤</span>
+                            {speakers.length < 4 &&
+                                [
+                                    ...Array(
+                                        Math.max(
+                                            0,
+                                            4 - speakers.length
+                                        )
+                                    ),
+                                ].map((_, i) => (
+                                    <div
+                                        key={`empty-${i}`}
+                                        className="flex flex-col items-center opacity-30"
+                                    >
+                                        <div className="w-20 h-20 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center">
+                                            <span className="text-2xl">
+                                                🎤
+                                            </span>
+                                        </div>
+                                        <p className="mt-2 text-sm text-white/50">
+                                            Invite
+                                        </p>
                                     </div>
-                                    <p className="mt-2 text-sm text-white/50">Invite</p>
-                                </div>
-                            ))}
+                                ))}
                         </div>
 
                         {/* No speakers state */}
                         {speakers.length === 0 && !isLive && (
                             <div className="absolute inset-0 flex items-center justify-center">
                                 <div className="text-center">
-                                    <span className="text-6xl mb-4 block">🎙️</span>
-                                    <p className="text-white/60">Ready to go live?</p>
+                                    <span className="text-6xl mb-4 block">
+                                        🎙️
+                                    </span>
+                                    <p className="text-white/60">
+                                        Ready to go live?
+                                    </p>
                                 </div>
                             </div>
                         )}
                     </div>
 
                     {/* Controls */}
-                    <div className="flex justify-center items-center gap-4 mt-6">
+                    <div className="flex flex-wrap justify-center items-center gap-4 mt-6">
                         {/* Go Live button */}
                         {isHost && !isLive && (
                             <button
@@ -670,9 +861,7 @@ export default function AudioLive({
                                         Connecting...
                                     </>
                                 ) : (
-                                    <>
-                                        🎙️ Go LIVE
-                                    </>
+                                    <>🎙️ Go LIVE</>
                                 )}
                             </button>
                         )}
@@ -689,19 +878,54 @@ export default function AudioLive({
                                         }`}
                                     title={isMuted ? "Unmute" : "Mute"}
                                 >
-                                    <span className="text-2xl">{isMuted ? "🔇" : "🎤"}</span>
+                                    <span className="text-2xl">
+                                        {isMuted ? "🔇" : "🎤"}
+                                    </span>
                                 </button>
 
                                 {/* Volume indicator */}
                                 <div className="px-4">
                                     <AudioVisualizer
-                                        level={audioLevels[currentUser?._id] || 0}
+                                        level={
+                                            audioLevels[
+                                            currentUser?._id
+                                            ] || 0
+                                        }
                                         isActive={!isMuted && isLive}
                                     />
                                 </div>
+
+                                {/* Gift button */}
+                                {hostUser && (
+                                    <button
+                                        onClick={() =>
+                                            setShowGiftPanel(true)
+                                        }
+                                        className="px-4 py-2 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 font-semibold text-sm hover:shadow-lg hover:scale-105 transition flex items-center gap-2"
+                                    >
+                                        <span>🎁</span>
+                                        <span>Send Gift</span>
+                                    </button>
+                                )}
                             </>
                         )}
                     </div>
+
+                    {/* Gift panel onder de controls (als open) */}
+                    {isLive && showGiftPanel && hostUser && (
+                        <div className="mt-6">
+                            <GiftPanel
+                                recipient={hostUser}
+                                streamId={roomId}
+                                onClose={() =>
+                                    setShowGiftPanel(false)
+                                }
+                                onGiftSent={() => {
+                                    // niks speciaals, overlay komt via socket
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* Chat sidebar */}
@@ -710,7 +934,9 @@ export default function AudioLive({
                     <div className="p-3 border-b border-white/10 flex items-center justify-between">
                         <h3 className="font-semibold flex items-center gap-2">
                             💬 Live Chat
-                            <span className="text-xs text-white/40">({chat.length})</span>
+                            <span className="text-xs text-white/40">
+                                ({chat.length})
+                            </span>
                         </h3>
                     </div>
 
@@ -718,14 +944,22 @@ export default function AudioLive({
                     <div className="flex-1 overflow-y-auto p-3 space-y-1 min-h-[200px]">
                         {chat.length === 0 ? (
                             <div className="text-white/40 text-center py-8">
-                                <span className="text-3xl block mb-2">💬</span>
+                                <span className="text-3xl block mb-2">
+                                    💬
+                                </span>
                                 <p>No messages yet</p>
-                                <p className="text-sm">Be the first to say hi!</p>
+                                <p className="text-sm">
+                                    Be the first to say hi!
+                                </p>
                             </div>
                         ) : (
                             <>
                                 {chat.map((msg, i) => (
-                                    <ChatMessage key={i} message={msg} isSystem={msg.isSystem} />
+                                    <ChatMessage
+                                        key={i}
+                                        message={msg}
+                                        isSystem={msg.isSystem}
+                                    />
                                 ))}
                                 <div ref={chatEndRef} />
                             </>
@@ -733,12 +967,17 @@ export default function AudioLive({
                     </div>
 
                     {/* Chat input */}
-                    <form onSubmit={sendMessage} className="p-3 border-t border-white/10">
+                    <form
+                        onSubmit={sendMessage}
+                        className="p-3 border-t border-white/10"
+                    >
                         <div className="flex gap-2">
                             <input
                                 type="text"
                                 value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
+                                onChange={(e) =>
+                                    setChatInput(e.target.value)
+                                }
                                 placeholder="Say something..."
                                 maxLength={200}
                                 className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-full text-sm outline-none focus:border-orange-400 transition placeholder-white/40"
@@ -759,19 +998,33 @@ export default function AudioLive({
             <div className="lg:hidden p-3 bg-black/40 border-t border-white/10 flex justify-around text-center">
                 <div>
                     <p className="text-lg font-bold">{viewers}</p>
-                    <p className="text-xs text-white/50">Viewers</p>
+                    <p className="text-xs text-white/50">
+                        Viewers
+                    </p>
                 </div>
                 <div>
-                    <p className="text-lg font-bold">{speakers.length}</p>
-                    <p className="text-xs text-white/50">Speakers</p>
+                    <p className="text-lg font-bold">
+                        {speakers.length}
+                    </p>
+                    <p className="text-xs text-white/50">
+                        Speakers
+                    </p>
                 </div>
                 <div>
-                    <p className="text-lg font-bold text-yellow-400">${totalGifts}</p>
-                    <p className="text-xs text-white/50">Gifts</p>
+                    <p className="text-lg font-bold text-yellow-400">
+                        💰 {totalGifts.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-white/50">
+                        Gifts
+                    </p>
                 </div>
                 <div>
-                    <p className="text-lg font-bold">{formatDuration(streamDuration)}</p>
-                    <p className="text-xs text-white/50">Duration</p>
+                    <p className="text-lg font-bold">
+                        {formatDuration(streamDuration)}
+                    </p>
+                    <p className="text-xs text-white/50">
+                        Duration
+                    </p>
                 </div>
             </div>
         </div>

@@ -1,5 +1,5 @@
 // backend/routes/auth.js
-// World-Studio.live - Authentication Routes
+// World-Studio.live - Authentication Routes (ULTIMATE EDITION 🚀)
 // Handles registration, login, password reset, bonuses, and referrals
 
 const express = require("express");
@@ -18,6 +18,8 @@ try {
     if (process.env.SENDGRID_API_KEY) {
         sgMail.setApiKey(process.env.SENDGRID_API_KEY);
         console.log("✅ SendGrid configured");
+    } else {
+        console.log("📧 SENDGRID_API_KEY not set - email features disabled");
     }
 } catch (e) {
     console.log("📧 SendGrid not configured - email features disabled");
@@ -93,13 +95,13 @@ const addBonus = async (userId, bonusType, customAmount = null) => {
                 balance: 0,
                 totalReceived: 0,
                 totalSpent: 0,
-                transactions: [],
+                transactions: []
             };
         }
 
         // Check if one-time bonus already claimed
         if (bonus?.oneTime && bonusType !== "DAILY_LOGIN") {
-            const alreadyClaimed = user.wallet.transactions?.some(
+            const alreadyClaimed = (user.wallet.transactions || []).some(
                 (t) => t.type === "bonus" && t.meta?.bonusType === bonusType
             );
             if (alreadyClaimed) return null;
@@ -108,15 +110,17 @@ const addBonus = async (userId, bonusType, customAmount = null) => {
         const amount = customAmount || bonus.amount;
         const description = bonus?.description || `Bonus: ${bonusType}`;
 
-        user.wallet.balance += amount;
-        user.wallet.totalReceived += amount;
+        user.wallet.balance = (user.wallet.balance || 0) + amount;
+        user.wallet.totalReceived = (user.wallet.totalReceived || 0) + amount;
+
+        user.wallet.transactions = user.wallet.transactions || [];
         user.wallet.transactions.unshift({
             type: "bonus",
             amount,
             description,
             status: "completed",
             meta: { bonusType },
-            createdAt: new Date(),
+            createdAt: new Date()
         });
 
         // Keep only last 500 transactions
@@ -146,8 +150,11 @@ router.addBonus = addBonus;
  * Calculate age from birth date
  */
 const calculateAge = (birthDate) => {
-    const today = new Date();
+    if (!birthDate) return 0;
     const birth = new Date(birthDate);
+    if (Number.isNaN(birth.getTime())) return 0;
+
+    const today = new Date();
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
 
@@ -162,18 +169,23 @@ const calculateAge = (birthDate) => {
  * Generate JWT token
  */
 const generateToken = (userId, expiresIn = "30d") => {
-    return jwt.sign(
-        { id: userId },
-        process.env.JWT_SECRET,
-        { expiresIn }
-    );
+    if (!process.env.JWT_SECRET) {
+        console.error("❌ JWT_SECRET is not set");
+        // In productie: hard fail is beter dan onveilige fallback
+        throw new Error("Server misconfiguration: JWT_SECRET missing");
+    }
+
+    return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn });
 };
 
 /**
  * Generate referral code
  */
 const generateReferralCode = (username) => {
-    const prefix = username.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    const prefix = (username || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 4);
     const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
     return `${prefix}${suffix}`;
 };
@@ -221,7 +233,7 @@ router.post("/register", async (req, res) => {
             birthDate,
             referralCode,
             displayName
-        } = req.body;
+        } = req.body || {};
 
         // Validation
         if (!email || !username || !password) {
@@ -261,7 +273,18 @@ router.post("/register", async (req, res) => {
         }
 
         // Check for reserved usernames
-        const reservedUsernames = ["admin", "administrator", "moderator", "support", "help", "system", "worldstudio"];
+        const reservedUsernames = [
+            "admin",
+            "administrator",
+            "moderator",
+            "support",
+            "help",
+            "system",
+            "worldstudio",
+            "world-studio",
+            "worldstudiolive",
+            "world-studio-live"
+        ];
         if (reservedUsernames.includes(username.toLowerCase())) {
             return res.status(400).json({
                 success: false,
@@ -278,7 +301,11 @@ router.post("/register", async (req, res) => {
         }
 
         // Check username exists (case insensitive)
-        if (await User.findOne({ username: { $regex: new RegExp(`^${username}$`, "i") } })) {
+        if (
+            await User.findOne({
+                username: { $regex: new RegExp(`^${username}$`, "i") }
+            })
+        ) {
             return res.status(400).json({
                 success: false,
                 error: "Username already taken"
@@ -295,6 +322,7 @@ router.post("/register", async (req, res) => {
 
         // Calculate initial bonuses
         let initialBonus = BONUSES.WELCOME.amount;
+        const now = new Date();
         const transactions = [
             {
                 type: "bonus",
@@ -302,8 +330,8 @@ router.post("/register", async (req, res) => {
                 description: BONUSES.WELCOME.description,
                 status: "completed",
                 meta: { bonusType: "WELCOME" },
-                createdAt: new Date(),
-            },
+                createdAt: now
+            }
         ];
 
         // Check referral code
@@ -324,7 +352,7 @@ router.post("/register", async (req, res) => {
                         bonusType: "REFERRED_USER",
                         referredBy: referrer._id
                     },
-                    createdAt: new Date(),
+                    createdAt: now
                 });
             }
         }
@@ -340,15 +368,15 @@ router.post("/register", async (req, res) => {
             birthDate: new Date(birthDate),
             referralCode: generateReferralCode(username),
             referredBy: referrer?._id || null,
-            lastLoginDate: new Date(),
-            lastSeen: new Date(),
+            lastLoginDate: now,
+            lastSeen: now,
             emailVerified: false,
             role: "creator", // All new users are creators by default
             wallet: {
                 balance: initialBonus,
                 totalReceived: initialBonus,
                 totalSpent: 0,
-                transactions,
+                transactions
             },
             settings: {
                 emailNotifications: true,
@@ -364,7 +392,7 @@ router.post("/register", async (req, res) => {
             await addBonus(referrer._id, "REFERRAL");
 
             // Notify referrer
-            if (referrer.addNotification) {
+            if (typeof referrer.addNotification === "function") {
                 await referrer.addNotification({
                     message: `🎉 ${username} joined using your referral code! You earned ${BONUSES.REFERRAL.amount} coins!`,
                     type: "system",
@@ -376,8 +404,8 @@ router.post("/register", async (req, res) => {
         // Generate token
         const token = generateToken(user._id);
 
-        // Send welcome email
-        await sendEmail(
+        // Send welcome email (non-blocking)
+        sendEmail(
             user.email,
             "Welcome to World Studio! 🎉",
             `
@@ -387,7 +415,7 @@ router.post("/register", async (req, res) => {
                 <p>Start streaming, creating, and earning today!</p>
                 <a href="https://world-studio.live">Visit World Studio</a>
             `
-        );
+        ).catch(() => { });
 
         console.log(`✅ New user registered: ${username} (${email})`);
 
@@ -430,7 +458,7 @@ router.post("/register", async (req, res) => {
  */
 router.post("/login", async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
 
         if (!email || !password) {
             return res.status(400).json({
@@ -485,8 +513,10 @@ router.post("/login", async (req, res) => {
                 balance: 0,
                 totalReceived: 0,
                 totalSpent: 0,
-                transactions: [],
+                transactions: []
             };
+        } else if (!Array.isArray(user.wallet.transactions)) {
+            user.wallet.transactions = [];
         }
 
         // Daily login bonus
@@ -495,17 +525,23 @@ router.post("/login", async (req, res) => {
         const lastLogin = user.lastLoginDate ? new Date(user.lastLoginDate) : null;
 
         if (!lastLogin || lastLogin.toDateString() !== now.toDateString()) {
-            user.wallet.balance += BONUSES.DAILY_LOGIN.amount;
-            user.wallet.totalReceived += BONUSES.DAILY_LOGIN.amount;
+            const amount = BONUSES.DAILY_LOGIN.amount;
+            user.wallet.balance = (user.wallet.balance || 0) + amount;
+            user.wallet.totalReceived = (user.wallet.totalReceived || 0) + amount;
             user.wallet.transactions.unshift({
                 type: "bonus",
-                amount: BONUSES.DAILY_LOGIN.amount,
+                amount,
                 description: BONUSES.DAILY_LOGIN.description,
                 status: "completed",
                 meta: { bonusType: "DAILY_LOGIN" },
-                createdAt: new Date(),
+                createdAt: now
             });
-            dailyBonus = BONUSES.DAILY_LOGIN.amount;
+            dailyBonus = amount;
+
+            // Limit transactions
+            if (user.wallet.transactions.length > 500) {
+                user.wallet.transactions = user.wallet.transactions.slice(0, 500);
+            }
         }
 
         // Update login info
@@ -513,7 +549,7 @@ router.post("/login", async (req, res) => {
         user.lastSeen = now;
         user.lastLogin = now;
         user.loginCount = (user.loginCount || 0) + 1;
-        user.lastIp = req.ip || req.headers["x-forwarded-for"]?.split(",")[0];
+        user.lastIp = req.ip || (req.headers["x-forwarded-for"]?.split(",")[0] || null);
 
         await user.save();
 
@@ -537,9 +573,9 @@ router.post("/login", async (req, res) => {
             followersCount: user.followersCount || user.followers?.length || 0,
             followingCount: user.followingCount || user.following?.length || 0,
             wallet: {
-                balance: user.wallet.balance,
-                totalReceived: user.wallet.totalReceived,
-                totalSpent: user.wallet.totalSpent
+                balance: user.wallet.balance || 0,
+                totalReceived: user.wallet.totalReceived || 0,
+                totalSpent: user.wallet.totalSpent || 0
             },
             notifications: (user.notifications || []).slice(0, 20),
             unreadNotifications: user.unreadNotifications || 0,
@@ -554,7 +590,7 @@ router.post("/login", async (req, res) => {
             stats: user.stats,
             settings: user.settings,
             emailVerified: user.emailVerified,
-            token,
+            token
         };
 
         if (dailyBonus) {
@@ -593,8 +629,8 @@ router.get("/me", authMiddleware, async (req, res) => {
             });
         }
 
-        // Update last seen
-        await User.findByIdAndUpdate(req.userId, { lastSeen: new Date() });
+        // Update last seen (non-blocking)
+        User.findByIdAndUpdate(req.userId, { lastSeen: new Date() }).catch(() => { });
 
         res.json({
             success: true,
@@ -629,12 +665,12 @@ router.put("/profile", authMiddleware, async (req, res) => {
             location,
             website,
             socialLinks
-        } = req.body;
+        } = req.body || {};
 
         const updateData = {};
 
         // Username change (with validation)
-        if (username && username !== req.user?.username) {
+        if (username) {
             if (username.length < 3 || username.length > 30) {
                 return res.status(400).json({
                     success: false,
@@ -649,7 +685,26 @@ router.put("/profile", authMiddleware, async (req, res) => {
                 });
             }
 
-            // Check if taken
+            const reservedUsernames = [
+                "admin",
+                "administrator",
+                "moderator",
+                "support",
+                "help",
+                "system",
+                "worldstudio",
+                "world-studio",
+                "worldstudiolive",
+                "world-studio-live"
+            ];
+            if (reservedUsernames.includes(username.toLowerCase())) {
+                return res.status(400).json({
+                    success: false,
+                    error: "This username is not available"
+                });
+            }
+
+            // Check if taken by someone else
             const existingUser = await User.findOne({
                 username: { $regex: new RegExp(`^${username}$`, "i") },
                 _id: { $ne: req.userId }
@@ -690,7 +745,7 @@ router.put("/profile", authMiddleware, async (req, res) => {
 
         // Check for profile complete bonus
         let bonusEarned = null;
-        if (user.avatar && user.bio?.length >= 10) {
+        if (user.avatar && (user.bio || "").length >= 10) {
             const bonusResult = await addBonus(user._id, "PROFILE_COMPLETE");
             if (bonusResult) {
                 bonusEarned = bonusResult;
@@ -727,7 +782,7 @@ router.put("/profile", authMiddleware, async (req, res) => {
  */
 router.put("/password", authMiddleware, async (req, res) => {
     try {
-        const { currentPassword, newPassword } = req.body;
+        const { currentPassword, newPassword } = req.body || {};
 
         if (!currentPassword || !newPassword) {
             return res.status(400).json({
@@ -763,8 +818,8 @@ router.put("/password", authMiddleware, async (req, res) => {
         user.password = newPassword;
         await user.save();
 
-        // Send notification email
-        await sendEmail(
+        // Send notification email (non-blocking)
+        sendEmail(
             user.email,
             "Password Changed - World Studio",
             `
@@ -772,7 +827,7 @@ router.put("/password", authMiddleware, async (req, res) => {
                 <p>Your password was changed on ${new Date().toLocaleString()}.</p>
                 <p>If you did not make this change, please contact support immediately.</p>
             `
-        );
+        ).catch(() => { });
 
         console.log(`🔐 Password changed for: ${user.username}`);
 
@@ -799,7 +854,7 @@ router.put("/password", authMiddleware, async (req, res) => {
  */
 router.post("/forgot-password", async (req, res) => {
     try {
-        const { email } = req.body;
+        const { email } = req.body || {};
 
         if (!email) {
             return res.status(400).json({
@@ -828,10 +883,12 @@ router.post("/forgot-password", async (req, res) => {
 
         await user.save();
 
-        // Send reset email
-        const resetUrl = `https://world-studio.live/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+        // Send reset email (non-blocking)
+        const resetUrl = `https://world-studio.live/reset-password?token=${resetToken}&email=${encodeURIComponent(
+            email
+        )}`;
 
-        await sendEmail(
+        sendEmail(
             user.email,
             "Password Reset - World Studio",
             `
@@ -849,7 +906,7 @@ router.post("/forgot-password", async (req, res) => {
                 <p>This link expires in 1 hour.</p>
                 <p>If you didn't request this, please ignore this email.</p>
             `
-        );
+        ).catch(() => { });
 
         console.log(`📧 Password reset requested for: ${user.email}`);
 
@@ -876,7 +933,7 @@ router.post("/forgot-password", async (req, res) => {
  */
 router.post("/reset-password", async (req, res) => {
     try {
-        const { email, token, newPassword } = req.body;
+        const { email, token, newPassword } = req.body || {};
 
         if (!email || !token || !newPassword) {
             return res.status(400).json({
@@ -917,8 +974,8 @@ router.post("/reset-password", async (req, res) => {
         user.passwordResetExpires = undefined;
         await user.save();
 
-        // Send confirmation email
-        await sendEmail(
+        // Send confirmation email (non-blocking)
+        sendEmail(
             user.email,
             "Password Reset Successful - World Studio",
             `
@@ -927,7 +984,7 @@ router.post("/reset-password", async (req, res) => {
                 <p>You can now log in with your new password.</p>
                 <a href="https://world-studio.live/login">Login to World Studio</a>
             `
-        );
+        ).catch(() => { });
 
         console.log(`✅ Password reset successful for: ${user.email}`);
 
@@ -980,10 +1037,12 @@ router.post("/send-verification", authMiddleware, async (req, res) => {
 
         await user.save();
 
-        // Send verification email
-        const verifyUrl = `https://world-studio.live/verify-email?token=${verificationToken}&email=${encodeURIComponent(user.email)}`;
+        // Send verification email (non-blocking)
+        const verifyUrl = `https://world-studio.live/verify-email?token=${verificationToken}&email=${encodeURIComponent(
+            user.email
+        )}`;
 
-        await sendEmail(
+        sendEmail(
             user.email,
             "Verify Your Email - World Studio",
             `
@@ -1000,7 +1059,7 @@ router.post("/send-verification", authMiddleware, async (req, res) => {
                 ">Verify Email</a>
                 <p>This link expires in 24 hours.</p>
             `
-        );
+        ).catch(() => { });
 
         res.json({
             success: true,
@@ -1021,7 +1080,7 @@ router.post("/send-verification", authMiddleware, async (req, res) => {
  */
 router.post("/verify-email", async (req, res) => {
     try {
-        const { email, token } = req.body;
+        const { email, token } = req.body || {};
 
         if (!email || !token) {
             return res.status(400).json({
@@ -1078,12 +1137,13 @@ router.post("/verify-email", async (req, res) => {
 
 /**
  * GET /api/auth/bonuses
- * Get user's referral info
+ * Get user's bonus / referral info
  */
 router.get("/bonuses", authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.userId)
-            .select("referralCode wallet.transactions");
+        const user = await User.findById(req.userId).select(
+            "referralCode wallet.transactions"
+        );
 
         if (!user) {
             return res.status(404).json({
@@ -1092,9 +1152,12 @@ router.get("/bonuses", authMiddleware, async (req, res) => {
             });
         }
 
-        // Calculate bonus statistics
-        const bonusTransactions = user.wallet?.transactions?.filter(t => t.type === "bonus") || [];
-        const totalBonusEarned = bonusTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+        const bonusTransactions =
+            user.wallet?.transactions?.filter((t) => t.type === "bonus") || [];
+        const totalBonusEarned = bonusTransactions.reduce(
+            (sum, t) => sum + (t.amount || 0),
+            0
+        );
 
         res.json({
             success: true,
@@ -1119,8 +1182,7 @@ router.get("/bonuses", authMiddleware, async (req, res) => {
  */
 router.get("/referrals", authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.userId)
-            .select("referralCode");
+        const user = await User.findById(req.userId).select("referralCode");
 
         if (!user) {
             return res.status(404).json({
@@ -1136,7 +1198,7 @@ router.get("/referrals", authMiddleware, async (req, res) => {
             .limit(100)
             .lean();
 
-        // Calculate earnings
+
         const totalEarned = referredUsers.length * BONUSES.REFERRAL.amount;
 
         res.json({
@@ -1167,7 +1229,7 @@ router.get("/referrals", authMiddleware, async (req, res) => {
  */
 router.put("/settings", authMiddleware, async (req, res) => {
     try {
-        const { settings } = req.body;
+        const { settings } = req.body || {};
 
         if (!settings) {
             return res.status(400).json({
@@ -1208,11 +1270,11 @@ router.put("/settings", authMiddleware, async (req, res) => {
 
 /**
  * DELETE /api/auth/account
- * Delete user account
+ * Delete user account (soft deactivate)
  */
 router.delete("/account", authMiddleware, async (req, res) => {
     try {
-        const { password, reason } = req.body;
+        const { password, reason } = req.body || {};
 
         if (!password) {
             return res.status(400).json({
@@ -1260,7 +1322,7 @@ router.delete("/account", authMiddleware, async (req, res) => {
 });
 
 // ===========================================
-// LOGOUT (Token invalidation placeholder)
+// LOGOUT
 // ===========================================
 
 /**
@@ -1269,7 +1331,7 @@ router.delete("/account", authMiddleware, async (req, res) => {
  */
 router.post("/logout", authMiddleware, async (req, res) => {
     try {
-        // Update last seen
+
         await User.findByIdAndUpdate(req.userId, {
             lastSeen: new Date(),
             isLive: false

@@ -5,9 +5,15 @@ import { toast } from "react-hot-toast";
 import axios from "axios";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (U.E.)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
+
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+// Zorg dat we GEEN dubbele /api of trailing slash krijgen
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
 // Create API instance
 const api = axios.create({
@@ -34,10 +40,10 @@ export default function LoginPage() {
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setFormData({
-            ...formData,
-            [name]: type === "checkbox" ? checked : value
-        });
+        setFormData((prev) => ({
+            ...prev,
+            [name]: type === "checkbox" ? checked : value,
+        }));
     };
 
     // Calculate age
@@ -47,7 +53,10 @@ export default function LoginPage() {
         const birth = new Date(birthDate);
         let age = today.getFullYear() - birth.getFullYear();
         const monthDiff = today.getMonth() - birth.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+        if (
+            monthDiff < 0 ||
+            (monthDiff === 0 && today.getDate() < birth.getDate())
+        ) {
             age--;
         }
         return age;
@@ -55,13 +64,25 @@ export default function LoginPage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (loading) return;
         setLoading(true);
 
+        const trimmedEmail = formData.email.trim().toLowerCase();
+        const trimmedUsername = formData.username.trim();
+
         try {
+            if (!trimmedEmail) {
+                toast.error("Email is required");
+                setLoading(false);
+                return;
+            }
+
             if (mode === "forgot") {
                 // Forgot password
-                await api.post("/api/auth/forgot-password", { email: formData.email });
-                toast.success("If an account exists, you'll receive a reset link via email");
+                await api.post("/api/auth/forgot-password", { email: trimmedEmail });
+                toast.success(
+                    "If an account exists, you'll receive a reset link via email"
+                );
                 setMode("login");
                 setLoading(false);
                 return;
@@ -69,13 +90,13 @@ export default function LoginPage() {
 
             if (mode === "register") {
                 // Validate username
-                if (!formData.username.trim()) {
+                if (!trimmedUsername) {
                     toast.error("Username is required");
                     setLoading(false);
                     return;
                 }
 
-                if (formData.username.length < 3) {
+                if (trimmedUsername.length < 3) {
                     toast.error("Username must be at least 3 characters");
                     setLoading(false);
                     return;
@@ -104,7 +125,7 @@ export default function LoginPage() {
                 }
 
                 // Validate password
-                if (formData.password.length < 6) {
+                if (!formData.password || formData.password.length < 6) {
                     toast.error("Password must be at least 6 characters");
                     setLoading(false);
                     return;
@@ -115,45 +136,70 @@ export default function LoginPage() {
 
             if (mode === "login") {
                 response = await api.post("/api/auth/login", {
-                    email: formData.email,
+                    email: trimmedEmail,
                     password: formData.password,
                 });
             } else {
                 response = await api.post("/api/auth/register", {
-                    email: formData.email,
+                    email: trimmedEmail,
                     password: formData.password,
-                    username: formData.username,
+                    username: trimmedUsername,
                     birthDate: formData.birthDate,
                 });
             }
 
-            const data = response.data;
-            const token = data.token;
+            const data = response?.data || {};
+
+            // Support meerdere backend-responses
+            const token = data.token || data.accessToken;
+
+            const rawUser =
+                data.user ||
+                data.profile ||
+                {
+                    _id: data.userId || data._id,
+                    username: data.username,
+                    email: data.email,
+                    avatar: data.avatar,
+                    bio: data.bio,
+                    followers: data.followers,
+                    following: data.following,
+                    wallet: data.wallet,
+                    notifications: data.notifications,
+                    role: data.role,
+                    createdAt: data.createdAt,
+                };
 
             const user = {
-                _id: data.userId || data._id || data.user?._id,
-                id: data.userId || data._id || data.user?._id,
-                username: data.username || data.user?.username,
-                email: data.email || data.user?.email,
-                avatar: data.avatar || data.user?.avatar || "",
-                bio: data.bio || data.user?.bio || "",
-                followers: data.followers || data.user?.followers || [],
-                following: data.following || data.user?.following || [],
-                totalViews: data.totalViews || 0,
-                totalLikes: data.totalLikes || 0,
-                earnings: data.earnings || 0,
-                wallet: data.wallet || data.user?.wallet || { balance: 100, totalReceived: 0, totalSpent: 0 },
-                notifications: data.notifications || [],
-                role: data.role || data.user?.role || "user",
-                createdAt: data.createdAt || data.user?.createdAt,
-                token: token,
+                _id: rawUser?._id || data.userId || data._id,
+                id: rawUser?._id || data.userId || data._id,
+                username: rawUser?.username,
+                email: rawUser?.email || trimmedEmail,
+                avatar: rawUser?.avatar || "",
+                bio: rawUser?.bio || "",
+                followers: rawUser?.followers || [],
+                following: rawUser?.following || [],
+                totalViews: rawUser?.totalViews || data.totalViews || 0,
+                totalLikes: rawUser?.totalLikes || data.totalLikes || 0,
+                earnings: rawUser?.earnings || data.earnings || 0,
+                wallet:
+                    rawUser?.wallet ||
+                    data.wallet || {
+                        balance: 100,
+                        totalReceived: 0,
+                        totalSpent: 0,
+                    },
+                notifications: rawUser?.notifications || data.notifications || [],
+                role: rawUser?.role || data.role || "user",
+                createdAt: rawUser?.createdAt || data.createdAt,
+                token,
             };
 
             if (!token || !user.username) {
                 throw new Error("Invalid response from server");
             }
 
-            // Store in localStorage
+            // Store in localStorage (WORLD STUDIO LIVE STANDARD KEYS)
             localStorage.setItem("token", token);
             localStorage.setItem("ws_token", token);
             localStorage.setItem("ws_currentUser", JSON.stringify(user));
@@ -172,6 +218,7 @@ export default function LoginPage() {
         } catch (err) {
             console.error("Auth error:", err);
             let message = "Authentication failed";
+
             if (err.response?.data?.error) {
                 message = err.response.data.error;
             } else if (err.response?.data?.message) {
@@ -179,6 +226,7 @@ export default function LoginPage() {
             } else if (err.message) {
                 message = err.message;
             }
+
             toast.error(message);
         } finally {
             setLoading(false);
@@ -242,7 +290,10 @@ export default function LoginPage() {
 
                         <button
                             type="button"
-                            onClick={() => { setMode("login"); resetForm(); }}
+                            onClick={() => {
+                                setMode("login");
+                                resetForm();
+                            }}
                             className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-white/70 hover:bg-white/10 transition"
                         >
                             ← Back to Login
@@ -254,7 +305,9 @@ export default function LoginPage() {
                         {/* Username (register only) */}
                         {mode === "register" && (
                             <div>
-                                <label className="block text-white/80 text-sm mb-2">Username</label>
+                                <label className="block text-white/80 text-sm mb-2">
+                                    Username
+                                </label>
                                 <input
                                     type="text"
                                     name="username"
@@ -299,11 +352,12 @@ export default function LoginPage() {
                                     className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:border-cyan-400 transition"
                                     required
                                 />
-                                {formData.birthDate && calculateAge(formData.birthDate) < 18 && (
-                                    <p className="text-red-400 text-sm mt-1">
-                                        ⚠️ You must be 18 or older to register
-                                    </p>
-                                )}
+                                {formData.birthDate &&
+                                    calculateAge(formData.birthDate) < 18 && (
+                                        <p className="text-red-400 text-sm mt-1">
+                                            ⚠️ You must be 18 or older to register
+                                        </p>
+                                    )}
                             </div>
                         )}
 
@@ -342,11 +396,24 @@ export default function LoginPage() {
                                     onChange={handleChange}
                                     className="mt-1 w-4 h-4 rounded border-white/20 bg-white/10 text-cyan-500 focus:ring-cyan-500"
                                 />
-                                <label htmlFor="agreeTerms" className="text-white/70 text-sm">
+                                <label
+                                    htmlFor="agreeTerms"
+                                    className="text-white/70 text-sm"
+                                >
                                     I confirm that I am at least 18 years old and agree to the{" "}
-                                    <a href="/terms" className="text-cyan-400 hover:underline">Terms of Service</a>{" "}
+                                    <a
+                                        href="/terms"
+                                        className="text-cyan-400 hover:underline"
+                                    >
+                                        Terms of Service
+                                    </a>{" "}
                                     and{" "}
-                                    <a href="/privacy" className="text-cyan-400 hover:underline">Privacy Policy</a>
+                                    <a
+                                        href="/privacy"
+                                        className="text-cyan-400 hover:underline"
+                                    >
+                                        Privacy Policy
+                                    </a>
                                 </label>
                             </div>
                         )}
@@ -356,7 +423,10 @@ export default function LoginPage() {
                             <div className="text-right">
                                 <button
                                     type="button"
-                                    onClick={() => { setMode("forgot"); resetForm(); }}
+                                    onClick={() => {
+                                        setMode("forgot");
+                                        resetForm();
+                                    }}
                                     className="text-cyan-400 hover:text-cyan-300 text-sm transition"
                                 >
                                     Forgot password?
@@ -367,19 +437,41 @@ export default function LoginPage() {
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading || (mode === "register" && !formData.agreeTerms)}
+                            disabled={
+                                loading ||
+                                (mode === "register" && !formData.agreeTerms)
+                            }
                             className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-xl text-white font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             {loading ? (
                                 <>
-                                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                    <svg
+                                        className="animate-spin h-5 w-5"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <circle
+                                            className="opacity-25"
+                                            cx="12"
+                                            cy="12"
+                                            r="10"
+                                            stroke="currentColor"
+                                            strokeWidth="4"
+                                            fill="none"
+                                        />
+                                        <path
+                                            className="opacity-75"
+                                            fill="currentColor"
+                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                        />
                                     </svg>
-                                    {mode === "login" ? "Signing in..." : "Creating account..."}
+                                    {mode === "login"
+                                        ? "Signing in..."
+                                        : "Creating account..."}
                                 </>
+                            ) : mode === "login" ? (
+                                "Sign In"
                             ) : (
-                                mode === "login" ? "Sign In" : "Create Account"
+                                "Create Account"
                             )}
                         </button>
                     </form>
@@ -389,7 +481,9 @@ export default function LoginPage() {
                 {mode !== "forgot" && (
                     <div className="mt-6 text-center">
                         <p className="text-white/60">
-                            {mode === "login" ? "Don't have an account?" : "Already have an account?"}
+                            {mode === "login"
+                                ? "Don't have an account?"
+                                : "Already have an account?"}
                             <button
                                 type="button"
                                 onClick={() => {
@@ -404,7 +498,7 @@ export default function LoginPage() {
                     </div>
                 )}
 
-                {/* Social Login (optional) */}
+                {/* Social Login (placeholder) */}
                 {mode !== "forgot" && (
                     <div className="mt-6">
                         <div className="relative">
@@ -412,7 +506,9 @@ export default function LoginPage() {
                                 <div className="w-full border-t border-white/10"></div>
                             </div>
                             <div className="relative flex justify-center text-sm">
-                                <span className="px-2 bg-transparent text-white/40">or continue with</span>
+                                <span className="px-2 bg-transparent text-white/40">
+                                    or continue with
+                                </span>
                             </div>
                         </div>
 
@@ -420,14 +516,18 @@ export default function LoginPage() {
                             <button
                                 type="button"
                                 className="flex-1 py-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition flex items-center justify-center gap-2"
-                                onClick={() => toast("Google login coming soon!")}
+                                onClick={() =>
+                                    toast("Google login coming soon!")
+                                }
                             >
                                 <span>🔵</span> Google
                             </button>
                             <button
                                 type="button"
                                 className="flex-1 py-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition flex items-center justify-center gap-2"
-                                onClick={() => toast("Apple login coming soon!")}
+                                onClick={() =>
+                                    toast("Apple login coming soon!")
+                                }
                             >
                                 <span>🍎</span> Apple
                             </button>
@@ -440,8 +540,7 @@ export default function LoginPage() {
                     <p className="text-white/40 text-sm">
                         {mode === "register"
                             ? "🎁 New users get 100 free WS-Coins!"
-                            : "🔒 Your data is secure with us"
-                        }
+                            : "🔒 Your data is secure with us"}
                     </p>
                 </div>
 

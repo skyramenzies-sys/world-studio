@@ -1,50 +1,65 @@
-// src/components/PostCard.jsx - WORLD STUDIO LIVE EDITION 📝
-import React, { useState, useEffect, useRef } from "react";
+// src/components/PostCard.jsx - WORLD STUDIO LIVE ULTIMATE EDITION 📝
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, Eye, MessageCircle, Share2, Bookmark, UserPlus, UserCheck, Trash2, MoreHorizontal, X } from "lucide-react";
+import {
+    Heart,
+    Eye,
+    MessageCircle,
+    Share2,
+    Bookmark,
+    UserPlus,
+    UserCheck,
+    Trash2,
+    MoreHorizontal,
+    X,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
-import axios from "axios";
-import { io } from "socket.io-client";
+
+import api from "../api/api";          // centrale API (zelfde als ProfilePage)
+import socket from "../api/socket";    // centrale socket (single connection)
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   CONFIG & HELPERS
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
 
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
+// Zelfde logica als andere files: haal base uit env of fallback
+const API_BASE_URL =
+    (import.meta.env.VITE_API_URL || "https://world-studio-production.up.railway.app")
+        .replace(/\/api\/?$/, "");
 
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+// Avatar / media resolver – fixt relative paden
+const resolveUrl = (url, fallbackPath) => {
+    if (!url) {
+        if (!fallbackPath) return `${API_BASE_URL}/defaults/default-post.png`;
+        return fallbackPath.startsWith("http")
+            ? fallbackPath
+            : `${API_BASE_URL}${fallbackPath.startsWith("/") ? fallbackPath : `/${fallbackPath}`}`;
     }
-    return config;
-});
+    if (url.startsWith("http")) return url;
+    return `${API_BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
+};
 
-// Socket connection (singleton)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
+const resolveAvatar = (url) =>
+    resolveUrl(url, "/defaults/default-avatar.png");
+
+// Date formatter
+const formatDate = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now - date;
+
+    if (diff < 60000) return "Just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`;
+    return date.toLocaleDateString();
 };
 
 /* ============================================================
    SHARE PLATFORMS
    ============================================================ */
+
 const SHARE_PLATFORMS = [
     {
         name: "WhatsApp",
@@ -56,7 +71,8 @@ const SHARE_PLATFORMS = [
         name: "X (Twitter)",
         icon: "https://cdn-icons-png.flaticon.com/512/5968/5968958.png",
         color: "#000000",
-        getUrl: (url, text) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+        getUrl: (url, text) =>
+            `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
     },
     {
         name: "Facebook",
@@ -68,31 +84,38 @@ const SHARE_PLATFORMS = [
         name: "Telegram",
         icon: "https://cdn-icons-png.flaticon.com/512/2111/2111646.png",
         color: "#0088CC",
-        getUrl: (url, text) => `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+        getUrl: (url, text) =>
+            `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
     },
     {
         name: "LinkedIn",
         icon: "https://cdn-icons-png.flaticon.com/512/3536/3536505.png",
         color: "#0A66C2",
-        getUrl: (url) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
+        getUrl: (url) =>
+            `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
     },
     {
         name: "Reddit",
         icon: "https://cdn-icons-png.flaticon.com/512/2111/2111589.png",
         color: "#FF4500",
-        getUrl: (url, text) => `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`,
+        getUrl: (url, text) =>
+            `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`,
     },
     {
         name: "Email",
         icon: "📧",
         color: "#EA4335",
-        getUrl: (url, text) => `mailto:?subject=${encodeURIComponent(text)}&body=${encodeURIComponent("Check this out: " + url)}`,
+        getUrl: (url, text) =>
+            `mailto:?subject=${encodeURIComponent(text)}&body=${encodeURIComponent("Check this out: " + url)}`,
     },
     {
         name: "Pinterest",
         icon: "https://cdn-icons-png.flaticon.com/512/145/145808.png",
         color: "#E60023",
-        getUrl: (url, text) => `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(url)}&description=${encodeURIComponent(text)}`,
+        getUrl: (url, text) =>
+            `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(url)}&description=${encodeURIComponent(
+                text
+            )}`,
     },
     {
         name: "Copy Link",
@@ -104,15 +127,20 @@ const SHARE_PLATFORMS = [
 ];
 
 /* ============================================================
-   SHARE MODAL COMPONENT
+   SHARE MODAL
    ============================================================ */
+
 const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
     if (!isOpen) return null;
 
     const handleShare = (platform) => {
         if (platform.action === "copy") {
-            navigator.clipboard.writeText(postUrl);
-            toast.success(platform.message || "Link copied to clipboard!");
+            if (navigator?.clipboard?.writeText) {
+                navigator.clipboard.writeText(postUrl);
+                toast.success(platform.message || "Link copied to clipboard!");
+            } else {
+                toast.error("Clipboard not available on this device");
+            }
         } else if (platform.getUrl) {
             window.open(platform.getUrl(postUrl, postTitle), "_blank", "width=600,height=400");
         }
@@ -120,14 +148,20 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={onClose}
+        >
             <div
                 className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-6 w-full max-w-md border border-white/10 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between mb-6">
                     <h3 className="text-xl font-bold text-white">Share to</h3>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition">
+                    <button
+                        onClick={onClose}
+                        className="p-2 hover:bg-white/10 rounded-full transition"
+                    >
                         <X size={20} className="text-white/70" />
                     </button>
                 </div>
@@ -139,12 +173,21 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
                             onClick={() => handleShare(platform)}
                             className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-white/10 transition group"
                         >
-                            {platform.icon.startsWith("http") ? (
-                                <img src={platform.icon} alt={platform.name} className="w-10 h-10 rounded-xl group-hover:scale-110 transition" />
+                            {typeof platform.icon === "string" &&
+                                platform.icon.startsWith("http") ? (
+                                <img
+                                    src={platform.icon}
+                                    alt={platform.name}
+                                    className="w-10 h-10 rounded-xl group-hover:scale-110 transition"
+                                />
                             ) : (
-                                <span className="text-3xl group-hover:scale-110 transition">{platform.icon}</span>
+                                <span className="text-3xl group-hover:scale-110 transition">
+                                    {platform.icon}
+                                </span>
                             )}
-                            <span className="text-xs text-white/70 text-center leading-tight">{platform.name}</span>
+                            <span className="text-xs text-white/70 text-center leading-tight">
+                                {platform.name}
+                            </span>
                         </button>
                     ))}
                 </div>
@@ -159,13 +202,17 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
 };
 
 /* ============================================================
-   DELETE MODAL COMPONENT
+   DELETE MODAL
    ============================================================ */
+
 const DeleteModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={onClose}
+        >
             <div
                 className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-6 w-full max-w-sm border border-white/10 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
@@ -209,61 +256,160 @@ const DeleteModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
 };
 
 /* ============================================================
-   MAIN COMPONENT
+   MAIN COMPONENT – ULTIMATE EDITION
    ============================================================ */
+
 export default function PostCard({ post, onUpdate, onDelete }) {
     const navigate = useNavigate();
-    const socketRef = useRef(null);
+    const menuRef = useRef(null);
 
     const [currentUser, setCurrentUser] = useState(null);
-    const [likeLoading, setLikeLoading] = useState(false);
-    const [followLoading, setFollowLoading] = useState(false);
-    const [likes, setLikes] = useState(post.likes || 0);
+
+    const [likes, setLikes] = useState(0);
     const [hasLiked, setHasLiked] = useState(false);
+    const [likeLoading, setLikeLoading] = useState(false);
+
     const [isFollowing, setIsFollowing] = useState(false);
+    const [followLoading, setFollowLoading] = useState(false);
+
     const [showComments, setShowComments] = useState(false);
     const [commentText, setCommentText] = useState("");
-    const [comments, setComments] = useState(post.comments || []);
+    const [comments, setComments] = useState([]);
+
     const [isSaved, setIsSaved] = useState(false);
     const [showShareModal, setShowShareModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
-    const menuRef = useRef(null);
 
-    const authorId = post.userId?._id || post.userId || post.authorId;
+    /* ------------------------------------------------------------
+       NORMALIZE AUTHOR & INITIAL STATE
+       ------------------------------------------------------------ */
 
-    // Initialize socket
+    const author = useMemo(() => {
+        // author/user object kan op verschillende plekken zitten
+        const userObj = post.user || post.userId || post.author || post.owner;
+
+        const id =
+            (userObj && (userObj._id || userObj.id)) ||
+            post.userId ||
+            post.authorId;
+
+        const username =
+            (userObj && (userObj.username || userObj.displayName)) ||
+            post.username ||
+            post.author ||
+            "Anonymous";
+
+        const avatar =
+            (userObj && userObj.avatar) ||
+            post.authorPhoto ||
+            post.avatar ||
+            null;
+
+        return {
+            id,
+            username,
+            avatar: resolveAvatar(avatar),
+        };
+    }, [post]);
+
+    // likes: kan nummer of array zijn
     useEffect(() => {
-        socketRef.current = getSocket();
-        return () => { };
-    }, []);
+        let initialLikes = 0;
+        if (Array.isArray(post.likes)) {
+            initialLikes = post.likes.length;
+        } else if (typeof post.likes === "number") {
+            initialLikes = post.likes;
+        } else if (Array.isArray(post.likedBy)) {
+            initialLikes = post.likedBy.length;
+        }
+        setLikes(initialLikes);
 
-    // Load user from localStorage
+        // comments initialiseren
+        setComments(Array.isArray(post.comments) ? post.comments : []);
+    }, [post]);
+
+    // user laden uit localStorage
     useEffect(() => {
         const storedUser = localStorage.getItem("ws_currentUser");
-        if (storedUser) {
-            try {
-                const user = JSON.parse(storedUser);
-                user.following = Array.isArray(user.following) ? user.following : [];
-                user.followers = Array.isArray(user.followers) ? user.followers : [];
-                setCurrentUser(user);
+        if (!storedUser) return;
 
+        try {
+            const user = JSON.parse(storedUser);
+            user.following = Array.isArray(user.following) ? user.following : [];
+            user.followers = Array.isArray(user.followers) ? user.followers : [];
+            setCurrentUser(user);
+
+            // check like-status
+            const userId = user._id || user.id;
+            if (userId) {
+                let liked = false;
                 if (Array.isArray(post.likedBy)) {
-                    const odId = user._id || user.id;
-                    setHasLiked(post.likedBy.some(id => String(id) === String(odId)));
+                    liked = post.likedBy.some((id) => String(id) === String(userId));
+                } else if (Array.isArray(post.likes)) {
+                    liked = post.likes.some((id) => String(id) === String(userId));
                 }
-
-                if (authorId) {
-                    setIsFollowing(user.following.some(id => String(id) === String(authorId)));
-                }
-            } catch (e) {
-                console.error("Failed to parse user:", e);
+                setHasLiked(liked);
             }
-        }
-    }, [post.likedBy, authorId]);
 
-    // Close menu when clicking outside
+            // check follow-status
+            if (author.id && user.following) {
+                const following = user.following.some(
+                    (id) => String(id) === String(author.id)
+                );
+                setIsFollowing(following);
+            }
+        } catch (e) {
+            console.error("Failed to parse ws_currentUser:", e);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [post._id, author.id]);
+
+    const isOwnPost =
+        currentUser &&
+        author.id &&
+        String(author.id) === String(currentUser._id || currentUser.id);
+
+    const postUrl =
+        typeof window !== "undefined"
+            ? `${window.location.origin}/post/${post._id}`
+            : `/post/${post._id}`;
+    const postTitle =
+        post.title || post.caption || "Check out this post on World-Studio!";
+
+    /* ------------------------------------------------------------
+       SOCKET EVENTS (REALTIME LIKES & COMMENTS)
+       ------------------------------------------------------------ */
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleUpdateLikes = ({ postId, likes: newLikes }) => {
+            if (postId === post._id && typeof newLikes === "number") {
+                setLikes(newLikes);
+            }
+        };
+
+        const handleUpdateComments = ({ postId, comments: newComments }) => {
+            if (postId === post._id && Array.isArray(newComments)) {
+                setComments(newComments);
+            }
+        };
+
+        socket.on("update_likes", handleUpdateLikes);
+        socket.on("update_comments", handleUpdateComments);
+
+        return () => {
+            socket.off("update_likes", handleUpdateLikes);
+            socket.off("update_comments", handleUpdateComments);
+        };
+    }, [post._id]);
+
+    /* ------------------------------------------------------------
+       CLOSE MENU OUTSIDE CLICK
+       ------------------------------------------------------------ */
+
     useEffect(() => {
         const handleClickOutside = (e) => {
             if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -274,43 +420,10 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // Socket events
-    useEffect(() => {
-        const socket = socketRef.current;
-        if (!socket) return;
+    /* ------------------------------------------------------------
+       FOLLOW / UNFOLLOW
+       ------------------------------------------------------------ */
 
-        const handleUpdate = ({ postId, likes: newLikes }) => {
-            if (postId === post._id) setLikes(newLikes);
-        };
-
-        const handleCommentsUpdate = ({ postId, comments: newComments }) => {
-            if (postId === post._id) setComments(newComments);
-        };
-
-        socket.on("update_likes", handleUpdate);
-        socket.on("update_comments", handleCommentsUpdate);
-
-        return () => {
-            socket.off("update_likes", handleUpdate);
-            socket.off("update_comments", handleCommentsUpdate);
-        };
-    }, [post._id]);
-
-    // Format date
-    const formatDate = (dateString) => {
-        if (!dateString) return "";
-        const date = new Date(dateString);
-        const now = new Date();
-        const diff = now - date;
-
-        if (diff < 60000) return "Just now";
-        if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
-        if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`;
-        return date.toLocaleDateString();
-    };
-
-    // Handle follow/unfollow
     const handleFollow = async (e) => {
         e.stopPropagation();
 
@@ -320,13 +433,13 @@ export default function PostCard({ post, onUpdate, onDelete }) {
             return;
         }
 
-        if (!authorId) {
+        if (!author.id) {
             toast.error("Cannot follow this user");
             return;
         }
 
         const myId = currentUser._id || currentUser.id;
-        if (String(authorId) === String(myId)) return;
+        if (String(author.id) === String(myId)) return;
 
         if (followLoading) return;
         setFollowLoading(true);
@@ -335,65 +448,103 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         setIsFollowing(!wasFollowing);
 
         try {
-            await api.post(`/api/users/${authorId}/follow`);
+            await api.post(`/api/users/${author.id}/follow`);
 
             const updatedUser = { ...currentUser };
-            const currentFollowing = Array.isArray(updatedUser.following) ? updatedUser.following : [];
+            const currentFollowing = Array.isArray(updatedUser.following)
+                ? updatedUser.following
+                : [];
 
             if (wasFollowing) {
-                updatedUser.following = currentFollowing.filter(id => String(id) !== String(authorId));
+                updatedUser.following = currentFollowing.filter(
+                    (id) => String(id) !== String(author.id)
+                );
             } else {
-                updatedUser.following = [...currentFollowing, authorId];
+                updatedUser.following = [...currentFollowing, author.id];
             }
+
             localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
             setCurrentUser(updatedUser);
 
-            toast.success(wasFollowing ? "Unfollowed" : `Following ${post.author || post.username}!`);
+            toast.success(
+                wasFollowing ? "Unfollowed" : `Following ${author.username}!`
+            );
         } catch (err) {
+            console.error("Follow error:", err);
             setIsFollowing(wasFollowing);
-            toast.error(err.response?.data?.error || "Failed to follow user");
+            toast.error(
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to follow user"
+            );
         } finally {
             setFollowLoading(false);
         }
     };
 
-    // Handle like
+    /* ------------------------------------------------------------
+       LIKE / UNLIKE
+       ------------------------------------------------------------ */
+
     const handleLike = async () => {
         if (!currentUser) {
             toast.error("Please log in to like posts");
             navigate("/login");
             return;
         }
-
         if (likeLoading) return;
-        setLikeLoading(true);
 
         const wasLiked = hasLiked;
+        const optimisticLikes = wasLiked ? likes - 1 : likes + 1;
+
+        setLikeLoading(true);
         setHasLiked(!wasLiked);
-        setLikes((prev) => wasLiked ? prev - 1 : prev + 1);
+        setLikes(optimisticLikes);
 
         try {
-            await api.post(`/api/posts/${post._id}/like`);
-            const socket = socketRef.current;
+            const res = await api.post(`/api/posts/${post._id}/like`);
+
+            // Als backend nieuwe likes terugstuurt, gebruik die
+            const newLikes =
+                typeof res.data?.likes === "number"
+                    ? res.data.likes
+                    : optimisticLikes;
+
+            setLikes(newLikes);
+
             if (socket) {
                 socket.emit("likePost", {
                     postId: post._id,
                     username: currentUser.username,
-                    likes: wasLiked ? likes - 1 : likes + 1,
+                    likes: newLikes,
                 });
             }
+
+            onUpdate?.({
+                ...post,
+                likes: newLikes,
+            });
         } catch (err) {
+            console.error("Like error:", err);
             setHasLiked(wasLiked);
-            setLikes((prev) => wasLiked ? prev + 1 : prev - 1);
-            toast.error("Failed to like post");
+            setLikes((prev) => (wasLiked ? prev + 1 : prev - 1));
+            toast.error(
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to like post"
+            );
         } finally {
             setLikeLoading(false);
         }
     };
 
-    // Handle comment
+    /* ------------------------------------------------------------
+       COMMENT
+       ------------------------------------------------------------ */
+
     const handleComment = async (e) => {
         e.preventDefault();
+
         if (!currentUser) {
             toast.error("Please log in to comment");
             navigate("/login");
@@ -403,81 +554,146 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         const text = commentText.trim();
         if (!text) return;
 
+        const tempId = `temp_${Date.now()}`;
         const newComment = {
-            _id: Date.now().toString(),
+            _id: tempId,
             username: currentUser.username,
             avatar: currentUser.avatar,
             text,
             createdAt: new Date().toISOString(),
         };
+
         setComments((prev) => [...prev, newComment]);
         setCommentText("");
 
         try {
-            await api.post(`/api/posts/${post._id}/comment`, { text });
-            const socket = socketRef.current;
-            if (socket) {
+            const res = await api.post(`/api/posts/${post._id}/comment`, { text });
+
+            const updatedComments =
+                Array.isArray(res.data?.comments) ? res.data.comments : null;
+
+            if (updatedComments) {
+                setComments(updatedComments);
+                onUpdate?.({
+                    ...post,
+                    comments: updatedComments,
+                });
+                if (socket) {
+                    socket.emit("commentPost", {
+                        postId: post._id,
+                        comments: updatedComments,
+                    });
+                }
+            } else if (socket) {
                 socket.emit("commentPost", { postId: post._id, comment: newComment });
             }
         } catch (err) {
-            setComments((prev) => prev.filter((c) => c._id !== newComment._id));
+            console.error("Comment error:", err);
+            setComments((prev) => prev.filter((c) => c._id !== tempId));
             setCommentText(text);
-            toast.error("Failed to post comment");
+            toast.error(
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to post comment"
+            );
         }
     };
 
-    // Handle delete post
+    /* ------------------------------------------------------------
+       DELETE POST
+       ------------------------------------------------------------ */
+
     const handleDelete = async () => {
+        if (!isOwnPost) return;
         setIsDeleting(true);
+
         try {
             await api.delete(`/api/posts/${post._id}`);
             toast.success("Post deleted!");
             setShowDeleteModal(false);
             onDelete?.(post._id);
         } catch (err) {
-            toast.error(err.response?.data?.error || "Failed to delete post");
+            console.error("Delete post error:", err);
+            toast.error(
+                err.response?.data?.error ||
+                err.response?.data?.message ||
+                "Failed to delete post"
+            );
         } finally {
             setIsDeleting(false);
         }
     };
 
-    // Handle save
+    /* ------------------------------------------------------------
+       SAVE / UNSAVE (CLIENT SIDE)
+       ------------------------------------------------------------ */
+
     const handleSave = () => {
-        setIsSaved(!isSaved);
-        toast.success(isSaved ? "Removed from saved" : "Saved!");
+        setIsSaved((prev) => !prev);
+        toast.success(!isSaved ? "Saved!" : "Removed from saved");
     };
 
-    // Navigate to profile
+    /* ------------------------------------------------------------
+       NAVIGATION
+       ------------------------------------------------------------ */
+
     const goToProfile = () => {
-        if (authorId) navigate(`/profile/${authorId}`);
+        if (author.id) {
+            navigate(`/profile/${author.id}`);
+        }
     };
 
-    const isOwnPost = currentUser && String(authorId) === String(currentUser._id || currentUser.id);
-    const postUrl = `${window.location.origin}/post/${post._id}`;
-    const postTitle = post.title || post.caption || "Check out this post on World-Studio!";
+    /* ------------------------------------------------------------
+       MEDIA RESOLUTION
+       ------------------------------------------------------------ */
+
+    const mediaType =
+        post.mediaType || post.type || (post.video ? "video" : "image");
+
+    const mediaUrl = (() => {
+        const raw =
+            post.fileUrl || post.mediaUrl || post.image || post.video || post.url;
+        if (!raw) return null;
+        return resolveUrl(raw);
+    })();
+
+    const thumbnailUrl = post.thumbnail ? resolveUrl(post.thumbnail) : undefined;
+
+    const views = typeof post.views === "number" ? post.views : 0;
+
+    /* ============================================================
+       RENDER
+       ============================================================ */
 
     return (
         <>
             <article className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition">
-                {/* Header */}
+                {/* HEADER */}
                 <div className="p-4 flex items-center gap-3">
-                    <div className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition" onClick={goToProfile}>
+                    <div
+                        className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition"
+                        onClick={goToProfile}
+                    >
                         <img
-                            src={post.authorPhoto || post.avatar || post.userId?.avatar || "/defaults/default-avatar.png"}
+                            src={author.avatar}
                             alt="avatar"
                             className="w-10 h-10 rounded-full object-cover border border-white/20"
-                            onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                            onError={(e) => {
+                                e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
+                            }}
                         />
                         <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-white truncate">
-                                {post.author || post.username || post.userId?.username || "Anonymous"}
+                                {author.username}
                             </h3>
-                            <p className="text-xs text-white/50">{formatDate(post.timestamp || post.createdAt)}</p>
+                            <p className="text-xs text-white/50">
+                                {formatDate(post.timestamp || post.createdAt)}
+                            </p>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {!isOwnPost && currentUser && (
+                        {!isOwnPost && currentUser && author.id && (
                             <button
                                 onClick={handleFollow}
                                 disabled={followLoading}
@@ -489,29 +705,42 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                                 {followLoading ? (
                                     <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                                 ) : isFollowing ? (
-                                    <><UserCheck size={16} /> Following</>
+                                    <>
+                                        <UserCheck size={16} /> Following
+                                    </>
                                 ) : (
-                                    <><UserPlus size={16} /> Follow</>
+                                    <>
+                                        <UserPlus size={16} /> Follow
+                                    </>
                                 )}
                             </button>
                         )}
 
                         <div className="relative" ref={menuRef}>
-                            <button onClick={() => setShowMenu(!showMenu)} className="p-2 hover:bg-white/10 rounded-full transition">
+                            <button
+                                onClick={() => setShowMenu((prev) => !prev)}
+                                className="p-2 hover:bg-white/10 rounded-full transition"
+                            >
                                 <MoreHorizontal size={20} className="text-white/70" />
                             </button>
 
                             {showMenu && (
                                 <div className="absolute right-0 top-full mt-1 w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl overflow-hidden z-10">
                                     <button
-                                        onClick={() => { setShowShareModal(true); setShowMenu(false); }}
+                                        onClick={() => {
+                                            setShowShareModal(true);
+                                            setShowMenu(false);
+                                        }}
                                         className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition flex items-center gap-3"
                                     >
                                         <Share2 size={18} />
                                         Share post
                                     </button>
                                     <button
-                                        onClick={() => { handleSave(); setShowMenu(false); }}
+                                        onClick={() => {
+                                            handleSave();
+                                            setShowMenu(false);
+                                        }}
                                         className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition flex items-center gap-3"
                                     >
                                         <Bookmark size={18} className={isSaved ? "fill-current" : ""} />
@@ -519,7 +748,10 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                                     </button>
                                     {isOwnPost && (
                                         <button
-                                            onClick={() => { setShowDeleteModal(true); setShowMenu(false); }}
+                                            onClick={() => {
+                                                setShowDeleteModal(true);
+                                                setShowMenu(false);
+                                            }}
                                             className="w-full px-4 py-3 text-left text-red-400 hover:bg-red-500/10 transition flex items-center gap-3"
                                         >
                                             <Trash2 size={18} />
@@ -532,55 +764,64 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                     </div>
                 </div>
 
-                {/* Caption/Title */}
+                {/* CAPTION / TITLE */}
                 {(post.caption || post.title) && (
                     <div className="px-4 pb-3">
                         <p className="text-white/90">{post.caption || post.title}</p>
                     </div>
                 )}
 
-                {/* Media */}
-                {(post.fileUrl || post.mediaUrl || post.image || post.video) && (
+                {/* MEDIA */}
+                {mediaUrl && (
                     <div className="relative bg-black">
-                        {(post.type === "video" || post.mediaType === "video" || post.video) ? (
+                        {mediaType === "video" ? (
                             <video
-                                src={post.fileUrl || post.mediaUrl || post.video}
+                                src={mediaUrl}
                                 controls
                                 className="w-full max-h-[500px] object-contain"
-                                poster={post.thumbnail}
+                                poster={thumbnailUrl}
                                 playsInline
                             />
-                        ) : (post.type === "audio" || post.mediaType === "audio") ? (
+                        ) : mediaType === "audio" ? (
                             <div className="p-6 flex items-center justify-center bg-gradient-to-br from-purple-900/50 to-blue-900/50">
-                                <audio src={post.fileUrl || post.mediaUrl} controls className="w-full max-w-md" />
+                                <audio src={mediaUrl} controls className="w-full max-w-md" />
                             </div>
                         ) : (
                             <img
-                                src={post.fileUrl || post.mediaUrl || post.image}
+                                src={mediaUrl}
                                 alt={post.title || post.caption || "Post"}
                                 className="w-full max-h-[500px] object-contain"
                                 loading="lazy"
-                                onError={(e) => { e.target.onerror = null; e.target.src = "/defaults/default-post.png"; }}
+                                onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src = `${API_BASE_URL}/defaults/default-post.png`;
+                                }}
                             />
                         )}
                     </div>
                 )}
 
-                {/* Actions */}
+                {/* ACTIONS */}
                 <div className="p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             <button
                                 onClick={handleLike}
                                 disabled={likeLoading}
-                                className={`flex items-center gap-2 transition ${hasLiked ? "text-red-500" : "text-white/70 hover:text-red-500"}`}
+                                className={`flex items-center gap-2 transition ${hasLiked
+                                        ? "text-red-500"
+                                        : "text-white/70 hover:text-red-500"
+                                    }`}
                             >
-                                <Heart size={22} className={hasLiked ? "fill-current" : ""} />
+                                <Heart
+                                    size={22}
+                                    className={hasLiked ? "fill-current" : ""}
+                                />
                                 <span className="font-medium">{likes}</span>
                             </button>
 
                             <button
-                                onClick={() => setShowComments(!showComments)}
+                                onClick={() => setShowComments((prev) => !prev)}
                                 className="flex items-center gap-2 text-white/70 hover:text-cyan-400 transition"
                             >
                                 <MessageCircle size={22} />
@@ -589,41 +830,68 @@ export default function PostCard({ post, onUpdate, onDelete }) {
 
                             <div className="flex items-center gap-2 text-white/50">
                                 <Eye size={20} />
-                                <span>{post.views || 0}</span>
+                                <span>{views}</span>
                             </div>
                         </div>
 
                         <div className="flex items-center gap-2">
-                            <button onClick={() => setShowShareModal(true)} className="p-2 text-white/70 hover:text-cyan-400 hover:bg-white/5 rounded-full transition">
+                            <button
+                                onClick={() => setShowShareModal(true)}
+                                className="p-2 text-white/70 hover:text-cyan-400 hover:bg-white/5 rounded-full transition"
+                            >
                                 <Share2 size={20} />
                             </button>
-                            <button onClick={handleSave} className={`p-2 rounded-full transition ${isSaved ? "text-yellow-400" : "text-white/70 hover:text-yellow-400"}`}>
-                                <Bookmark size={20} className={isSaved ? "fill-current" : ""} />
+                            <button
+                                onClick={handleSave}
+                                className={`p-2 rounded-full transition ${isSaved
+                                        ? "text-yellow-400"
+                                        : "text-white/70 hover:text-yellow-400"
+                                    }`}
+                            >
+                                <Bookmark
+                                    size={20}
+                                    className={isSaved ? "fill-current" : ""}
+                                />
                             </button>
                         </div>
                     </div>
 
-                    {/* Comments Section */}
+                    {/* COMMENTS */}
                     {showComments && (
                         <div className="mt-4 pt-4 border-t border-white/10">
                             <div className="space-y-3 max-h-60 overflow-y-auto mb-4">
                                 {comments.length === 0 ? (
-                                    <p className="text-white/40 text-center py-4">No comments yet</p>
+                                    <p className="text-white/40 text-center py-4">
+                                        No comments yet
+                                    </p>
                                 ) : (
                                     comments.map((comment, idx) => (
                                         <div key={comment._id || idx} className="flex gap-3">
                                             <img
-                                                src={comment.avatar || "/defaults/default-avatar.png"}
+                                                src={resolveAvatar(
+                                                    comment.avatar ||
+                                                    comment.user?.avatar
+                                                )}
                                                 alt=""
                                                 className="w-8 h-8 rounded-full object-cover"
-                                                onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                                onError={(e) => {
+                                                    e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
+                                                }}
                                             />
                                             <div className="flex-1 bg-white/5 rounded-xl px-3 py-2">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="font-semibold text-sm text-white">{comment.username}</span>
-                                                    <span className="text-xs text-white/40">{formatDate(comment.createdAt)}</span>
+                                                    <span className="font-semibold text-sm text-white">
+                                                        {comment.username ||
+                                                            comment.user?.username ||
+                                                            "User"}
+                                                    </span>
+                                                    <span className="text-xs text-white/40">
+                                                        {formatDate(comment.createdAt)}
+                                                    </span>
                                                 </div>
-                                                <p className="text-white/80 text-sm">{comment.text}</p>
+                                                <p className="text-white/80 text-sm">
+                                                    {comment.text}
+                                                </p>
                                             </div>
                                         </div>
                                     ))
@@ -633,10 +901,12 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                             {currentUser && (
                                 <form onSubmit={handleComment} className="flex gap-2">
                                     <img
-                                        src={currentUser.avatar || "/defaults/default-avatar.png"}
+                                        src={resolveAvatar(currentUser.avatar)}
                                         alt=""
                                         className="w-8 h-8 rounded-full object-cover"
-                                        onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                        onError={(e) => {
+                                            e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
+                                        }}
                                     />
                                     <input
                                         type="text"
@@ -659,8 +929,19 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                 </div>
             </article>
 
-            <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} postUrl={postUrl} postTitle={postTitle} />
-            <DeleteModal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} onConfirm={handleDelete} isDeleting={isDeleting} />
+            {/* MODALS */}
+            <ShareModal
+                isOpen={showShareModal}
+                onClose={() => setShowShareModal(false)}
+                postUrl={postUrl}
+                postTitle={postTitle}
+            />
+            <DeleteModal
+                isOpen={showDeleteModal}
+                onClose={() => setShowDeleteModal(false)}
+                onConfirm={handleDelete}
+                isDeleting={isDeleting}
+            />
         </>
     );
 }

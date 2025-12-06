@@ -1,5 +1,7 @@
 // src/components/UploadPage.jsx
-// Migrated to world-studio.live with Sell/Buy Content Feature
+// World-Studio.live - Upload & Sell Content (Universe Edition)
+// Engineered for Commander Sandro Menzies by AIRPATH
+
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
@@ -8,19 +10,22 @@ import axios from "axios";
 // ===========================================
 // API CONFIGURATION - ACTIVE SERVER
 // ===========================================
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
+const API_BASE_URL =
+    (typeof import.meta !== "undefined" &&
+        import.meta.env &&
+        import.meta.env.VITE_API_URL?.replace(/\/$/, "")) ||
+    "https://world-studio-production.up.railway.app";
 
-// Create axios instance with auth header
+// Axios instance with auth
 const api = axios.create({
     baseURL: API_BASE_URL,
-    headers: {
-        "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
 });
 
-// Add token to requests
+
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
+    const token =
+        localStorage.getItem("ws_token") || localStorage.getItem("token");
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
@@ -110,18 +115,36 @@ const CATEGORIES = [
 ];
 
 const LICENSE_TYPES = [
-    { id: "personal", name: "Personal Use", description: "Buyer can use for personal projects only", icon: "👤" },
-    { id: "commercial", name: "Commercial Use", description: "Buyer can use for commercial projects", icon: "💼" },
-    { id: "exclusive", name: "Exclusive Rights", description: "Full exclusive rights transfer to buyer", icon: "👑" },
+    {
+        id: "personal",
+        name: "Personal Use",
+        description: "Buyer can use for personal projects only",
+        icon: "👤",
+    },
+    {
+        id: "commercial",
+        name: "Commercial Use",
+        description: "Buyer can use for commercial projects",
+        icon: "💼",
+    },
+    {
+        id: "exclusive",
+        name: "Exclusive Rights",
+        description: "Full exclusive rights transfer to buyer",
+        icon: "👑",
+    },
 ];
 
+// ===========================================
+// COMPONENT
+// ===========================================
 export default function UploadPage() {
     const navigate = useNavigate();
 
-    // User state
+
     const [currentUser, setCurrentUser] = useState(null);
 
-    // Form state
+
     const [file, setFile] = useState(null);
     const [preview, setPreview] = useState(null);
     const [title, setTitle] = useState("");
@@ -131,35 +154,36 @@ export default function UploadPage() {
     const [tags, setTags] = useState([]);
     const [tagInput, setTagInput] = useState("");
 
-    // Pricing state
+    // pricing
     const [isFree, setIsFree] = useState(true);
     const [price, setPrice] = useState("");
     const [licenseType, setLicenseType] = useState("personal");
     const [allowCommercial, setAllowCommercial] = useState(false);
 
-    // Upload state
+    // state
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState("");
     const [uploadProgress, setUploadProgress] = useState(0);
 
-    // Load user from localStorage
+    // Load user
     useEffect(() => {
         const storedUser = localStorage.getItem("ws_currentUser");
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
             } catch (e) {
-                console.error("Failed to parse user:", e);
+                console.error("Failed to parse ws_currentUser:", e);
             }
         }
     }, []);
 
-    // Clean preview URL on unmount
-    useEffect(() => {
-        return () => {
+    // Clean preview
+    useEffect(
+        () => () => {
             if (preview) URL.revokeObjectURL(preview);
-        };
-    }, [preview]);
+        },
+        [preview]
+    );
 
     // Reset file when type changes
     useEffect(() => {
@@ -168,28 +192,68 @@ export default function UploadPage() {
         setError("");
     }, [type]);
 
+    // ===========================================
+    // HELPERS
+    // ===========================================
+    const formatFileSize = (bytes) => {
+        if (!bytes) return "0 B";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+        return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    };
+
+    const calculateEarnings = () => {
+        const priceNum = parseFloat(price) || 0;
+        const platformFee = priceNum * 0.15;
+        const earnings = priceNum - platformFee;
+        return earnings.toFixed(2);
+    };
+
+    // Tags
+    const addTag = () => {
+        const tag = tagInput.trim().toLowerCase();
+        if (tag && !tags.includes(tag) && tags.length < 10) {
+            setTags((prev) => [...prev, tag]);
+            setTagInput("");
+        }
+    };
+
+    const removeTag = (tagToRemove) => {
+        setTags((prev) => prev.filter((t) => t !== tagToRemove));
+    };
+
+    const handleTagKeyDown = (e) => {
+        if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            addTag();
+        }
+    };
+
+    // ===========================================
+    // FILE & FORM
+    // ===========================================
     const handleFileChange = (e) => {
-        const f = e.target.files[0];
+        const f = e.target.files?.[0];
         if (!f) return;
 
         setError("");
 
-        // Size validation (100MB max for paid, 50MB for free)
+
         const maxSizeMB = isFree ? 50 : 100;
         if (f.size / (1024 * 1024) > maxSizeMB) {
             setError(`File exceeds ${maxSizeMB} MB limit.`);
             return;
         }
 
-        // Type validation
+
         const validTypes = {
             image: ["image/jpeg", "image/png", "image/webp", "image/jpg", "image/gif"],
             video: ["video/mp4", "video/webm", "video/quicktime", "video/mov"],
-            audio: ["audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/m4a", "audio/aac"]
+            audio: ["audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/m4a", "audio/aac"],
         };
 
-        const isValidType = validTypes[type].some(t =>
-            f.type === t || f.type.startsWith(type + "/")
+        const isValidType = validTypes[type].some(
+            (t) => f.type === t || f.type.startsWith(type + "/")
         );
 
         if (!isValidType) {
@@ -199,30 +263,12 @@ export default function UploadPage() {
 
         setFile(f);
 
-        // Clean previous preview
+
         if (preview) URL.revokeObjectURL(preview);
         setPreview(URL.createObjectURL(f));
     };
 
-    // Tag handling
-    const addTag = () => {
-        const tag = tagInput.trim().toLowerCase();
-        if (tag && !tags.includes(tag) && tags.length < 10) {
-            setTags([...tags, tag]);
-            setTagInput("");
-        }
-    };
 
-    const removeTag = (tagToRemove) => {
-        setTags(tags.filter(t => t !== tagToRemove));
-    };
-
-    const handleTagKeyDown = (e) => {
-        if (e.key === "Enter" || e.key === ",") {
-            e.preventDefault();
-            addTag();
-        }
-    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -238,9 +284,10 @@ export default function UploadPage() {
             return;
         }
 
-        // Validate price if selling
+        // Validate price for paid content
+        let priceNum = 0;
         if (!isFree) {
-            const priceNum = parseFloat(price);
+            priceNum = parseFloat(price);
             if (isNaN(priceNum) || priceNum < 0.99) {
                 setError("Minimum price is $0.99");
                 return;
@@ -264,23 +311,24 @@ export default function UploadPage() {
             formData.append("category", category);
             formData.append("tags", JSON.stringify(tags));
             formData.append("isFree", isFree.toString());
+            formData.append("isPaid", (!isFree).toString()); // explicit flag for backend
 
-            // Add pricing info if selling
+
             if (!isFree) {
-                formData.append("price", parseFloat(price).toFixed(2));
+                const priceCents = Math.round(priceNum * 100);
+                formData.append("price", priceNum.toFixed(2));   // for display
+                formData.append("priceCents", String(priceCents)); // for Stripe
+                formData.append("currency", "usd");               // or "eur" if jouw backend dat gebruikt
                 formData.append("licenseType", licenseType);
                 formData.append("allowCommercial", allowCommercial.toString());
             }
 
-            // Upload with progress tracking
+
             const response = await api.post("/api/upload", formData, {
-                headers: {
-                    "Content-Type": "multipart/form-data",
-                },
-                onUploadProgress: (progressEvent) => {
-                    const progress = Math.round(
-                        (progressEvent.loaded * 100) / progressEvent.total
-                    );
+                headers: { "Content-Type": "multipart/form-data" },
+                onUploadProgress: (evt) => {
+                    if (!evt.total) return;
+                    const progress = Math.round((evt.loaded * 100) / evt.total);
                     setUploadProgress(progress);
                 },
             });
@@ -298,22 +346,23 @@ export default function UploadPage() {
 
             const successMsg = isFree
                 ? "Content uploaded successfully! 🎉"
-                : `Content listed for sale at $${parseFloat(price).toFixed(2)}! 💰`;
+                : `Content listed for sale at $${priceNum.toFixed(2)}! 💰`;
 
             toast.success(successMsg);
 
-            // Navigate to appropriate page
+            // Navigation – paid content naar shop/marketplace
             setTimeout(() => {
                 if (!isFree) {
-                    navigate("/shop"); // Go to shop if selling
+                    navigate("/shop"); // hier staat later de Stripe “Buy” flow
                 } else {
-                    navigate("/"); // Go to home if free
+                    navigate("/");
                 }
-            }, 1000);
 
+            }, 1000);
         } catch (err) {
             console.error("Upload error:", err);
-            const errorMsg = err.response?.data?.error ||
+            const errorMsg =
+                err.response?.data?.error ||
                 err.response?.data?.message ||
                 "Upload failed. Please try again.";
             setError(errorMsg);
@@ -331,21 +380,9 @@ export default function UploadPage() {
         navigate("/login");
     };
 
-    // File size display helper
-    const formatFileSize = (bytes) => {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-        return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-    };
-
-    // Calculate earnings (platform takes 15%)
-    const calculateEarnings = () => {
-        const priceNum = parseFloat(price) || 0;
-        const platformFee = priceNum * 0.15;
-        const earnings = priceNum - platformFee;
-        return earnings.toFixed(2);
-    };
-
+    // ===========================================
+    // RENDER
+    // ===========================================
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black text-white p-4 md:p-8">
             <div className="max-w-4xl mx-auto">
@@ -356,17 +393,23 @@ export default function UploadPage() {
                             onClick={() => navigate("/")}
                             className="flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/20 rounded-lg hover:bg-white/20 transition"
                         >
-                            <Icons.ArrowLeft /> Back
+                            <Icons.ArrowLeft />
+                            Back
                         </button>
 
                         <div className="flex items-center gap-3">
                             {currentUser && (
                                 <div className="flex items-center gap-2">
                                     <img
-                                        src={currentUser.avatar || `${API_BASE_URL}/defaults/default-avatar.png`}
+                                        src={
+                                            currentUser.avatar ||
+                                            `${API_BASE_URL}/defaults/default-avatar.png`
+                                        }
                                         alt={currentUser.username}
                                         className="w-8 h-8 rounded-full object-cover border border-white/20"
-                                        onError={(e) => e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`}
+                                        onError={(e) => {
+                                            e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
+                                        }}
                                     />
                                     <span className="text-white/60 text-sm hidden sm:block">
                                         {currentUser.username}
@@ -385,8 +428,12 @@ export default function UploadPage() {
 
                 {/* Main Upload Card */}
                 <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 p-6 shadow-xl">
-                    <h1 className="text-2xl font-bold mb-2 text-center">🚀 Upload & Sell Content</h1>
-                    <p className="text-white/60 text-center text-sm mb-6">Share for free or sell your creative work</p>
+                    <h1 className="text-2xl font-bold mb-2 text-center">
+                        🚀 Upload & Sell Content
+                    </h1>
+                    <p className="text-white/60 text-center text-sm mb-6">
+                        Share for free or sell your creative work
+                    </p>
 
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {/* PRICING MODE TOGGLE */}
@@ -399,12 +446,16 @@ export default function UploadPage() {
                                         : "border-white/20 bg-white/5 hover:bg-white/10"
                                     }`}
                             >
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isFree ? "bg-green-500" : "bg-white/10"
-                                    }`}>
+                                <div
+                                    className={`w-12 h-12 rounded-full flex items-center justify-center ${isFree ? "bg-green-500" : "bg-white/10"
+                                        }`}
+                                >
                                     <Icons.Gift />
                                 </div>
                                 <span className="font-semibold">Share Free</span>
-                                <span className="text-xs text-white/50">Free for everyone</span>
+                                <span className="text-xs text-white/50">
+                                    Free for everyone
+                                </span>
                             </button>
 
                             <button
@@ -415,65 +466,90 @@ export default function UploadPage() {
                                         : "border-white/20 bg-white/5 hover:bg-white/10"
                                     }`}
                             >
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${!isFree ? "bg-yellow-500" : "bg-white/10"
-                                    }`}>
+                                <div
+                                    className={`w-12 h-12 rounded-full flex items-center justify-center ${!isFree ? "bg-yellow-500" : "bg-white/10"
+                                        }`}
+                                >
                                     <Icons.Dollar />
                                 </div>
                                 <span className="font-semibold">Sell Content</span>
-                                <span className="text-xs text-white/50">Earn from your work</span>
+                                <span className="text-xs text-white/50">
+                                    Earn from your work
+                                </span>
                             </button>
                         </div>
 
                         {/* TYPE SELECTOR */}
                         <div>
-                            <label className="block text-sm mb-2 text-gray-300">Content Type</label>
+                            <label className="block text-sm mb-2 text-gray-300">
+                                Content Type
+                            </label>
                             <div className="grid grid-cols-3 gap-3">
-                                {[
-                                    { type: "image", icon: <Icons.Image />, label: "Image", color: "blue" },
-                                    { type: "video", icon: <Icons.Video />, label: "Video", color: "green" },
-                                    { type: "audio", icon: <Icons.Music />, label: "Audio", color: "yellow" },
-                                ].map((item) => (
-                                    <button
-                                        key={item.type}
-                                        type="button"
-                                        onClick={() => setType(item.type)}
-                                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition ${type === item.type
-                                                ? `bg-${item.color}-500/20 border-${item.color}-400 text-${item.color}-300`
-                                                : "bg-white/5 border-white/20 text-white/60 hover:bg-white/10"
-                                            }`}
-                                        style={{
-                                            backgroundColor: type === item.type ? `rgba(var(--${item.color}), 0.2)` : undefined,
-                                        }}
-                                    >
-                                        {item.icon}
-                                        <span className="text-sm font-medium">{item.label}</span>
-                                    </button>
-                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => setType("image")}
+                                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition ${type === "image"
+                                            ? "bg-blue-500/20 border-blue-400 text-blue-300"
+                                            : "bg-white/5 border-white/20 text-white/60 hover:bg-white/10"
+                                        }`}
+                                >
+                                    <Icons.Image />
+                                    <span className="text-sm font-medium">
+                                        Image
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setType("video")}
+                                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition ${type === "video"
+                                            ? "bg-green-500/20 border-green-400 text-green-300"
+                                            : "bg-white/5 border-white/20 text-white/60 hover:bg-white/10"
+                                        }`}
+                                >
+                                    <Icons.Video />
+                                    <span className="text-sm font-medium">
+                                        Video
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setType("audio")}
+                                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition ${type === "audio"
+                                            ? "bg-yellow-500/20 border-yellow-400 text-yellow-300"
+                                            : "bg-white/5 border-white/20 text-white/60 hover:bg-white/10"
+                                        }`}
+                                >
+                                    <Icons.Music />
+                                    <span className="text-sm font-medium">
+                                        Audio
+                                    </span>
+                                </button>
                             </div>
                         </div>
 
                         {/* FILE UPLOAD */}
                         <div>
                             <label className="block text-sm mb-2 text-gray-300">
-                                Choose File <span className="text-white/40">(Max {isFree ? "50" : "100"}MB)</span>
+                                Choose File{" "}
+                                <span className="text-white/40">
+                                    (Max {isFree ? "50" : "100"}MB)
+                                </span>
                             </label>
 
-                            <div className="relative">
-                                <input
-                                    type="file"
-                                    accept={
-                                        type === "image"
-                                            ? "image/*"
-                                            : type === "video"
-                                                ? "video/*"
-                                                : "audio/*"
-                                    }
-                                    onChange={handleFileChange}
-                                    className="block w-full text-sm text-gray-300 border-2 border-dashed border-white/20 rounded-xl p-6 bg-white/5 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer hover:border-cyan-500/50 transition"
-                                />
-                            </div>
+                            <input
+                                type="file"
+                                accept={
+                                    type === "image"
+                                        ? "image/*"
+                                        : type === "video"
+                                            ? "video/*"
+                                            : "audio/*"
+                                }
+                                onChange={handleFileChange}
+                                className="block w-full text-sm text-gray-300 border-2 border-dashed border-white/20 rounded-xl p-6 bg-white/5 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer hover:border-cyan-500/50 transition"
+                            />
 
-                            {/* File info */}
+
                             {file && (
                                 <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-xl flex items-center gap-2">
                                     <Icons.Check />
@@ -507,11 +583,21 @@ export default function UploadPage() {
                                                     <Icons.Music />
                                                 </div>
                                                 <div>
-                                                    <p className="font-medium">{file?.name || "Audio File"}</p>
-                                                    <p className="text-sm text-white/50">{formatFileSize(file?.size || 0)}</p>
+                                                    <p className="font-medium">
+                                                        {file?.name || "Audio File"}
+                                                    </p>
+                                                    <p className="text-sm text-white/50">
+                                                        {formatFileSize(
+                                                            file?.size || 0
+                                                        )}
+                                                    </p>
                                                 </div>
                                             </div>
-                                            <audio src={preview} controls className="w-full" />
+                                            <audio
+                                                src={preview}
+                                                controls
+                                                className="w-full"
+                                            />
                                         </div>
                                     )}
                                 </div>
@@ -520,7 +606,9 @@ export default function UploadPage() {
 
                         {/* TITLE */}
                         <div>
-                            <label className="block text-sm mb-2 text-gray-300">Title *</label>
+                            <label className="block text-sm mb-2 text-gray-300">
+                                Title *
+                            </label>
                             <input
                                 type="text"
                                 value={title}
@@ -530,26 +618,36 @@ export default function UploadPage() {
                                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition"
                                 required
                             />
-                            <p className="text-xs text-white/40 mt-1">{title.length}/100</p>
+                            <p className="text-xs text-white/40 mt-1">
+                                {title.length}/100
+                            </p>
                         </div>
 
                         {/* DESCRIPTION */}
                         <div>
-                            <label className="block text-sm mb-2 text-gray-300">Description</label>
+                            <label className="block text-sm mb-2 text-gray-300">
+                                Description
+                            </label>
                             <textarea
                                 value={description}
-                                onChange={(e) => setDescription(e.target.value)}
+                                onChange={(e) =>
+                                    setDescription(e.target.value)
+                                }
                                 rows="3"
                                 maxLength={500}
                                 placeholder="Describe your content..."
                                 className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition resize-none"
                             />
-                            <p className="text-xs text-white/40 mt-1">{description.length}/500</p>
+                            <p className="text-xs text-white/40 mt-1">
+                                {description.length}/500
+                            </p>
                         </div>
 
                         {/* CATEGORY */}
                         <div>
-                            <label className="block text-sm mb-2 text-gray-300">Category</label>
+                            <label className="block text-sm mb-2 text-gray-300">
+                                Category
+                            </label>
                             <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                 {CATEGORIES.map((cat) => (
                                     <button
@@ -561,8 +659,12 @@ export default function UploadPage() {
                                                 : "bg-white/5 border border-white/10 hover:bg-white/10"
                                             }`}
                                     >
-                                        <span className="text-lg">{cat.icon}</span>
-                                        <p className="mt-1 truncate">{cat.name}</p>
+                                        <span className="text-lg">
+                                            {cat.icon}
+                                        </span>
+                                        <p className="mt-1 truncate">
+                                            {cat.name}
+                                        </p>
                                     </button>
                                 ))}
                             </div>
@@ -571,7 +673,8 @@ export default function UploadPage() {
                         {/* TAGS */}
                         <div>
                             <label className="block text-sm mb-2 text-gray-300">
-                                Tags <span className="text-white/40">(up to 10)</span>
+                                Tags{" "}
+                                <span className="text-white/40">(up to 10)</span>
                             </label>
                             <div className="flex gap-2 mb-2 flex-wrap">
                                 {tags.map((tag) => (
@@ -595,7 +698,9 @@ export default function UploadPage() {
                                 <input
                                     type="text"
                                     value={tagInput}
-                                    onChange={(e) => setTagInput(e.target.value)}
+                                    onChange={(e) =>
+                                        setTagInput(e.target.value)
+                                    }
                                     onKeyDown={handleTagKeyDown}
                                     placeholder="Add tag and press Enter..."
                                     className="flex-1 px-4 py-2 rounded-lg bg-white/5 border border-white/20 text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition text-sm"
@@ -604,7 +709,9 @@ export default function UploadPage() {
                                 <button
                                     type="button"
                                     onClick={addTag}
-                                    disabled={!tagInput.trim() || tags.length >= 10}
+                                    disabled={
+                                        !tagInput.trim() || tags.length >= 10
+                                    }
                                     className="px-4 py-2 bg-cyan-500/20 text-cyan-300 rounded-lg hover:bg-cyan-500/30 transition disabled:opacity-50"
                                 >
                                     Add
@@ -612,22 +719,28 @@ export default function UploadPage() {
                             </div>
                         </div>
 
-                        {/* PRICING SECTION (Only for selling) */}
+                        {/* PRICING SECTION (ONLY WHEN SELLING) */}
                         {!isFree && (
                             <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl space-y-4">
                                 <h3 className="font-semibold text-yellow-400 flex items-center gap-2">
                                     <Icons.Dollar /> Pricing Details
                                 </h3>
 
-                                {/* Price Input */}
+                                {/* Price */}
                                 <div>
-                                    <label className="block text-sm mb-2 text-gray-300">Price (USD) *</label>
+                                    <label className="block text-sm mb-2 text-gray-300">
+                                        Price (USD) *
+                                    </label>
                                     <div className="relative">
-                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50">$</span>
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50">
+                                            $
+                                        </span>
                                         <input
                                             type="number"
                                             value={price}
-                                            onChange={(e) => setPrice(e.target.value)}
+                                            onChange={(e) =>
+                                                setPrice(e.target.value)
+                                            }
                                             placeholder="0.00"
                                             min="0.99"
                                             max="9999"
@@ -636,77 +749,127 @@ export default function UploadPage() {
                                             required={!isFree}
                                         />
                                     </div>
-                                    <p className="text-xs text-white/40 mt-1">Min: $0.99 • Max: $9,999</p>
+                                    <p className="text-xs text-white/40 mt-1">
+                                        Min: $0.99 • Max: $9,999
+                                    </p>
                                 </div>
 
-                                {/* Earnings Calculator */}
+                                {/* Earnings */}
                                 {price && parseFloat(price) > 0 && (
                                     <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
                                         <div className="flex justify-between text-sm">
-                                            <span className="text-white/60">Your Price:</span>
-                                            <span>${parseFloat(price).toFixed(2)}</span>
+                                            <span className="text-white/60">
+                                                Your Price:
+                                            </span>
+                                            <span>
+                                                ${parseFloat(price).toFixed(2)}
+                                            </span>
                                         </div>
                                         <div className="flex justify-between text-sm">
-                                            <span className="text-white/60">Platform Fee (15%):</span>
-                                            <span className="text-red-400">-${(parseFloat(price) * 0.15).toFixed(2)}</span>
+                                            <span className="text-white/60">
+                                                Platform Fee (15%):
+                                            </span>
+                                            <span className="text-red-400">
+                                                -
+                                                {(
+                                                    parseFloat(price) * 0.15
+                                                ).toFixed(2)}
+                                            </span>
                                         </div>
                                         <hr className="border-white/10 my-2" />
                                         <div className="flex justify-between font-semibold">
-                                            <span className="text-green-400">You Earn:</span>
-                                            <span className="text-green-400">${calculateEarnings()}</span>
+                                            <span className="text-green-400">
+                                                You Earn:
+                                            </span>
+                                            <span className="text-green-400">
+                                                ${calculateEarnings()}
+                                            </span>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* License Type */}
+                                {/* License */}
                                 <div>
-                                    <label className="block text-sm mb-2 text-gray-300">License Type</label>
+                                    <label className="block text-sm mb-2 text-gray-300">
+                                        License Type
+                                    </label>
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         {LICENSE_TYPES.map((license) => (
                                             <button
                                                 key={license.id}
                                                 type="button"
-                                                onClick={() => setLicenseType(license.id)}
+                                                onClick={() =>
+                                                    setLicenseType(license.id)
+                                                }
                                                 className={`p-3 rounded-lg text-left transition ${licenseType === license.id
                                                         ? "bg-yellow-500/20 border border-yellow-500/50"
                                                         : "bg-white/5 border border-white/10 hover:bg-white/10"
                                                     }`}
                                             >
-                                                <span className="text-xl">{license.icon}</span>
-                                                <p className="font-medium text-sm mt-1">{license.name}</p>
-                                                <p className="text-xs text-white/50 mt-1">{license.description}</p>
+                                                <span className="text-xl">
+                                                    {license.icon}
+                                                </span>
+                                                <p className="font-medium text-sm mt-1">
+                                                    {license.name}
+                                                </p>
+                                                <p className="text-xs text-white/50 mt-1">
+                                                    {license.description}
+                                                </p>
                                             </button>
                                         ))}
                                     </div>
                                 </div>
 
-                                {/* Commercial Use Toggle */}
+                                {/* Commercial toggle */}
                                 <label className="flex items-center gap-3 cursor-pointer">
                                     <div className="relative">
                                         <input
                                             type="checkbox"
                                             checked={allowCommercial}
-                                            onChange={(e) => setAllowCommercial(e.target.checked)}
+                                            onChange={(e) =>
+                                                setAllowCommercial(
+                                                    e.target.checked
+                                                )
+                                            }
                                             className="sr-only"
                                         />
-                                        <div className={`w-12 h-6 rounded-full transition ${allowCommercial ? "bg-green-500" : "bg-white/20"}`}>
-                                            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${allowCommercial ? "translate-x-6" : "translate-x-0.5"} mt-0.5`} />
+                                        <div
+                                            className={`w-12 h-6 rounded-full transition ${allowCommercial
+                                                    ? "bg-green-500"
+                                                    : "bg-white/20"
+                                                }`}
+                                        >
+                                            <div
+                                                className={`w-5 h-5 bg-white rounded-full shadow transition-transform mt-0.5 ${allowCommercial
+                                                        ? "translate-x-6"
+                                                        : "translate-x-0.5"
+                                                    }`}
+                                            />
                                         </div>
                                     </div>
                                     <div>
-                                        <p className="font-medium text-sm">Allow Commercial Use</p>
-                                        <p className="text-xs text-white/50">Buyers can use for business purposes</p>
+                                        <p className="font-medium text-sm">
+                                            Allow Commercial Use
+                                        </p>
+                                        <p className="text-xs text-white/50">
+                                            Buyers can use for business
+                                            purposes
+                                        </p>
                                     </div>
                                 </label>
                             </div>
                         )}
 
-                        {/* UPLOAD PROGRESS */}
+                        {/* PROGRESS */}
                         {uploading && uploadProgress > 0 && (
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
-                                    <span className="text-white/60">Uploading...</span>
-                                    <span className="text-cyan-400">{uploadProgress}%</span>
+                                    <span className="text-white/60">
+                                        Uploading...
+                                    </span>
+                                    <span className="text-cyan-400">
+                                        {uploadProgress}%
+                                    </span>
                                 </div>
                                 <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
                                     <div
@@ -717,10 +880,12 @@ export default function UploadPage() {
                             </div>
                         )}
 
-                        {/* ERRORS */}
+                        {/* ERROR */}
                         {error && (
                             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                                <p className="text-red-400 text-sm">⚠️ {error}</p>
+                                <p className="text-red-400 text-sm">
+                                    ⚠️ {error}
+                                </p>
                             </div>
                         )}
 
@@ -737,10 +902,15 @@ export default function UploadPage() {
                         >
                             {uploading ? (
                                 <>
-                                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                                    <svg
+                                        className="animate-spin h-5 w-5"
+                                        viewBox="0 0 24 24"
+                                    >
                                         <circle
                                             className="opacity-25"
-                                            cx="12" cy="12" r="10"
+                                            cx="12"
+                                            cy="12"
+                                            r="10"
                                             stroke="currentColor"
                                             strokeWidth="4"
                                             fill="none"
@@ -769,29 +939,41 @@ export default function UploadPage() {
 
                     {/* TIPS */}
                     <div className="mt-8 p-4 bg-white/5 rounded-xl border border-white/10">
-                        <h3 className="font-semibold mb-3 text-white/80">💡 Upload Tips</h3>
+                        <h3 className="font-semibold mb-3 text-white/80">
+                            💡 Upload Tips
+                        </h3>
                         <div className="grid md:grid-cols-2 gap-4 text-sm text-white/50">
                             <div>
-                                <p className="font-medium text-white/70 mb-1">📸 Images</p>
+                                <p className="font-medium text-white/70 mb-1">
+                                    📸 Images
+                                </p>
                                 <p>JPG, PNG, WebP, GIF supported</p>
                             </div>
                             <div>
-                                <p className="font-medium text-white/70 mb-1">🎬 Videos</p>
+                                <p className="font-medium text-white/70 mb-1">
+                                    🎬 Videos
+                                </p>
                                 <p>MP4, WebM, MOV supported</p>
                             </div>
                             <div>
-                                <p className="font-medium text-white/70 mb-1">🎵 Audio</p>
+                                <p className="font-medium text-white/70 mb-1">
+                                    🎵 Audio
+                                </p>
                                 <p>MP3, WAV, OGG, M4A, AAC supported</p>
                             </div>
                             <div>
-                                <p className="font-medium text-white/70 mb-1">💾 File Size</p>
+                                <p className="font-medium text-white/70 mb-1">
+                                    💾 File Size
+                                </p>
                                 <p>Free: 50MB max • Selling: 100MB max</p>
                             </div>
                         </div>
 
                         {!isFree && (
                             <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                                <p className="text-yellow-400 text-sm font-medium">💰 Seller Tips</p>
+                                <p className="text-yellow-400 text-sm font-medium">
+                                    💰 Seller Tips
+                                </p>
                                 <ul className="text-xs text-white/50 mt-1 space-y-1">
                                     <li>• High-quality content sells better</li>
                                     <li>• Add relevant tags for better discovery</li>
@@ -802,7 +984,7 @@ export default function UploadPage() {
                         )}
                     </div>
 
-                    {/* World-Studio Branding */}
+
                     <div className="mt-6 text-center">
                         <p className="text-white/30 text-xs">
                             🌍 World-Studio.live • Create • Share • Earn

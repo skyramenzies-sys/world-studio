@@ -1,20 +1,88 @@
 // backend/middleware/auth.js
-// World-Studio.live - Authentication Middleware
+// World-Studio.live - Authentication Middleware (UNIVERSE EDITION 🚀)
 // Handles JWT verification, user loading, and role-based access control
 
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
+const isProduction = process.env.NODE_ENV === "production";
+
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const JWT_SECRET = process.env.JWT_SECRET;
-const TOKEN_EXPIRY_GRACE_PERIOD = 5 * 60; // 5 minutes grace period for expiring tokens
+let JWT_SECRET = process.env.JWT_SECRET;
+const TOKEN_EXPIRY_GRACE_PERIOD = 5 * 60; // 5 minutes grace period (reserved for future use)
 
+// Strict handling in production, softer in dev
 if (!JWT_SECRET) {
-    console.error("❌ JWT_SECRET is not defined in environment variables!");
-    throw new Error("JWT_SECRET must be defined");
+    if (isProduction) {
+        console.error("❌ JWT_SECRET is not defined in environment variables (PRODUCTION)!");
+        throw new Error("JWT_SECRET must be defined in production");
+    } else {
+        console.warn(
+            "⚠️ JWT_SECRET missing. Using DEV fallback secret. DO NOT use this in production!"
+        );
+        JWT_SECRET = "world-studio-dev-secret";
+    }
 }
+
+// ===========================================
+// INTERNAL HELPERS
+// ===========================================
+
+/**
+ * Extract Bearer token from headers or cookies
+ * @param {Request} req
+ * @returns {string|null}
+ */
+const getTokenFromRequest = (req) => {
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.split(" ")[1];
+        if (token && token !== "null" && token !== "undefined") {
+            return token;
+        }
+    }
+
+    // Optional: support token from cookies (e.g. HTTP-only)
+    if (req.cookies && req.cookies.token) {
+        const token = req.cookies.token;
+        if (token && token !== "null" && token !== "undefined") {
+            return token;
+        }
+    }
+
+    return null;
+};
+
+/**
+ * Central admin check
+ * @param {User} user
+ * @returns {boolean}
+ */
+const isAdminUser = (user) => {
+    if (!user) return false;
+    return (
+        user.role === "admin" ||
+        user.isAdmin === true ||
+        user.email === "menziesalm@gmail.com"
+    );
+};
+
+/**
+ * Check if user has any of the given roles
+ * @param {User} user
+ * @param {string[]} roles
+ * @returns {boolean}
+ */
+const hasRole = (user, roles = []) => {
+    if (!user) return false;
+    if (isAdminUser(user)) return true; // admin always ok
+
+    const userRole = user.role || "user";
+    return roles.includes(userRole);
+};
 
 // ===========================================
 // MAIN AUTH MIDDLEWARE
@@ -23,31 +91,20 @@ if (!JWT_SECRET) {
 /**
  * Authentication middleware
  * Verifies JWT token and attaches user to request
- * 
+ *
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {Function} next - Express next function
  */
 const auth = async (req, res, next) => {
     try {
-        // Get token from header
-        const authHeader = req.headers.authorization || req.headers.Authorization;
+        const token = getTokenFromRequest(req);
 
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        if (!token) {
             return res.status(401).json({
                 success: false,
                 error: "No token provided",
-                code: "NO_TOKEN"
-            });
-        }
-
-        const token = authHeader.split(" ")[1];
-
-        if (!token || token === "null" || token === "undefined") {
-            return res.status(401).json({
-                success: false,
-                error: "Invalid token format",
-                code: "INVALID_TOKEN_FORMAT"
+                code: "NO_TOKEN",
             });
         }
 
@@ -61,24 +118,29 @@ const auth = async (req, res, next) => {
                     success: false,
                     error: "Token expired",
                     code: "TOKEN_EXPIRED",
-                    expiredAt: jwtError.expiredAt
+                    expiredAt: jwtError.expiredAt,
                 });
             }
             if (jwtError.name === "JsonWebTokenError") {
                 return res.status(401).json({
                     success: false,
                     error: "Invalid token",
-                    code: "INVALID_TOKEN"
+                    code: "INVALID_TOKEN",
                 });
             }
-            throw jwtError;
+            console.error("❌ JWT verify error:", jwtError);
+            return res.status(401).json({
+                success: false,
+                error: "Authentication failed",
+                code: "AUTH_FAILED",
+            });
         }
 
         if (!decoded || !decoded.id) {
             return res.status(401).json({
                 success: false,
                 error: "Invalid token payload",
-                code: "INVALID_PAYLOAD"
+                code: "INVALID_PAYLOAD",
             });
         }
 
@@ -89,18 +151,22 @@ const auth = async (req, res, next) => {
             return res.status(401).json({
                 success: false,
                 error: "User not found",
-                code: "USER_NOT_FOUND"
+                code: "USER_NOT_FOUND",
             });
         }
 
-        // Check if user is banned
-        if (user.banned || user.status === "banned") {
-            return res.status(403).json({
-                success: false,
-                error: "Account has been suspended",
-                code: "ACCOUNT_BANNED",
-                reason: user.banReason || "Violation of terms of service"
-            });
+        // ✅ FIXED: Check if user is banned (uses isBanned / bannedUntil from your schema)
+        if (user.isBanned || user.status === "banned") {
+            // Als er een einddatum is en die ligt in de toekomst => ban actief
+            if (!user.bannedUntil || user.bannedUntil > new Date()) {
+                return res.status(403).json({
+                    success: false,
+                    error: "Account has been suspended",
+                    code: "ACCOUNT_BANNED",
+                    reason: user.banReason || "Violation of terms of service",
+                    bannedUntil: user.bannedUntil || null,
+                });
+            }
         }
 
         // Check if user is deactivated
@@ -108,7 +174,7 @@ const auth = async (req, res, next) => {
             return res.status(403).json({
                 success: false,
                 error: "Account has been deactivated",
-                code: "ACCOUNT_DEACTIVATED"
+                code: "ACCOUNT_DEACTIVATED",
             });
         }
 
@@ -118,19 +184,19 @@ const auth = async (req, res, next) => {
         req.token = token;
         req.tokenExp = decoded.exp;
 
-        // Update last active timestamp (don't await, fire and forget)
+        // Update last active timestamp (fire & forget)
         User.findByIdAndUpdate(user._id, {
             lastActive: new Date(),
-            lastIp: req.ip || req.connection?.remoteAddress
-        }).catch(() => { }); // Silently ignore errors
+            lastIp: req.ip || req.connection?.remoteAddress,
+        }).catch(() => { });
 
         next();
     } catch (err) {
-        console.error("❌ Auth middleware error:", err.message);
+        console.error("❌ Auth middleware error:", err);
         return res.status(401).json({
             success: false,
             error: "Authentication failed",
-            code: "AUTH_FAILED"
+            code: "AUTH_FAILED",
         });
     }
 };
@@ -141,22 +207,16 @@ const auth = async (req, res, next) => {
 
 /**
  * Optional authentication middleware
- * Attaches user if token is valid, but doesn't block if no token
+ * Attaches user if token is valid, but doesn't block if no/invalid token
  * Useful for public routes that show extra info for logged-in users
  */
 const optionalAuth = async (req, res, next) => {
     try {
-        const authHeader = req.headers.authorization || req.headers.Authorization;
+        const token = getTokenFromRequest(req);
 
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        if (!token) {
             req.user = null;
-            return next();
-        }
-
-        const token = authHeader.split(" ")[1];
-
-        if (!token || token === "null" || token === "undefined") {
-            req.user = null;
+            req.userId = null;
             return next();
         }
 
@@ -165,18 +225,35 @@ const optionalAuth = async (req, res, next) => {
 
             if (decoded && decoded.id) {
                 const user = await User.findById(decoded.id).select("-password");
-                req.user = user || null;
-                req.userId = user?._id || null;
+                if (user) {
+                    req.user = user;
+                    req.userId = user._id;
+                    req.token = token;
+                    req.tokenExp = decoded.exp;
+
+                    // Async lastActive update
+                    User.findByIdAndUpdate(user._id, {
+                        lastActive: new Date(),
+                        lastIp: req.ip || req.connection?.remoteAddress,
+                    }).catch(() => { });
+                } else {
+                    req.user = null;
+                    req.userId = null;
+                }
             } else {
                 req.user = null;
+                req.userId = null;
             }
-        } catch (jwtError) {
+        } catch {
+            // Token invalid/expired → gewoon als guest verder
             req.user = null;
+            req.userId = null;
         }
 
         next();
     } catch (err) {
         req.user = null;
+        req.userId = null;
         next();
     }
 };
@@ -194,20 +271,16 @@ const adminOnly = (req, res, next) => {
         return res.status(401).json({
             success: false,
             error: "Authentication required",
-            code: "AUTH_REQUIRED"
+            code: "AUTH_REQUIRED",
         });
     }
 
-    const isAdmin =
-        req.user.role === "admin" ||
-        req.user.isAdmin === true ||
-        req.user.email === "menziesalm@gmail.com"; // Hardcoded admin
 
-    if (!isAdmin) {
+    if (!isAdminUser(req.user)) {
         return res.status(403).json({
             success: false,
             error: "Admin access required",
-            code: "ADMIN_REQUIRED"
+            code: "ADMIN_REQUIRED",
         });
     }
 
@@ -223,22 +296,20 @@ const modOrAdmin = (req, res, next) => {
         return res.status(401).json({
             success: false,
             error: "Authentication required",
-            code: "AUTH_REQUIRED"
+            code: "AUTH_REQUIRED",
         });
     }
 
     const hasAccess =
-        req.user.role === "admin" ||
+        isAdminUser(req.user) ||
         req.user.role === "moderator" ||
-        req.user.isAdmin === true ||
-        req.user.isModerator === true ||
-        req.user.email === "menziesalm@gmail.com";
+        req.user.isModerator === true;
 
     if (!hasAccess) {
         return res.status(403).json({
             success: false,
             error: "Moderator access required",
-            code: "MOD_REQUIRED"
+            code: "MOD_REQUIRED",
         });
     }
 
@@ -254,13 +325,14 @@ const creatorOnly = (req, res, next) => {
         return res.status(401).json({
             success: false,
             error: "Authentication required",
-            code: "AUTH_REQUIRED"
+            code: "AUTH_REQUIRED",
         });
     }
 
     const isCreator =
+        isAdminUser(req.user) ||
         req.user.role === "creator" ||
-        req.user.role === "admin" ||
+
         req.user.isVerified === true ||
         req.user.isCreator === true;
 
@@ -268,7 +340,7 @@ const creatorOnly = (req, res, next) => {
         return res.status(403).json({
             success: false,
             error: "Creator status required",
-            code: "CREATOR_REQUIRED"
+            code: "CREATOR_REQUIRED",
         });
     }
 
@@ -277,7 +349,7 @@ const creatorOnly = (req, res, next) => {
 
 /**
  * Factory function for role-based access
- * @param {string[]} allowedRoles - Array of allowed roles
+ * @param {...string} allowedRoles - Array of allowed roles
  * @returns {Function} - Middleware function
  */
 const requireRole = (...allowedRoles) => {
@@ -286,28 +358,23 @@ const requireRole = (...allowedRoles) => {
             return res.status(401).json({
                 success: false,
                 error: "Authentication required",
-                code: "AUTH_REQUIRED"
+                code: "AUTH_REQUIRED",
             });
+        }
+
+        if (hasRole(req.user, allowedRoles)) {
+            return next();
         }
 
         const userRole = req.user.role || "user";
 
-        // Admin always has access
-        if (userRole === "admin" || req.user.email === "menziesalm@gmail.com") {
-            return next();
-        }
-
-        if (!allowedRoles.includes(userRole)) {
-            return res.status(403).json({
-                success: false,
-                error: `Required role: ${allowedRoles.join(" or ")}`,
-                code: "INSUFFICIENT_ROLE",
-                requiredRoles: allowedRoles,
-                userRole
-            });
-        }
-
-        next();
+        return res.status(403).json({
+            success: false,
+            error: `Required role: ${allowedRoles.join(" or ")}`,
+            code: "INSUFFICIENT_ROLE",
+            requiredRoles: allowedRoles,
+            userRole,
+        });
     };
 };
 
@@ -326,7 +393,7 @@ const ownerOnly = (getResourceOwnerId) => {
             return res.status(401).json({
                 success: false,
                 error: "Authentication required",
-                code: "AUTH_REQUIRED"
+                code: "AUTH_REQUIRED",
             });
         }
 
@@ -337,28 +404,28 @@ const ownerOnly = (getResourceOwnerId) => {
                 return res.status(404).json({
                     success: false,
                     error: "Resource not found",
-                    code: "RESOURCE_NOT_FOUND"
+                    code: "RESOURCE_NOT_FOUND",
                 });
             }
 
             const isOwner = req.user._id.toString() === ownerId.toString();
-            const isAdmin = req.user.role === "admin" || req.user.email === "menziesalm@gmail.com";
+            const isAdmin = isAdminUser(req.user);
 
             if (!isOwner && !isAdmin) {
                 return res.status(403).json({
                     success: false,
                     error: "You don't have permission to access this resource",
-                    code: "NOT_OWNER"
+                    code: "NOT_OWNER",
                 });
             }
 
             next();
         } catch (err) {
-            console.error("Owner check error:", err);
+            console.error("❌ Owner check error:", err);
             return res.status(500).json({
                 success: false,
                 error: "Error checking ownership",
-                code: "OWNERSHIP_CHECK_FAILED"
+                code: "OWNERSHIP_CHECK_FAILED",
             });
         }
     };
@@ -379,7 +446,7 @@ const rateLimit = (options = {}) => {
         windowMs = 60 * 1000, // 1 minute
         max = 100, // max requests per window
         message = "Too many requests, please try again later",
-        keyGenerator = (req) => req.user?._id?.toString() || req.ip
+        keyGenerator = (req) => req.user?._id?.toString() || req.ip,
     } = options;
 
     return (req, res, next) => {
@@ -408,7 +475,7 @@ const rateLimit = (options = {}) => {
                 success: false,
                 error: message,
                 code: "RATE_LIMITED",
-                retryAfter: Math.ceil((record.resetTime - now) / 1000)
+                retryAfter: Math.ceil((record.resetTime - now) / 1000),
             });
         }
 
@@ -442,7 +509,7 @@ const generateToken = (payload, expiresIn = "7d") => {
 const verifyToken = (token) => {
     try {
         return jwt.verify(token, JWT_SECRET);
-    } catch (err) {
+    } catch {
         return null;
     }
 };
@@ -455,7 +522,7 @@ const verifyToken = (token) => {
 const decodeToken = (token) => {
     try {
         return jwt.decode(token);
-    } catch (err) {
+    } catch {
         return null;
     }
 };
@@ -477,3 +544,5 @@ module.exports.rateLimit = rateLimit;
 module.exports.generateToken = generateToken;
 module.exports.verifyToken = verifyToken;
 module.exports.decodeToken = decodeToken;
+module.exports.isAdminUser = isAdminUser;
+module.exports.hasRole = hasRole;

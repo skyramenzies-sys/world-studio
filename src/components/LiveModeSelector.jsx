@@ -1,4 +1,4 @@
-// src/components/LiveModeSelector.jsx - WORLD STUDIO LIVE EDITION 🎬
+// src/components/LiveModeSelector.jsx - WORLD STUDIO LIVE EDITION 🎬 (U.E.)
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
@@ -6,10 +6,14 @@ import axios from "axios";
 import { io } from "socket.io-client";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (U.E.)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+const SOCKET_URL = API_BASE_URL;
 
 // Create API instance
 const api = axios.create({
@@ -26,7 +30,9 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
-// Socket connection (singleton)
+/* ============================================================
+   SOCKET (singleton)
+   ============================================================ */
 let socket = null;
 const getSocket = () => {
     if (!socket) {
@@ -114,7 +120,11 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
         }
         return () => {
             if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current.getTracks().forEach((track) => track.stop());
+                streamRef.current = null;
+            }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
             }
         };
     }, [step, selectedMode]);
@@ -122,7 +132,11 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
     const setupCamera = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+                video: {
+                    facingMode: "user",
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                },
                 audio: true,
             });
             streamRef.current = stream;
@@ -132,13 +146,16 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
             setCameraReady(true);
         } catch (err) {
             console.error("Camera access error:", err);
+            setCameraReady(false);
             toast.error("Could not access camera. Please check permissions.");
         }
     };
 
     // Generate room ID
     const generateRoomId = () => {
-        return `${currentUser?.username || "room"}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        return `${currentUser?.username || "room"}_${Date.now()}_${Math.random()
+            .toString(36)
+            .substring(7)}`;
     };
 
     // Start stream
@@ -171,9 +188,11 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                 hostAvatar: currentUser.avatar,
             });
 
+            const streamData = res.data || {};
+
             // Emit to socket
             socketRef.current?.emit("stream_started", {
-                streamId: res.data._id || roomId,
+                streamId: streamData._id || roomId,
                 roomId,
                 title: title.trim(),
                 category,
@@ -188,7 +207,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
             // Callback
             if (onStartLive) {
                 onStartLive({
-                    ...res.data,
+                    ...streamData,
                     mode: selectedMode,
                     title: title.trim(),
                     category,
@@ -196,7 +215,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                     roomId,
                 });
             } else {
-                navigate(`/live/${res.data._id || roomId}`);
+                navigate(`/live/${streamData._id || roomId}`);
             }
         } catch (err) {
             console.error("Failed to start live:", err);
@@ -211,15 +230,13 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
             {/* Header */}
             <div className="p-4 flex items-center gap-4 border-b border-white/10">
                 <button
-                    onClick={() => step === 1 ? navigate(-1) : setStep(1)}
+                    onClick={() => (step === 1 ? navigate(-1) : setStep(1))}
                     className="p-2 hover:bg-white/10 rounded-full transition"
                 >
                     ←
                 </button>
                 <h1 className="text-xl font-bold">Go Live</h1>
-                <div className="ml-auto text-sm text-white/60">
-                    Step {step}/2
-                </div>
+                <div className="ml-auto text-sm text-white/60">Step {step}/2</div>
             </div>
 
             {step === 1 ? (
@@ -236,8 +253,8 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                     setStep(2);
                                 }}
                                 className={`w-full p-4 rounded-2xl border-2 transition-all text-left relative overflow-hidden ${selectedMode === mode.id
-                                    ? "border-cyan-400 bg-white/10"
-                                    : "border-white/10 hover:border-white/30 hover:bg-white/5"
+                                        ? "border-cyan-400 bg-white/10"
+                                        : "border-white/10 hover:border-white/30 hover:bg-white/5"
                                     }`}
                             >
                                 {mode.featured && (
@@ -247,12 +264,16 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                 )}
 
                                 <div className="flex items-center gap-4">
-                                    <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${mode.color} flex items-center justify-center text-2xl`}>
+                                    <div
+                                        className={`w-14 h-14 rounded-xl bg-gradient-to-br ${mode.color} flex items-center justify-center text-2xl`}
+                                    >
                                         {mode.icon}
                                     </div>
                                     <div>
                                         <h3 className="font-bold text-lg">{mode.name}</h3>
-                                        <p className="text-white/50 text-sm">{mode.description}</p>
+                                        <p className="text-white/50 text-sm">
+                                            {mode.description}
+                                        </p>
                                     </div>
                                 </div>
                             </button>
@@ -273,8 +294,8 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                     <div
                                         key={i}
                                         className={`aspect-square rounded-lg flex items-center justify-center text-sm ${i === 0
-                                            ? "bg-gradient-to-br from-yellow-500/30 to-orange-500/30 border border-yellow-500/50"
-                                            : "bg-white/10 border border-white/10"
+                                                ? "bg-gradient-to-br from-yellow-500/30 to-orange-500/30 border border-yellow-500/50"
+                                                : "bg-white/10 border border-white/10"
                                             }`}
                                     >
                                         {i === 0 ? "👑" : "🪑"}
@@ -292,7 +313,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                             className="w-1 bg-cyan-400 rounded-full animate-pulse"
                                             style={{
                                                 height: `${20 + Math.random() * 30}px`,
-                                                animationDelay: `${i * 0.1}s`
+                                                animationDelay: `${i * 0.1}s`,
                                             }}
                                         />
                                     ))}
@@ -323,13 +344,16 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
 
                         {/* Mode badge */}
                         <div className="absolute top-3 left-3 px-3 py-1 bg-black/50 backdrop-blur rounded-full text-sm flex items-center gap-2">
-                            <span>{LIVE_MODES.find(m => m.id === selectedMode)?.icon}</span>
-                            <span>{LIVE_MODES.find(m => m.id === selectedMode)?.name}</span>
+                            <span>{LIVE_MODES.find((m) => m.id === selectedMode)?.icon}</span>
+                            <span>{LIVE_MODES.find((m) => m.id === selectedMode)?.name}</span>
                         </div>
 
                         {/* Camera status */}
                         {selectedMode !== "audio" && (
-                            <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs ${cameraReady ? "bg-green-500/80" : "bg-yellow-500/80"}`}>
+                            <div
+                                className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs ${cameraReady ? "bg-green-500/80" : "bg-yellow-500/80"
+                                    }`}
+                            >
                                 {cameraReady ? "📷 Ready" : "⏳ Loading..."}
                             </div>
                         )}
@@ -337,18 +361,27 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                         {/* Avatar overlay */}
                         <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
                             <img
-                                src={currentUser?.avatar || "/defaults/default-avatar.png"}
+                                src={
+                                    currentUser?.avatar ||
+                                    "/defaults/default-avatar.png"
+                                }
                                 alt=""
                                 className="w-8 h-8 rounded-full object-cover border border-white/20"
-                                onError={(e) => { e.target.src = "/defaults/default-avatar.png"; }}
+                                onError={(e) => {
+                                    e.target.src = "/defaults/default-avatar.png";
+                                }}
                             />
-                            <span className="text-sm font-semibold">{currentUser?.username || "You"}</span>
+                            <span className="text-sm font-semibold">
+                                {currentUser?.username || "You"}
+                            </span>
                         </div>
                     </div>
 
                     {/* Title input */}
                     <div>
-                        <label className="text-sm text-white/50 mb-2 block">Stream Title *</label>
+                        <label className="text-sm text-white/50 mb-2 block">
+                            Stream Title *
+                        </label>
                         <input
                             type="text"
                             value={title}
@@ -357,20 +390,24 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                             maxLength={50}
                             className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 outline-none focus:border-cyan-400 transition"
                         />
-                        <p className="text-xs text-white/40 mt-1 text-right">{title.length}/50</p>
+                        <p className="text-xs text-white/40 mt-1 text-right">
+                            {title.length}/50
+                        </p>
                     </div>
 
                     {/* Categories */}
                     <div>
-                        <label className="text-sm text-white/50 mb-2 block">Category</label>
+                        <label className="text-sm text-white/50 mb-2 block">
+                            Category
+                        </label>
                         <div className="flex flex-wrap gap-2">
                             {CATEGORIES.map((cat) => (
                                 <button
                                     key={cat.id}
                                     onClick={() => setCategory(cat.id)}
                                     className={`px-4 py-2 rounded-full text-sm flex items-center gap-2 transition ${category === cat.id
-                                        ? "bg-cyan-500 text-black font-semibold"
-                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                            ? "bg-cyan-500 text-black font-semibold"
+                                            : "bg-white/10 text-white/70 hover:bg-white/20"
                                         }`}
                                 >
                                     <span>{cat.icon}</span>
@@ -383,15 +420,17 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                     {/* Seat count (multi mode only) */}
                     {selectedMode === "multi" && (
                         <div>
-                            <label className="text-sm text-white/50 mb-2 block">Number of Seats</label>
+                            <label className="text-sm text-white/50 mb-2 block">
+                                Number of Seats
+                            </label>
                             <div className="flex gap-2">
                                 {SEAT_OPTIONS.map((count) => (
                                     <button
                                         key={count}
                                         onClick={() => setSeatCount(count)}
                                         className={`flex-1 py-3 rounded-xl font-bold transition ${seatCount === count
-                                            ? "bg-gradient-to-r from-purple-500 to-pink-500"
-                                            : "bg-white/10 hover:bg-white/20"
+                                                ? "bg-gradient-to-r from-purple-500 to-pink-500"
+                                                : "bg-white/10 hover:bg-white/20"
                                             }`}
                                     >
                                         {count}
@@ -430,7 +469,10 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
             )}
 
             {/* Bottom mode tabs */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-black/80 backdrop-blur-lg border-t border-white/10" style={{ display: step === 1 ? 'block' : 'none' }}>
+            <div
+                className="fixed bottom-0 left-0 right-0 p-4 bg-black/80 backdrop-blur-lg border-t border-white/10"
+                style={{ display: step === 1 ? "block" : "none" }}
+            >
                 <div className="flex justify-center gap-6">
                     {LIVE_MODES.map((mode) => (
                         <button
@@ -438,10 +480,16 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                             onClick={() => {
                                 setSelectedMode(mode.id);
                             }}
-                            className={`text-center transition ${selectedMode === mode.id ? "text-white" : "text-white/40"}`}
+                            className={`text-center transition ${selectedMode === mode.id
+                                    ? "text-white"
+                                    : "text-white/40"
+                                }`}
                         >
                             <span className="text-2xl block">{mode.icon}</span>
-                            <p className={`text-xs mt-1 ${selectedMode === mode.id ? "font-bold" : ""}`}>
+                            <p
+                                className={`text-xs mt-1 ${selectedMode === mode.id ? "font-bold" : ""
+                                    }`}
+                            >
                                 {mode.name.replace(" LIVE", "")}
                             </p>
                             {selectedMode === mode.id && (

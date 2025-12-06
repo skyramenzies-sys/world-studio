@@ -1,31 +1,32 @@
-// src/components/PKBattle.jsx - WORLD STUDIO LIVE EDITION ⚔️
+// src/components/PKBattle.jsx - WORLD STUDIO LIVE ULTIMATE EDITION ⚔️
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import axios from "axios";
+
 import { io } from "socket.io-client";
 
 /* ============================================================
    WORLD STUDIO LIVE CONFIGURATION
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
 
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
+// Basis-URL uit env of fallback
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
 
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
+// Strip eventueel /api en trailing slash
+const BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
-// Socket connection (singleton)
+// Socket URL = zelfde domein
+const SOCKET_URL = BASE_URL;
+
+// Avatar helper
+const resolveAvatar = (url) => {
+    if (!url) return `${BASE_URL}/defaults/default-avatar.png`;
+    if (url.startsWith("http")) return url;
+    return `${BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
+};
+
+// Socket connection (singleton binnen dit bestand)
 let socket = null;
 const getSocket = () => {
     if (!socket) {
@@ -76,16 +77,33 @@ export default function PKBattle({
     // Initialize socket
     useEffect(() => {
         socketRef.current = getSocket();
-        return () => { };
+        return () => {
+            // we laten socket open als global connection
+        };
     }, []);
 
     if (!pk) return null;
 
-    const challengerUser = pk?.challenger?.user || {};
-    const opponentUser = pk?.opponent?.user || {};
+    /* ------------------------------------------------------------
+       NORMALIZE USERS & SCORES
+       ------------------------------------------------------------ */
+    const challengerUserRaw = pk?.challenger?.user || pk?.challenger || {};
+    const opponentUserRaw = pk?.opponent?.user || pk?.opponent || {};
 
-    const challengerScore = pk?.challenger?.score || 0;
-    const opponentScore = pk?.opponent?.score || 0;
+    const challengerUser = {
+        ...challengerUserRaw,
+        _id: challengerUserRaw._id || challengerUserRaw.id,
+        avatar: resolveAvatar(challengerUserRaw.avatar),
+    };
+
+    const opponentUser = {
+        ...opponentUserRaw,
+        _id: opponentUserRaw._id || opponentUserRaw.id,
+        avatar: resolveAvatar(opponentUserRaw.avatar),
+    };
+
+    const challengerScore = pk?.challenger?.score ?? 0;
+    const opponentScore = pk?.opponent?.score ?? 0;
 
     const totalScoreRaw = challengerScore + opponentScore;
     const totalScore = totalScoreRaw > 0 ? totalScoreRaw : 1;
@@ -99,17 +117,21 @@ export default function PKBattle({
 
     const isActive = pk.status === "active";
 
-    // Timer countdown
+    /* ------------------------------------------------------------
+       TIMER
+       ------------------------------------------------------------ */
     useEffect(() => {
         if (pk?.status === "active" && pk?.endTime) {
             const updateTimer = () => {
                 const remaining = Math.max(
                     0,
-                    Math.floor((new Date(pk.endTime) - new Date()) / 1000)
+                    Math.floor(
+                        (new Date(pk.endTime) - new Date()) / 1000
+                    )
                 );
                 setTimeRemaining(remaining);
 
-                if (remaining <= 0) {
+                if (remaining <= 0 && timerRef.current) {
                     clearInterval(timerRef.current);
                 }
             };
@@ -117,29 +139,37 @@ export default function PKBattle({
             updateTimer();
             timerRef.current = setInterval(updateTimer, 1000);
 
-            return () => clearInterval(timerRef.current);
+            return () => {
+                if (timerRef.current) clearInterval(timerRef.current);
+            };
         } else {
             setTimeRemaining(0);
             if (timerRef.current) clearInterval(timerRef.current);
         }
     }, [pk?.endTime, pk?.status]);
 
-    // Show result when pk finishes
+    /* ------------------------------------------------------------
+       RESULT VISIBILITY
+       ------------------------------------------------------------ */
     useEffect(() => {
         if (pk?.status === "finished") {
             setShowResult(true);
         }
     }, [pk?.status]);
 
-    // Format time
+    /* ------------------------------------------------------------
+       HELPERS
+       ------------------------------------------------------------ */
     const formatTime = (seconds) => {
         const s = Math.max(0, seconds || 0);
         const mins = Math.floor(s / 60);
         const secs = s % 60;
-        return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+        return `${mins.toString().padStart(2, "0")}:${secs
+            .toString()
+            .padStart(2, "0")}`;
     };
 
-    // Streak calc
+
     const getStreak = (score1, score2) => {
         if (score1 <= score2) return 0;
         const ratio = score1 / Math.max(score2, 1);
@@ -149,12 +179,21 @@ export default function PKBattle({
         return 0;
     };
 
-    const challengerStreak = getStreak(challengerScore, opponentScore);
-    const opponentStreak = getStreak(opponentScore, challengerScore);
+    const challengerStreak = getStreak(
+        challengerScore,
+        opponentScore
+    );
+    const opponentStreak = getStreak(
+        opponentScore,
+        challengerScore
+    );
 
-    // Send gift handler
+    const challengerId = challengerUser._id;
+    const opponentId = opponentUser._id;
+
     const handleSendGift = (gift) => {
-        if (!selectedTarget || !isActive || timeRemaining <= 0) return;
+        if (!selectedTarget || !isActive || timeRemaining <= 0)
+            return;
 
         setGiftAnimation({
             gift,
@@ -185,26 +224,50 @@ export default function PKBattle({
         setShowGiftPanel(false);
     };
 
-    const selectedUser =
-        selectedTarget === challengerUser?._id
-            ? challengerUser
-            : selectedTarget === opponentUser?._id
-                ? opponentUser
-                : null;
+
 
     const handleOpenGiftPanel = (targetUserId) => {
-        if (!isActive || timeRemaining <= 0) return;
+        if (!isActive || timeRemaining <= 0 || !targetUserId) return;
         setSelectedTarget(targetUserId);
         setShowGiftPanel(true);
     };
+
+    const selectedUser =
+        selectedTarget &&
+        (String(selectedTarget) === String(challengerId)
+            ? challengerUser
+            : String(selectedTarget) === String(opponentId)
+                ? opponentUser
+                : null);
 
     const handleCloseResult = () => {
         setShowResult(false);
         onEndPK?.(pk);
     };
 
-    const isChallengerYou = challengerUser?._id && challengerUser._id === currentUserId;
-    const isOpponentYou = opponentUser?._id && opponentUser._id === currentUserId;
+    const isChallengerYou =
+        challengerId &&
+        currentUserId &&
+        String(challengerId) === String(currentUserId);
+    const isOpponentYou =
+        opponentId &&
+        currentUserId &&
+        String(opponentId) === String(currentUserId);
+
+    // Winner user normaliseren
+    const winnerRaw =
+        pk?.winner?.user || pk?.winner || (challengerWinning
+            ? challengerUser
+            : opponentWinning
+                ? opponentUser
+                : null);
+
+    const winnerUser = winnerRaw
+        ? {
+            ...winnerRaw,
+            avatar: resolveAvatar(winnerRaw.avatar),
+        }
+        : null;
 
     return (
         <div className="relative w-full h-full bg-black overflow-hidden rounded-2xl">
@@ -217,9 +280,15 @@ export default function PKBattle({
                         {challengerStream || (
                             <div className="w-full h-full flex items-center justify-center">
                                 <img
-                                    src={challengerUser.avatar || "/defaults/default-avatar.png"}
+                                    src={
+                                        challengerUser.avatar ||
+                                        `${BASE_URL}/defaults/default-avatar.png`
+                                    }
                                     alt=""
                                     className="w-32 h-32 rounded-full border-4 border-pink-500 object-cover"
+                                    onError={(e) => {
+                                        e.target.src = `${BASE_URL}/defaults/default-avatar.png`;
+                                    }}
                                 />
                             </div>
                         )}
@@ -234,7 +303,9 @@ export default function PKBattle({
                                 exit={{ scale: 0 }}
                                 className="absolute top-16 left-1/2 -translate-x-1/2 z-20"
                             >
-                                <div className="text-6xl animate-bounce">👑</div>
+                                <div className="text-6xl animate-bounce">
+                                    👑
+                                </div>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -247,7 +318,9 @@ export default function PKBattle({
                             className="absolute top-4 right-4 z-20"
                         >
                             <div className="bg-gradient-to-r from-orange-500 to-red-500 px-3 py-1 rounded-full text-white font-bold text-sm flex items-center gap-1">
-                                <span className="text-yellow-300">🔥</span>
+                                <span className="text-yellow-300">
+                                    🔥
+                                </span>
                                 {challengerStreak} Streak
                             </div>
                         </motion.div>
@@ -255,43 +328,66 @@ export default function PKBattle({
 
                     {/* Overpower Effect */}
                     <AnimatePresence>
-                        {challengerScore > opponentScore * 2 && challengerScore > 100 && (
-                            <motion.div
-                                initial={{ scale: 0, rotate: -10 }}
-                                animate={{ scale: 1, rotate: 0 }}
-                                exit={{ scale: 0 }}
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30"
-                            >
-                                <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 px-6 py-2 rounded-lg transform -rotate-12 shadow-2xl">
-                                    <span className="text-white font-black text-2xl italic tracking-wider drop-shadow-lg">
-                                        OVERPOWER
-                                    </span>
-                                </div>
-                            </motion.div>
-                        )}
+                        {challengerScore >
+                            opponentScore * 2 &&
+                            challengerScore > 100 && (
+                                <motion.div
+                                    initial={{
+                                        scale: 0,
+                                        rotate: -10,
+                                    }}
+                                    animate={{
+                                        scale: 1,
+                                        rotate: 0,
+                                    }}
+                                    exit={{ scale: 0 }}
+                                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30"
+                                >
+                                    <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 px-6 py-2 rounded-lg transform -rotate-12 shadow-2xl">
+                                        <span className="text-white font-black text-2xl italic tracking-wider drop-shadow-lg">
+                                            OVERPOWER
+                                        </span>
+                                    </div>
+                                </motion.div>
+                            )}
                     </AnimatePresence>
 
                     {/* Username */}
                     <div className="absolute bottom-4 left-4 z-10">
                         <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full px-3 py-1">
                             <img
-                                src={challengerUser.avatar || "/defaults/default-avatar.png"}
+                                src={
+                                    challengerUser.avatar ||
+                                    `${BASE_URL}/defaults/default-avatar.png`
+                                }
                                 alt=""
                                 className="w-8 h-8 rounded-full border-2 border-pink-500 object-cover"
+                                onError={(e) => {
+                                    e.target.src = `${BASE_URL}/defaults/default-avatar.png`;
+                                }}
                             />
                             <span className="text-white font-semibold text-sm">
-                                {challengerUser.username || "Challenger"}
+                                {challengerUser.username ||
+                                    "Challenger"}
                             </span>
                             {isChallengerYou && (
-                                <span className="text-xs text-cyan-300 font-bold ml-1">(YOU)</span>
+                                <span className="text-xs text-cyan-300 font-bold ml-1">
+                                    (YOU)
+                                </span>
                             )}
                         </div>
                     </div>
 
                     {/* Gift Target Button */}
                     <button
-                        onClick={() => handleOpenGiftPanel(challengerUser._id)}
-                        disabled={!isActive || timeRemaining <= 0}
+                        onClick={() =>
+                            handleOpenGiftPanel(challengerId)
+                        }
+                        disabled={
+                            !isActive ||
+                            timeRemaining <= 0 ||
+                            !challengerId
+                        }
                         className="absolute bottom-4 right-4 z-10 bg-pink-500 hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-full font-semibold text-sm transition-all transform hover:scale-105"
                     >
                         🎁 Support
@@ -305,9 +401,15 @@ export default function PKBattle({
                         {opponentStream || (
                             <div className="w-full h-full flex items-center justify-center">
                                 <img
-                                    src={opponentUser.avatar || "/defaults/default-avatar.png"}
+                                    src={
+                                        opponentUser.avatar ||
+                                        `${BASE_URL}/defaults/default-avatar.png`
+                                    }
                                     alt=""
                                     className="w-32 h-32 rounded-full border-4 border-cyan-500 object-cover"
+                                    onError={(e) => {
+                                        e.target.src = `${BASE_URL}/defaults/default-avatar.png`;
+                                    }}
                                 />
                             </div>
                         )}
@@ -322,7 +424,9 @@ export default function PKBattle({
                                 exit={{ scale: 0 }}
                                 className="absolute top-16 left-1/2 -translate-x-1/2 z-20"
                             >
-                                <div className="text-6xl animate-bounce">👑</div>
+                                <div className="text-6xl animate-bounce">
+                                    👑
+                                </div>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -335,7 +439,9 @@ export default function PKBattle({
                             className="absolute top-4 left-4 z-20"
                         >
                             <div className="bg-gradient-to-r from-orange-500 to-red-500 px-3 py-1 rounded-full text-white font-bold text-sm flex items-center gap-1">
-                                <span className="text-yellow-300">🔥</span>
+                                <span className="text-yellow-300">
+                                    🔥
+                                </span>
                                 {opponentStreak} Streak
                             </div>
                         </motion.div>
@@ -343,20 +449,28 @@ export default function PKBattle({
 
                     {/* Overpower Effect */}
                     <AnimatePresence>
-                        {opponentScore > challengerScore * 2 && opponentScore > 100 && (
-                            <motion.div
-                                initial={{ scale: 0, rotate: 10 }}
-                                animate={{ scale: 1, rotate: 0 }}
-                                exit={{ scale: 0 }}
-                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30"
-                            >
-                                <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 px-6 py-2 rounded-lg transform rotate-12 shadow-2xl">
-                                    <span className="text-white font-black text-2xl italic tracking-wider drop-shadow-lg">
-                                        OVERPOWER
-                                    </span>
-                                </div>
-                            </motion.div>
-                        )}
+                        {opponentScore >
+                            challengerScore * 2 &&
+                            opponentScore > 100 && (
+                                <motion.div
+                                    initial={{
+                                        scale: 0,
+                                        rotate: 10,
+                                    }}
+                                    animate={{
+                                        scale: 1,
+                                        rotate: 0,
+                                    }}
+                                    exit={{ scale: 0 }}
+                                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30"
+                                >
+                                    <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 px-6 py-2 rounded-lg transform rotate-12 shadow-2xl">
+                                        <span className="text-white font-black text-2xl italic tracking-wider drop-shadow-lg">
+                                            OVERPOWER
+                                        </span>
+                                    </div>
+                                </motion.div>
+                            )}
                     </AnimatePresence>
 
                     {/* Username */}
@@ -366,20 +480,34 @@ export default function PKBattle({
                                 {opponentUser.username || "Opponent"}
                             </span>
                             {isOpponentYou && (
-                                <span className="text-xs text-cyan-300 font-bold">(YOU)</span>
+                                <span className="text-xs text-cyan-300 font-bold">
+                                    (YOU)
+                                </span>
                             )}
                             <img
-                                src={opponentUser.avatar || "/defaults/default-avatar.png"}
+                                src={
+                                    opponentUser.avatar ||
+                                    `${BASE_URL}/defaults/default-avatar.png`
+                                }
                                 alt=""
                                 className="w-8 h-8 rounded-full border-2 border-cyan-500 object-cover"
+                                onError={(e) => {
+                                    e.target.src = `${BASE_URL}/defaults/default-avatar.png`;
+                                }}
                             />
                         </div>
                     </div>
 
                     {/* Gift Target Button */}
                     <button
-                        onClick={() => handleOpenGiftPanel(opponentUser._id)}
-                        disabled={!isActive || timeRemaining <= 0}
+                        onClick={() =>
+                            handleOpenGiftPanel(opponentId)
+                        }
+                        disabled={
+                            !isActive ||
+                            timeRemaining <= 0 ||
+                            !opponentId
+                        }
                         className="absolute bottom-4 left-4 z-10 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-full font-semibold text-sm transition-all transform hover:scale-105"
                     >
                         🎁 Support
@@ -393,10 +521,12 @@ export default function PKBattle({
                             <span className="bg-gradient-to-r from-pink-500 to-orange-500 text-white font-black px-2 py-0.5 rounded text-sm">
                                 PK
                             </span>
-                            <span className={`font-mono font-bold text-lg ${timeRemaining <= 30 && isActive
-                                    ? "text-red-400 animate-pulse"
-                                    : "text-white"
-                                }`}>
+                            <span
+                                className={`font-mono font-bold text-lg ${timeRemaining <= 30 && isActive
+                                        ? "text-red-400 animate-pulse"
+                                        : "text-white"
+                                    }`}
+                            >
                                 {formatTime(timeRemaining)}
                             </span>
                         </div>
@@ -412,7 +542,11 @@ export default function PKBattle({
                         className="h-full bg-gradient-to-r from-pink-600 to-pink-400 flex items-center justify-start pl-3"
                         initial={{ width: "50%" }}
                         animate={{ width: `${challengerPercent}%` }}
-                        transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                        transition={{
+                            type: "spring",
+                            stiffness: 100,
+                            damping: 20,
+                        }}
                     >
                         <span className="text-white font-bold text-sm drop-shadow-lg">
                             {challengerScore.toLocaleString()}
@@ -424,7 +558,11 @@ export default function PKBattle({
                         className="h-full bg-gradient-to-l from-cyan-600 to-cyan-400 flex items-center justify-end pr-3"
                         initial={{ width: "50%" }}
                         animate={{ width: `${opponentPercent}%` }}
-                        transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                        transition={{
+                            type: "spring",
+                            stiffness: 100,
+                            damping: 20,
+                        }}
                     >
                         <span className="text-white font-bold text-sm drop-shadow-lg">
                             {opponentScore.toLocaleString()}
@@ -442,7 +580,9 @@ export default function PKBattle({
                         exit={{ scale: 0, opacity: 0 }}
                         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
                     >
-                        <div className="text-8xl">{giftAnimation.gift.emoji}</div>
+                        <div className="text-8xl">
+                            {giftAnimation.gift.emoji}
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -457,9 +597,14 @@ export default function PKBattle({
                         className="absolute bottom-0 left-0 right-0 z-40 bg-gray-900/95 backdrop-blur-lg rounded-t-3xl p-4 border-t border-white/10"
                     >
                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-white font-bold text-lg">Send Gift to {selectedUser.username}</h3>
+                            <h3 className="text-white font-bold text-lg">
+                                Send Gift to{" "}
+                                {selectedUser.username || "Streamer"}
+                            </h3>
                             <button
-                                onClick={() => setShowGiftPanel(false)}
+                                onClick={() =>
+                                    setShowGiftPanel(false)
+                                }
                                 className="text-white/60 hover:text-white text-2xl"
                             >
                                 ×
@@ -470,12 +615,21 @@ export default function PKBattle({
                             {GIFTS.map((gift) => (
                                 <button
                                     key={gift.id}
-                                    onClick={() => handleSendGift(gift)}
-                                    disabled={!isActive || timeRemaining <= 0}
+                                    onClick={() =>
+                                        handleSendGift(gift)
+                                    }
+                                    disabled={
+                                        !isActive ||
+                                        timeRemaining <= 0
+                                    }
                                     className="flex flex-col items-center p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all transform hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
-                                    <span className="text-4xl mb-1">{gift.emoji}</span>
-                                    <span className="text-white/80 text-xs">{gift.name}</span>
+                                    <span className="text-4xl mb-1">
+                                        {gift.emoji}
+                                    </span>
+                                    <span className="text-white/80 text-xs">
+                                        {gift.name}
+                                    </span>
                                     <span className="text-yellow-400 text-xs font-bold flex items-center gap-1">
                                         🪙 {gift.coins}
                                     </span>
@@ -484,7 +638,10 @@ export default function PKBattle({
                         </div>
 
                         <div className="mt-4 text-center text-white/40 text-sm">
-                            Supporting: <span className="font-semibold text-white/80">{selectedUser.username || "Streamer"}</span>
+                            Supporting:{" "}
+                            <span className="font-semibold text-white/80">
+                                {selectedUser.username || "Streamer"}
+                            </span>
                         </div>
                     </motion.div>
                 )}
@@ -504,26 +661,41 @@ export default function PKBattle({
                             animate={{ scale: 1 }}
                             className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl p-8 text-center max-w-sm mx-4 border border-white/10"
                         >
-                            {pk.isDraw ? (
+                            {isDraw ? (
                                 <>
-                                    <div className="text-6xl mb-4">🤝</div>
-                                    <h2 className="text-3xl font-bold text-white mb-2">DRAW!</h2>
-                                    <p className="text-white/60">Both players tied!</p>
+                                    <div className="text-6xl mb-4">
+                                        🤝
+                                    </div>
+                                    <h2 className="text-3xl font-bold text-white mb-2">
+                                        DRAW!
+                                    </h2>
+                                    <p className="text-white/60">
+                                        Both players tied!
+                                    </p>
                                 </>
                             ) : (
                                 <>
-                                    <div className="text-6xl mb-4">🏆</div>
+                                    <div className="text-6xl mb-4">
+                                        🏆
+                                    </div>
                                     <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500 mb-2">
                                         WINNER!
                                     </h2>
                                     <div className="flex items-center justify-center gap-3 mb-4">
                                         <img
-                                            src={pk.winner?.avatar || "/defaults/default-avatar.png"}
+                                            src={
+                                                winnerUser?.avatar ||
+                                                `${BASE_URL}/defaults/default-avatar.png`
+                                            }
                                             alt=""
                                             className="w-16 h-16 rounded-full border-4 border-yellow-500 object-cover"
+                                            onError={(e) => {
+                                                e.target.src = `${BASE_URL}/defaults/default-avatar.png`;
+                                            }}
                                         />
                                         <span className="text-white font-bold text-xl">
-                                            {pk.winner?.username || "Winner"}
+                                            {winnerUser?.username ||
+                                                "Winner"}
                                         </span>
                                     </div>
                                 </>
@@ -531,13 +703,26 @@ export default function PKBattle({
 
                             <div className="flex justify-between mt-6 text-sm">
                                 <div className="text-center">
-                                    <div className="text-pink-400 font-bold">{challengerScore}</div>
-                                    <div className="text-white/40">{challengerUser.username || "Challenger"}</div>
+                                    <div className="text-pink-400 font-bold">
+                                        {challengerScore.toLocaleString()}
+                                    </div>
+                                    <div className="text-white/40">
+                                        {challengerUser.username ||
+                                            "Challenger"}
+                                    </div>
                                 </div>
-                                <div className="text-white/20">VS</div>
+                                <div className="text-white/20">
+                                    VS
+                                </div>
+
                                 <div className="text-center">
-                                    <div className="text-cyan-400 font-bold">{opponentScore}</div>
-                                    <div className="text-white/40">{opponentUser.username || "Opponent"}</div>
+                                    <div className="text-cyan-400 font-bold">
+                                        {opponentScore.toLocaleString()}
+                                    </div>
+                                    <div className="text-white/40">
+                                        {opponentUser.username ||
+                                            "Opponent"}
+                                    </div>
                                 </div>
                             </div>
 

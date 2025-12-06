@@ -1,5 +1,5 @@
 // backend/models/Stream.js
-// World-Studio.live - Stream Model (MASTER EDITION)
+// World-Studio.live - Stream Model (MASTER / UNIVERSE EDITION) 🌍🎥
 
 const mongoose = require("mongoose");
 
@@ -65,7 +65,7 @@ const ViewerRecordSchema = new mongoose.Schema(
         username: String,
         joinedAt: { type: Date, default: Date.now },
         leftAt: Date,
-        watchTime: { type: Number, default: 0 },
+        watchTime: { type: Number, default: 0 }, // seconds
     },
     { _id: false }
 );
@@ -378,8 +378,7 @@ StreamSchema.index({
 
 /**
  * Host virtual (for .populate("host"))
- * This fixes StrictPopulateError for path `host`
- * by mapping it to streamerId -> User.
+ * Fix voor StrictPopulateError op `host`
  */
 StreamSchema.virtual("host", {
     ref: "User",
@@ -447,7 +446,9 @@ StreamSchema.pre("save", function (next) {
 
     // Generate stream key if not set
     if (!this.streamKey && this.isNew) {
-        this.streamKey = `sk_${this._id}_${Math.random().toString(36).substring(2, 15)}`;
+        this.streamKey = `sk_${this._id}_${Math.random()
+            .toString(36)
+            .substring(2, 15)}`;
     }
 
     next();
@@ -604,6 +605,48 @@ StreamSchema.statics.searchStreams = async function (query, limit = 20) {
         .lean();
 };
 
+/**
+ * Admin dashboard stats for streams
+ */
+StreamSchema.statics.getDashboardStats = async function () {
+    const now = new Date();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+    const [live, endedToday, endedWeek, featured] = await Promise.all([
+        this.countDocuments({ isLive: true, status: "live" }),
+        this.countDocuments({ status: "ended", endedAt: { $gte: dayAgo } }),
+        this.countDocuments({ status: "ended", endedAt: { $gte: weekAgo } }),
+        this.countDocuments({ isLive: true, isFeatured: true }),
+    ]);
+
+    // Total viewers on live streams
+    const liveAgg = await this.aggregate([
+        { $match: { isLive: true, status: "live" } },
+        {
+            $group: {
+                _id: null,
+                totalViewers: { $sum: "$viewers" },
+                totalPeak: { $sum: "$peakViewers" },
+            },
+        },
+    ]);
+
+    const liveStats = liveAgg[0] || {
+        totalViewers: 0,
+        totalPeak: 0,
+    };
+
+    return {
+        live,
+        endedToday,
+        endedWeek,
+        featured,
+        totalLiveViewers: liveStats.totalViewers,
+        totalPeakViewers: liveStats.totalPeak,
+    };
+};
+
 // ===========================================
 // INSTANCE METHODS
 // ===========================================
@@ -627,7 +670,9 @@ StreamSchema.methods.end = async function () {
     this.isLive = false;
     this.status = "ended";
     this.endedAt = new Date();
-    this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
+    this.duration = Math.floor(
+        (this.endedAt - this.startedAt) / 1000
+    );
     return this.save();
 };
 
@@ -718,6 +763,51 @@ StreamSchema.methods.isModerator = function (userId) {
     return this.moderators.some(
         (m) => m.toString() === userId.toString()
     );
+};
+
+/**
+ * Record viewer join
+ */
+StreamSchema.methods.recordViewerJoin = function (userId, username) {
+    if (!userId) return this;
+
+    const existing = this.viewerList.find(
+        (v) => v.userId?.toString() === userId.toString() && !v.leftAt
+    );
+
+    if (!existing) {
+        this.viewerList.push({
+            userId,
+            username,
+            joinedAt: new Date(),
+            watchTime: 0,
+        });
+        this.totalUniqueViewers = this.viewerList.length;
+    }
+
+    return this;
+};
+
+/**
+ * Record viewer leave (update watch time)
+ */
+StreamSchema.methods.recordViewerLeave = function (userId) {
+    if (!userId) return this;
+
+    const record = this.viewerList.find(
+        (v) => v.userId?.toString() === userId.toString() && !v.leftAt
+    );
+
+    if (record) {
+        const now = new Date();
+        record.leftAt = now;
+        const diff = Math.floor(
+            (now - record.joinedAt) / 1000
+        );
+        record.watchTime = (record.watchTime || 0) + diff;
+    }
+
+    return this;
 };
 
 // ===========================================

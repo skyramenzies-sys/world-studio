@@ -1,4 +1,4 @@
-// src/components/NotificationsPage.jsx - WORLD STUDIO LIVE EDITION 🔔
+// src/components/NotificationsPage.jsx - WORLD STUDIO LIVE ULTIMATE EDITION 🔔
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
@@ -8,25 +8,41 @@ import { io } from "socket.io-client";
 /* ============================================================
    WORLD STUDIO LIVE CONFIGURATION
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
 
-// Create API instance
+// Basis-URL uit env of fallback
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+// Strip eventueel /api en trailing slash
+const BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+
+// API root (we gebruiken nog steeds /api/... in de routes)
+const API_BASE_URL = BASE_URL;
+
+// Socket URL = zelfde domein
+const SOCKET_URL = BASE_URL;
+
+// Axios instance
 const api = axios.create({
     baseURL: API_BASE_URL,
     headers: { "Content-Type": "application/json" },
 });
 
-// Add auth token to requests
+// Auth token toevoegen
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
+    const token =
+        localStorage.getItem("ws_token") ||
+        localStorage.getItem("token");
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
 });
 
-// Socket connection (singleton)
+/* ============================================================
+   SOCKET SINGLETON
+   ============================================================ */
 let socket = null;
 const getSocket = () => {
     if (!socket) {
@@ -58,66 +74,155 @@ const NOTIFICATION_ICONS = {
     default: "🔔",
 };
 
+const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "unread", label: "Unread" },
+    { id: "gift", label: "🎁 Gifts" },
+    { id: "live", label: "🔴 Live" },
+    { id: "follow", label: "👤 Follows" },
+    { id: "pk", label: "⚔️ PK" },
+];
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+// User ID uit localStorage
+const getUserIdFromStorage = () => {
+    const storedUser = localStorage.getItem("ws_currentUser");
+    if (!storedUser) return null;
+    try {
+        const user = JSON.parse(storedUser);
+        return user._id || user.id || user.userId || null;
+    } catch {
+        return null;
+    }
+};
+
+// Normaliseer 1 notificatie-object
+const normalizeNotification = (n) => {
+    if (!n) return null;
+    const type = n.type || "default";
+
+    return {
+        _id: n._id || n.id || `${Date.now()}-${Math.random()}`,
+        message: n.message || "",
+        type,
+        read: !!n.read,
+        createdAt: n.createdAt || new Date().toISOString(),
+        postId: n.postId,
+        streamId: n.streamId,
+        fromUser: n.fromUser,
+        pkId: n.pkId,
+        amount: n.amount,
+        icon: n.icon,
+        // alles andere gewoon meenemen
+        ...n,
+    };
+};
+
+// Normaliseer array
+const normalizeNotificationList = (list) => {
+    if (!Array.isArray(list)) return [];
+    return list
+        .map(normalizeNotification)
+        .filter(Boolean)
+        .sort(
+            (a, b) =>
+                new Date(b.createdAt) - new Date(a.createdAt)
+        );
+};
+
+// Time ago formatter
+const formatTimeAgo = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "";
+    const now = new Date();
+    const diff = now - date;
+    if (diff < 60000) return "Just now";
+    if (diff < 3600000)
+        return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000)
+        return `${Math.floor(diff / 3600000)}h ago`;
+    if (diff < 604800000)
+        return `${Math.floor(diff / 86400000)}d ago`;
+    return date.toLocaleDateString();
+};
+
 /* ============================================================
    MAIN COMPONENT
    ============================================================ */
 export default function NotificationsPage() {
     const navigate = useNavigate();
     const socketRef = useRef(null);
+
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState("all");
 
-    // Initialize socket
+    /* ------------------------------------------------------------
+       INIT SOCKET
+       ------------------------------------------------------------ */
     useEffect(() => {
         socketRef.current = getSocket();
-        return () => { };
+        return () => {
+            // socket blijft global bestaan
+        };
     }, []);
 
-    // Get user ID helper
-    const getUserId = () => {
-        const storedUser = localStorage.getItem("ws_currentUser");
-        if (!storedUser) return null;
-        try {
-            const user = JSON.parse(storedUser);
-            return user._id || user.id || user.userId;
-        } catch {
-            return null;
-        }
-    };
-
-    // Fetch notifications
+    /* ------------------------------------------------------------
+       FETCH NOTIFICATIONS (INIT)
+       ------------------------------------------------------------ */
     useEffect(() => {
         const fetchNotifications = async () => {
             try {
-                const userId = getUserId();
+                const userId = getUserIdFromStorage();
                 if (!userId) {
                     navigate("/login");
                     return;
                 }
 
-                // Try dedicated notifications endpoint first
+                // 1) Dedicated endpoint
                 try {
-                    const res = await api.get("/api/users/notifications");
-                    const userNotifications = Array.isArray(res.data) ? res.data : res.data.notifications || [];
-                    userNotifications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-                    setNotifications(userNotifications);
+                    const res = await api.get(
+                        "/api/users/notifications"
+                    );
+                    const list = Array.isArray(res.data)
+                        ? res.data
+                        : res.data?.notifications || [];
+                    setNotifications(
+                        normalizeNotificationList(list)
+                    );
                 } catch (err) {
-                    // Fallback to user profile endpoint
-                    console.log("Falling back to user profile for notifications");
+                    console.log(
+                        "Falling back to profile notifications"
+                    );
+                    // 2) Fallback user profile
                     try {
-                        const res = await api.get(`/api/users/${userId}`);
-                        const userNotifications = res.data.notifications || [];
-                        userNotifications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-                        setNotifications(userNotifications);
+                        const res = await api.get(
+                            `/api/users/${userId}`
+                        );
+                        const list =
+                            res.data?.notifications || [];
+                        setNotifications(
+                            normalizeNotificationList(list)
+                        );
                     } catch (profileErr) {
-                        console.error("Profile fallback failed:", profileErr);
+                        console.error(
+                            "Profile fallback failed:",
+                            profileErr
+                        );
                         setNotifications([]);
                     }
                 }
             } catch (err) {
-                console.error("Failed to fetch notifications:", err);
+                console.error(
+                    "Failed to fetch notifications:",
+                    err
+                );
                 toast.error("Failed to load notifications");
+                setNotifications([]);
             } finally {
                 setLoading(false);
             }
@@ -126,112 +231,159 @@ export default function NotificationsPage() {
         fetchNotifications();
     }, [navigate]);
 
-    // Socket listeners for realtime notifications
+    /* ------------------------------------------------------------
+       SOCKET LISTENERS
+       ------------------------------------------------------------ */
     useEffect(() => {
         const socket = socketRef.current;
         if (!socket) return;
 
-        const handleNewNotification = (data) => {
-            const newNotification = {
-                _id: Date.now().toString(),
-                message: data.message,
+        const pushNotification = (data) => {
+            const base = {
+                message: data.message || "",
                 type: data.type || "default",
                 read: false,
                 createdAt: new Date().toISOString(),
                 ...data,
             };
-            setNotifications(prev => [newNotification, ...prev]);
-            toast.success(data.message, { icon: NOTIFICATION_ICONS[data.type] || "🔔" });
+            const normalized = normalizeNotification(base);
+            setNotifications((prev) => [
+                normalized,
+                ...prev,
+            ]);
+
+            if (base.message) {
+                toast.success(base.message, {
+                    icon:
+                        NOTIFICATION_ICONS[base.type] || "🔔",
+                });
+            }
         };
 
-        socket.on("notification", handleNewNotification);
+        const handleGenericNotification = (data) => {
+            pushNotification(data);
+        };
 
-        socket.on("gift_received", (data) => {
-            handleNewNotification({
-                message: `${data.senderUsername} sent you ${data.icon} (${data.amount} coins)`,
+        const handleGiftReceived = (data) => {
+            pushNotification({
+                message: `${data.senderUsername} sent you ${data.icon || "🎁"} (${data.amount} coins)`,
                 type: "gift",
                 amount: data.amount,
                 icon: data.icon,
+                ...data,
             });
-        });
+        };
 
-        socket.on("followed_user_live", (data) => {
-            handleNewNotification({
+        const handleFollowedUserLive = (data) => {
+            pushNotification({
                 message: `${data.username} is now live: ${data.title}`,
                 type: "live",
                 streamId: data.streamId,
+                ...data,
             });
-        });
+        };
 
-        socket.on("new_follower", (data) => {
-            handleNewNotification({
+        const handleNewFollower = (data) => {
+            pushNotification({
                 message: `${data.username} started following you`,
                 type: "follow",
                 fromUser: data.userId,
+                ...data,
             });
-        });
+        };
 
-        socket.on("pk_challenge", (data) => {
-            handleNewNotification({
+        const handlePKChallenge = (data) => {
+            pushNotification({
                 message: `${data.challengerName} challenged you to a PK battle!`,
                 type: "pk",
                 pkId: data.pkId,
+                ...data,
             });
-        });
+        };
+
+        socket.on("notification", handleGenericNotification);
+        socket.on("gift_received", handleGiftReceived);
+        socket.on(
+            "followed_user_live",
+            handleFollowedUserLive
+        );
+        socket.on("new_follower", handleNewFollower);
+        socket.on("pk_challenge", handlePKChallenge);
 
         return () => {
-            socket.off("notification");
-            socket.off("gift_received");
-            socket.off("followed_user_live");
-            socket.off("new_follower");
-            socket.off("pk_challenge");
+            socket.off("notification", handleGenericNotification);
+            socket.off("gift_received", handleGiftReceived);
+            socket.off(
+                "followed_user_live",
+                handleFollowedUserLive
+            );
+            socket.off("new_follower", handleNewFollower);
+            socket.off("pk_challenge", handlePKChallenge);
         };
     }, []);
 
-    // Mark all as read
+    /* ------------------------------------------------------------
+       ACTIONS
+       ------------------------------------------------------------ */
     const markAllAsRead = async () => {
         try {
-            await api.post("/api/users/notifications/read-all");
-            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-            toast.success("All notifications marked as read");
+            await api.post(
+                "/api/users/notifications/read-all"
+            );
         } catch (err) {
-            console.error("Failed to mark as read:", err);
-            // Still update locally
-            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+            console.error(
+                "Failed to mark as read on server:",
+                err
+            );
+        } finally {
+            setNotifications((prev) =>
+                prev.map((n) => ({ ...n, read: true }))
+            );
+            toast.success("All notifications marked as read");
+
         }
     };
 
-    // Handle notification click
+
     const handleNotificationClick = async (notification) => {
         // Mark as read locally
-        setNotifications(prev =>
-            prev.map(n => n._id === notification._id ? { ...n, read: true } : n)
+        setNotifications((prev) =>
+            prev.map((n) =>
+                n._id === notification._id
+                    ? { ...n, read: true }
+                    : n
+            )
         );
 
         // Try to mark as read on server
         if (notification._id) {
             try {
-                await api.post(`/api/users/notifications/${notification._id}/read`);
-            } catch (err) {
-                // Ignore - already marked locally
+                await api.post(
+                    `/api/users/notifications/${notification._id}/read`
+                );
+            } catch {
+                // ignore
             }
         }
 
         // Navigate based on type
-        if (notification.type === "live" && notification.streamId) {
+        const type = notification.type;
+
+        if (type === "live" && notification.streamId) {
             navigate(`/live/${notification.streamId}`);
-        } else if (notification.type === "follow" && notification.fromUser) {
+        } else if (type === "follow" && notification.fromUser) {
             navigate(`/profile/${notification.fromUser}`);
-        } else if (notification.type === "like" && notification.postId) {
+        } else if (
+            (type === "like" || type === "comment") &&
+            notification.postId
+        ) {
             navigate(`/post/${notification.postId}`);
-        } else if (notification.type === "comment" && notification.postId) {
-            navigate(`/post/${notification.postId}`);
-        } else if (notification.type === "pk" && notification.pkId) {
+        } else if (type === "pk" && notification.pkId) {
             navigate(`/pk/${notification.pkId}`);
         }
     };
 
-    // Clear all
+
     const clearAll = async () => {
         try {
             await api.delete("/api/users/notifications");
@@ -243,47 +395,52 @@ export default function NotificationsPage() {
         }
     };
 
-    // Filter notifications
-    const filteredNotifications = notifications.filter(n => {
-        if (filter === "all") return true;
-        if (filter === "unread") return !n.read;
-        return n.type === filter;
-    });
+    /* ------------------------------------------------------------
+       FILTERING
+       ------------------------------------------------------------ */
+    const filteredNotifications = notifications.filter(
+        (n) => {
+            if (filter === "all") return true;
+            if (filter === "unread") return !n.read;
+            return n.type === filter;
+        }
+    );
 
-    // Format time
-    const formatTimeAgo = (dateString) => {
-        if (!dateString) return "";
-        const date = new Date(dateString);
-        const now = new Date();
-        const diff = now - date;
-        if (diff < 60000) return "Just now";
-        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-        if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-        return date.toLocaleDateString();
-    };
+    const unreadCount = notifications.filter(
+        (n) => !n.read
+    ).length;
 
-    const unreadCount = notifications.filter(n => !n.read).length;
-
+    /* ------------------------------------------------------------
+       LOADING STATE
+       ------------------------------------------------------------ */
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="text-center">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
-                    <p className="text-white/70">Loading notifications...</p>
+                    <p className="text-white/70">
+                        Loading notifications...
+                    </p>
                 </div>
             </div>
         );
     }
 
+    /* ------------------------------------------------------------
+       MAIN RENDER
+       ------------------------------------------------------------ */
     return (
         <div className="text-white max-w-2xl mx-auto py-6 px-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold">🔔 Notifications</h1>
+                    <h1 className="text-2xl font-bold">
+                        🔔 Notifications
+                    </h1>
                     {unreadCount > 0 && (
-                        <p className="text-white/50 text-sm">{unreadCount} unread</p>
+                        <p className="text-white/50 text-sm">
+                            {unreadCount} unread
+                        </p>
                     )}
                 </div>
                 <div className="flex gap-2">
@@ -308,14 +465,7 @@ export default function NotificationsPage() {
 
             {/* Filters */}
             <div className="flex flex-wrap gap-2 mb-6">
-                {[
-                    { id: "all", label: "All" },
-                    { id: "unread", label: "Unread" },
-                    { id: "gift", label: "🎁 Gifts" },
-                    { id: "live", label: "🔴 Live" },
-                    { id: "follow", label: "👤 Follows" },
-                    { id: "pk", label: "⚔️ PK" },
-                ].map((f) => (
+                {FILTERS.map((f) => (
                     <button
                         key={f.id}
                         onClick={() => setFilter(f.id)}
@@ -333,46 +483,82 @@ export default function NotificationsPage() {
             {filteredNotifications.length === 0 ? (
                 <div className="text-center py-16">
                     <p className="text-6xl mb-4">🔔</p>
-                    <p className="text-white/60">No notifications yet</p>
+                    <p className="text-white/60">
+                        No notifications yet
+                    </p>
                     <p className="text-white/40 text-sm mt-2">
-                        {filter !== "all" ? "Try a different filter" : "You're all caught up!"}
+                        {filter !== "all"
+                            ? "Try a different filter"
+                            : "You're all caught up!"}
                     </p>
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {filteredNotifications.map((notification, index) => (
-                        <div
-                            key={notification._id || index}
-                            onClick={() => handleNotificationClick(notification)}
-                            className={`p-4 rounded-xl border transition-all cursor-pointer ${notification.read
-                                    ? "bg-white/5 border-white/10 hover:bg-white/10"
-                                    : "bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20"
-                                }`}
-                        >
-                            <div className="flex items-start gap-3">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${notification.read ? "bg-white/10" : "bg-cyan-500/20"
-                                    }`}>
-                                    {NOTIFICATION_ICONS[notification.type] || NOTIFICATION_ICONS.default}
+                    {filteredNotifications.map(
+                        (notification, index) => (
+                            <div
+                                key={
+                                    notification._id || index
+                                }
+                                onClick={() =>
+                                    handleNotificationClick(
+                                        notification
+                                    )
+                                }
+                                className={`p-4 rounded-xl border transition-all cursor-pointer ${notification.read
+                                        ? "bg-white/5 border-white/10 hover:bg-white/10"
+                                        : "bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20"
+                                    }`}
+                            >
+                                <div className="flex items-start gap-3">
+                                    <div
+                                        className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${notification.read
+                                                ? "bg-white/10"
+                                                : "bg-cyan-500/20"
+                                            }`}
+                                    >
+                                        {NOTIFICATION_ICONS[
+                                            notification.type
+                                        ] ||
+                                            NOTIFICATION_ICONS.default}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p
+                                            className={
+                                                notification.read
+                                                    ? "text-white/70"
+                                                    : "text-white"
+                                            }
+                                        >
+                                            {
+                                                notification.message
+                                            }
+                                        </p>
+                                        <p className="text-white/40 text-sm mt-1">
+                                            {formatTimeAgo(
+                                                notification.createdAt
+                                            )}
+                                        </p>
+                                    </div>
+                                    {!notification.read && (
+                                        <div className="w-2 h-2 rounded-full bg-cyan-400 mt-2 animate-pulse"></div>
+                                    )}
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className={notification.read ? "text-white/70" : "text-white"}>
-                                        {notification.message}
-                                    </p>
-                                    <p className="text-white/40 text-sm mt-1">
-                                        {formatTimeAgo(notification.createdAt)}
-                                    </p>
-                                </div>
-                                {!notification.read && (
-                                    <div className="w-2 h-2 rounded-full bg-cyan-400 mt-2 animate-pulse"></div>
-                                )}
+
+                                {notification.type ===
+                                    "gift" &&
+                                    notification.amount && (
+                                        <div className="mt-2 ml-12 inline-flex items-center gap-1 px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-xs">
+                                            💰{" "}
+                                            {
+                                                notification.amount
+                                            }{" "}
+                                            coins
+                                        </div>
+                                    )}
                             </div>
-                            {notification.type === "gift" && notification.amount && (
-                                <div className="mt-2 ml-13 inline-flex items-center gap-1 px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-xs">
-                                    💰 {notification.amount} coins
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                        )
+                    )}
                 </div>
             )}
 

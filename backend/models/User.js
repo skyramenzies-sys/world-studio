@@ -1,6 +1,6 @@
 // backend/models/User.js
 // World-Studio.live - User Model
-// Core user model with wallet, notifications, stats, and social features
+// Core user model with wallet, notifications, stats, social & moderation (UNIVERSE EDITION 🌌)
 
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
@@ -12,565 +12,645 @@ const bcrypt = require("bcryptjs");
 /**
  * Notification Schema
  */
-const NotificationSchema = new mongoose.Schema({
-    message: {
-        type: String,
-        required: true,
-        maxLength: 500
+const NotificationSchema = new mongoose.Schema(
+    {
+        message: {
+            type: String,
+            required: true,
+            maxLength: 500,
+        },
+        type: {
+            type: String,
+            enum: [
+                "follow",
+                "like",
+                "comment",
+                "gift",
+                "live",
+                "mention",
+                "system",
+                "purchase",
+                "pk_challenge",
+                "pk_result",
+                "subscription",
+                "payout",
+                "warning",
+                "achievement",
+            ],
+            default: "system",
+        },
+        fromUser: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
+        fromUsername: String,
+        fromAvatar: String,
+        postId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Post",
+        },
+        streamId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Stream",
+        },
+        pkId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "PK",
+        },
+        giftId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Gift",
+        },
+        amount: {
+            type: Number,
+        },
+        icon: String,
+        actionUrl: String,
+        read: {
+            type: Boolean,
+            default: false,
+        },
+        readAt: Date,
+        createdAt: {
+            type: Date,
+            default: Date.now,
+        },
     },
-    type: {
-        type: String,
-        enum: [
-            "follow",
-            "like",
-            "comment",
-            "gift",
-            "live",
-            "mention",
-            "system",
-            "purchase",
-            "pk_challenge",
-            "pk_result",
-            "subscription",
-            "payout",
-            "warning",
-            "achievement"
-        ],
-        default: "system",
-    },
-    fromUser: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    },
-    fromUsername: String,
-    fromAvatar: String,
-    postId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Post"
-    },
-    streamId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Stream"
-    },
-    pkId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "PK"
-    },
-    giftId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Gift"
-    },
-    amount: {
-        type: Number
-    },
-    icon: String,
-    actionUrl: String,
-    read: {
-        type: Boolean,
-        default: false
-    },
-    readAt: Date,
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-}, { _id: true });
+    { _id: true }
+);
 
 /**
  * Wallet Transaction Schema
  */
-const WalletTransactionSchema = new mongoose.Schema({
-    type: {
-        type: String,
-        enum: [
-            "purchase",
-            "topup",
-            "withdraw",
-            "gift_sent",
-            "gift_received",
-            "pk_reward",
-            "pk_loss",
-            "content_sale",
-            "content_purchase",
-            "subscription_received",
-            "subscription_payment",
-            "refund",
-            "bonus",
-            "promotion",
-            "adjustment",
-            "payout"
-        ],
-        required: true,
-    },
-    amount: {
-        type: Number,
-        required: true
-    },
-    description: {
-        type: String,
-        maxLength: 200
-    },
-    status: {
-        type: String,
-        enum: ["pending", "completed", "failed", "cancelled", "processing"],
-        default: "completed",
-    },
+const WalletTransactionSchema = new mongoose.Schema(
+    {
+        type: {
+            type: String,
+            enum: [
+                "purchase",
+                "topup",
+                "withdraw",
+                "gift_sent",
+                "gift_received",
+                "pk_reward",
+                "pk_loss",
+                "content_sale",
+                "content_purchase",
+                "subscription_received",
+                "subscription_payment",
+                "refund",
+                "bonus",
+                "promotion",
+                "adjustment",
+                "payout",
+            ],
+            required: true,
+        },
+        amount: {
+            type: Number,
+            required: true,
+        },
+        description: {
+            type: String,
+            maxLength: 200,
+        },
+        status: {
+            type: String,
+            enum: ["pending", "completed", "failed", "cancelled", "processing"],
+            default: "completed",
+        },
 
-    // Related entities
-    relatedUserId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    },
-    relatedUsername: String,
-    giftId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Gift"
-    },
-    postId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Post"
-    },
-    streamId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Stream"
-    },
-    pkId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "PK"
-    },
+        // Related entities
+        relatedUserId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
+        relatedUsername: String,
+        giftId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Gift",
+        },
+        postId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Post",
+        },
+        streamId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Stream",
+        },
+        pkId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "PK",
+        },
 
-    // Payment processor
-    stripePaymentId: String,
-    paypalTransactionId: String,
+        // Payment processor
+        stripePaymentId: String,
+        paypalTransactionId: String,
 
-    // Balance tracking
-    balanceBefore: Number,
-    balanceAfter: Number,
+        // Balance tracking
+        balanceBefore: Number,
+        balanceAfter: Number,
 
-    // Metadata
-    meta: {
-        type: mongoose.Schema.Types.Mixed,
-        default: {}
+        // Metadata
+        meta: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+
+        createdAt: {
+            type: Date,
+            default: Date.now,
+        },
     },
-
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-}, { _id: true });
+    { _id: true }
+);
 
 /**
  * Wallet Schema
  */
-const WalletSchema = new mongoose.Schema({
-    balance: {
-        type: Number,
-        default: 0,
-        min: 0
+const WalletSchema = new mongoose.Schema(
+    {
+        balance: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        pendingBalance: {
+            type: Number,
+            default: 0,
+        },
+        totalReceived: {
+            type: Number,
+            default: 0,
+        },
+        totalSpent: {
+            type: Number,
+            default: 0,
+        },
+        totalEarned: {
+            type: Number,
+            default: 0,
+        },
+        totalWithdrawn: {
+            type: Number,
+            default: 0,
+        },
+        lifetimeBalance: {
+            type: Number,
+            default: 0,
+        },
+        currency: {
+            type: String,
+            default: "coins",
+        },
+        transactions: {
+            type: [WalletTransactionSchema],
+            default: [],
+        },
+        lastTransaction: Date,
     },
-    pendingBalance: {
-        type: Number,
-        default: 0
-    },
-    totalReceived: {
-        type: Number,
-        default: 0
-    },
-    totalSpent: {
-        type: Number,
-        default: 0
-    },
-    totalEarned: {
-        type: Number,
-        default: 0
-    },
-    totalWithdrawn: {
-        type: Number,
-        default: 0
-    },
-    lifetimeBalance: {
-        type: Number,
-        default: 0
-    },
-    currency: {
-        type: String,
-        default: "coins"
-    },
-    transactions: {
-        type: [WalletTransactionSchema],
-        default: []
-    },
-    lastTransaction: Date
-}, { _id: false });
+    { _id: false }
+);
 
 /**
  * Stats Schema (PK, Gifts, Streaming)
  */
-const StatsSchema = new mongoose.Schema({
-    // PK Battle Stats
-    pkWins: { type: Number, default: 0 },
-    pkLosses: { type: Number, default: 0 },
-    pkDraws: { type: Number, default: 0 },
-    pkStreak: { type: Number, default: 0 },
-    pkBestStreak: { type: Number, default: 0 },
-    pkTotalBattles: { type: Number, default: 0 },
-    pkWinRate: { type: Number, default: 0 },
+const StatsSchema = new mongoose.Schema(
+    {
+        // PK Battle Stats
+        pkWins: { type: Number, default: 0 },
+        pkLosses: { type: Number, default: 0 },
+        pkDraws: { type: Number, default: 0 },
+        pkStreak: { type: Number, default: 0 },
+        pkBestStreak: { type: Number, default: 0 },
+        pkTotalBattles: { type: Number, default: 0 },
+        pkWinRate: { type: Number, default: 0 },
 
-    // Gift Stats
-    totalGiftsSent: { type: Number, default: 0 },
-    totalGiftsReceived: { type: Number, default: 0 },
-    totalGiftsSentValue: { type: Number, default: 0 },
-    totalGiftsReceivedValue: { type: Number, default: 0 },
-    uniqueGifters: { type: Number, default: 0 },
+        // Gift Stats
+        totalGiftsSent: { type: Number, default: 0 },
+        totalGiftsReceived: { type: Number, default: 0 },
+        totalGiftsSentValue: { type: Number, default: 0 },
+        totalGiftsReceivedValue: { type: Number, default: 0 },
+        uniqueGifters: { type: Number, default: 0 },
 
-    // Streaming Stats
-    totalLiveMinutes: { type: Number, default: 0 },
-    totalStreams: { type: Number, default: 0 },
-    totalStreamViewers: { type: Number, default: 0 },
-    peakViewers: { type: Number, default: 0 },
-    avgViewers: { type: Number, default: 0 },
+        // Streaming Stats
+        totalLiveMinutes: { type: Number, default: 0 },
+        totalStreams: { type: Number, default: 0 },
+        totalStreamViewers: { type: Number, default: 0 },
+        peakViewers: { type: Number, default: 0 },
+        avgViewers: { type: Number, default: 0 },
 
-    // Content Stats
-    totalPosts: { type: Number, default: 0 },
-    totalPostViews: { type: Number, default: 0 },
-    totalPostLikes: { type: Number, default: 0 },
-    totalSales: { type: Number, default: 0 },
-    totalEarnings: { type: Number, default: 0 },
+        // Content Stats
+        totalPosts: { type: Number, default: 0 },
+        totalPostViews: { type: Number, default: 0 },
+        totalPostLikes: { type: Number, default: 0 },
+        totalSales: { type: Number, default: 0 },
+        totalEarnings: { type: Number, default: 0 },
 
-    // Engagement
-    totalComments: { type: Number, default: 0 },
-    totalShares: { type: Number, default: 0 }
-}, { _id: false });
+        // Engagement
+        totalComments: { type: Number, default: 0 },
+        totalShares: { type: Number, default: 0 },
+    },
+    { _id: false }
+);
 
 /**
  * Social Links Schema
  */
-const SocialLinksSchema = new mongoose.Schema({
-    website: String,
-    twitter: String,
-    instagram: String,
-    youtube: String,
-    tiktok: String,
-    discord: String,
-    telegram: String,
-    twitch: String
-}, { _id: false });
+const SocialLinksSchema = new mongoose.Schema(
+    {
+        website: String,
+        twitter: String,
+        instagram: String,
+        youtube: String,
+        tiktok: String,
+        discord: String,
+        telegram: String,
+        twitch: String,
+    },
+    { _id: false }
+);
 
 /**
  * Settings Schema
  */
-const SettingsSchema = new mongoose.Schema({
-    // Privacy
-    profileVisibility: {
-        type: String,
-        enum: ["public", "followers", "private"],
-        default: "public"
-    },
-    showOnlineStatus: { type: Boolean, default: true },
-    allowMessages: {
-        type: String,
-        enum: ["everyone", "followers", "none"],
-        default: "everyone"
-    },
-    allowGifts: { type: Boolean, default: true },
+const SettingsSchema = new mongoose.Schema(
+    {
+        // Privacy
+        profileVisibility: {
+            type: String,
+            enum: ["public", "followers", "private"],
+            default: "public",
+        },
+        showOnlineStatus: { type: Boolean, default: true },
+        allowMessages: {
+            type: String,
+            enum: ["everyone", "followers", "none"],
+            default: "everyone",
+        },
+        allowGifts: { type: Boolean, default: true },
 
-    // Notifications
-    emailNotifications: { type: Boolean, default: true },
-    pushNotifications: { type: Boolean, default: true },
-    notifyFollows: { type: Boolean, default: true },
-    notifyLikes: { type: Boolean, default: true },
-    notifyComments: { type: Boolean, default: true },
-    notifyGifts: { type: Boolean, default: true },
-    notifyLive: { type: Boolean, default: true },
+        // Notifications
+        emailNotifications: { type: Boolean, default: true },
+        pushNotifications: { type: Boolean, default: true },
+        notifyFollows: { type: Boolean, default: true },
+        notifyLikes: { type: Boolean, default: true },
+        notifyComments: { type: Boolean, default: true },
+        notifyGifts: { type: Boolean, default: true },
 
-    // Stream
-    defaultStreamPrivacy: {
-        type: String,
-        enum: ["public", "followers", "subscribers"],
-        default: "public"
+        // Stream
+        defaultStreamPrivacy: {
+            type: String,
+            enum: ["public", "followers", "subscribers"],
+            default: "public",
+        },
+        autoSaveRecordings: { type: Boolean, default: false },
+
+        // Content
+        showNSFW: { type: Boolean, default: false },
+        language: { type: String, default: "en" },
+        theme: { type: String, default: "dark" },
     },
-    autoSaveRecordings: { type: Boolean, default: false },
-
-    // Content
-    showNSFW: { type: Boolean, default: false },
-    language: { type: String, default: "en" },
-    theme: { type: String, default: "dark" }
-}, { _id: false });
+    { _id: false }
+);
 
 /**
  * Withdrawal Info Schema
  */
-const WithdrawalInfoSchema = new mongoose.Schema({
-    method: {
-        type: String,
-        enum: ["paypal", "bank", "crypto"],
-        default: "paypal"
+const WithdrawalInfoSchema = new mongoose.Schema(
+    {
+        method: {
+            type: String,
+            enum: ["paypal", "bank", "crypto"],
+            default: "paypal",
+        },
+        paypalEmail: String,
+        bankName: String,
+        bankAccount: String,
+        bankRouting: String,
+        bankSwift: String,
+        cryptoWallet: String,
+        cryptoType: String,
+        isVerified: { type: Boolean, default: false },
     },
-    paypalEmail: String,
-    bankName: String,
-    bankAccount: String,
-    bankRouting: String,
-    bankSwift: String,
-    cryptoWallet: String,
-    cryptoType: String,
-    isVerified: { type: Boolean, default: false }
-}, { _id: false });
+    { _id: false }
+);
+
+/**
+ * Moderation Event Schema (robot log)
+ */
+const ModerationEventSchema = new mongoose.Schema(
+    {
+        action: {
+            type: String,
+            enum: ["warning", "temp_ban", "permanent_ban", "unban"],
+            required: true,
+        },
+        reason: {
+            type: String,
+            maxLength: 500,
+        },
+        durationSeconds: {
+            type: Number, // 0 = alleen warning, -1 = permanent
+        },
+        moderator: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
+        moderatorUsername: String,
+        createdAt: {
+            type: Date,
+            default: Date.now,
+        },
+    },
+    { _id: false }
+);
 
 // ===========================================
 // MAIN USER SCHEMA
 // ===========================================
-const UserSchema = new mongoose.Schema({
-    // Basic Info
-    username: {
-        type: String,
-        required: true,
-        unique: true,
-        trim: true,
-        minLength: 3,
-        maxLength: 30,
-        match: /^[a-zA-Z0-9_]+$/
-    },
-    email: {
-        type: String,
-        required: true,
-        unique: true,
-        lowercase: true,
-        trim: true,
-    },
-    password: {
-        type: String,
-        required: true,
-        minLength: 6
-    },
+const UserSchema = new mongoose.Schema(
+    {
+        // Basic Info
+        username: {
+            type: String,
+            required: true,
+            unique: true,
+            trim: true,
+            minLength: 3,
+            maxLength: 30,
+            match: /^[a-zA-Z0-9_]+$/,
+        },
+        email: {
+            type: String,
+            required: true,
+            unique: true,
+            lowercase: true,
+            trim: true,
+        },
+        password: {
+            type: String,
+            required: true,
+            minLength: 6,
+        },
 
-    // Profile
-    displayName: {
-        type: String,
-        maxLength: 50
-    },
-    avatar: {
-        type: String,
-        default: ""
-    },
-    avatarPublicId: String,
-    coverImage: {
-        type: String,
-        default: ""
-    },
-    bio: {
-        type: String,
-        default: "",
-        maxLength: 500
-    },
-    location: String,
-    website: String,
-    birthDate: Date,
-    gender: {
-        type: String,
-        enum: ["male", "female", "other", "prefer_not_to_say"],
-    },
+        // Profile
+        displayName: {
+            type: String,
+            maxLength: 50,
+        },
+        avatar: {
+            type: String,
+            default: "",
+        },
+        avatarPublicId: String,
+        coverImage: {
+            type: String,
+            default: "",
+        },
+        bio: {
+            type: String,
+            default: "",
+            maxLength: 500,
+        },
+        location: String,
+        website: String,
+        birthDate: Date,
+        gender: {
+            type: String,
+            enum: ["male", "female", "other", "prefer_not_to_say"],
+        },
 
-    // Role & Verification
-    role: {
-        type: String,
-        enum: ["user", "creator", "moderator", "admin"],
-        default: "creator",
-    },
-    isVerified: {
-        type: Boolean,
-        default: false
-    },
-    verifiedAt: Date,
-    verificationBadge: {
-        type: String,
-        enum: ["none", "creator", "partner", "celebrity", "brand"],
-        default: "none"
-    },
+        // Role & Verification
+        role: {
+            type: String,
+            enum: ["user", "creator", "moderator", "admin"],
+            default: "creator",
+        },
+        isVerified: {
+            type: Boolean,
+            default: false,
+        },
+        verifiedAt: Date,
+        verificationBadge: {
+            type: String,
+            enum: ["none", "creator", "partner", "celebrity", "brand"],
+            default: "none",
+        },
 
-    // Account Status
-    isBanned: {
-        type: Boolean,
-        default: false
-    },
-    banReason: String,
-    bannedAt: Date,
-    bannedUntil: Date,
-    isDeactivated: {
-        type: Boolean,
-        default: false
-    },
-    deactivatedAt: Date,
+        // Account Status
+        isBanned: {
+            type: Boolean,
+            default: false,
+        },
+        banReason: String,
+        bannedAt: Date,
+        bannedUntil: Date,
 
-    // Email Verification
-    emailVerified: {
-        type: Boolean,
-        default: false
-    },
-    emailVerificationToken: String,
-    emailVerificationExpires: Date,
+        // Moderation Robot
+        isPermanentBan: {
+            type: Boolean,
+            default: false,
+        },
+        moderationStrikes: {
+            type: Number,
+            default: 0,
+        },
+        lastViolationAt: Date,
+        moderationHistory: {
+            type: [ModerationEventSchema],
+            default: [],
+        },
 
-    // Password Reset
-    resetPasswordToken: String,
-    resetPasswordExpires: Date,
+        isDeactivated: {
+            type: Boolean,
+            default: false,
+        },
+        deactivatedAt: Date,
 
-    // Live Status
-    isLive: {
-        type: Boolean,
-        default: false
-    },
-    currentStreamId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Stream"
-    },
-    lastStreamedAt: Date,
+        // Email Verification
+        emailVerified: {
+            type: Boolean,
+            default: false,
+        },
+        emailVerificationToken: String,
+        emailVerificationExpires: Date,
 
-    // Social
-    followers: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    }],
-    following: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    }],
-    followersCount: {
-        type: Number,
-        default: 0
-    },
-    followingCount: {
-        type: Number,
-        default: 0
-    },
-    blockedUsers: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    }],
+        // Password Reset
+        resetPasswordToken: String,
+        resetPasswordExpires: Date,
 
-    // Social Links
-    socialLinks: {
-        type: SocialLinksSchema,
-        default: () => ({})
-    },
+        // Live Status
+        isLive: {
+            type: Boolean,
+            default: false,
+        },
+        currentStreamId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Stream",
+        },
+        lastStreamedAt: Date,
 
-    // Notifications
-    notifications: {
-        type: [NotificationSchema],
-        default: []
-    },
-    unreadNotifications: {
-        type: Number,
-        default: 0
-    },
+        // Social
+        followers: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
+        following: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
+        followersCount: {
+            type: Number,
+            default: 0,
+        },
+        followingCount: {
+            type: Number,
+            default: 0,
+        },
+        blockedUsers: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
 
-    // Wallet
-    wallet: {
-        type: WalletSchema,
-        default: () => ({
-            balance: 0,
-            totalReceived: 0,
-            totalSpent: 0,
-            transactions: [],
-        }),
-    },
+        // Social Links
+        socialLinks: {
+            type: SocialLinksSchema,
+            default: () => ({}),
+        },
 
-    // Withdrawal Info
-    withdrawalInfo: {
-        type: WithdrawalInfoSchema,
-        default: () => ({})
-    },
+        // Notifications
+        notifications: {
+            type: [NotificationSchema],
+            default: [],
+        },
+        unreadNotifications: {
+            type: Number,
+            default: 0,
+        },
 
-    // Stats
-    stats: {
-        type: StatsSchema,
-        default: () => ({}),
-    },
+        // Wallet
+        wallet: {
+            type: WalletSchema,
+            default: () => ({
+                balance: 0,
+                totalReceived: 0,
+                totalSpent: 0,
+                transactions: [],
+            }),
+        },
 
-    // Settings
-    settings: {
-        type: SettingsSchema,
-        default: () => ({})
-    },
+        // Withdrawal Info
+        withdrawalInfo: {
+            type: WithdrawalInfoSchema,
+            default: () => ({}),
+        },
 
-    // Premium/Subscription
-    isPremium: {
-        type: Boolean,
-        default: false
-    },
-    premiumTier: {
-        type: String,
-        enum: ["free", "basic", "pro", "vip"],
-        default: "free"
-    },
-    premiumExpiresAt: Date,
-    stripeCustomerId: String,
-    stripeSubscriptionId: String,
+        // Stats
+        stats: {
+            type: StatsSchema,
+            default: () => ({}),
+        },
 
-    // Activity
-    lastSeen: {
-        type: Date
-    },
-    lastActive: Date,
-    lastLogin: Date,
-    lastIp: String,
-    loginCount: {
-        type: Number,
-        default: 0
-    },
+        // Settings
+        settings: {
+            type: SettingsSchema,
+            default: () => ({}),
+        },
 
-    // Device tokens for push notifications
-    deviceTokens: [{
-        token: String,
-        platform: { type: String, enum: ["ios", "android", "web"] },
-        addedAt: { type: Date, default: Date.now }
-    }],
+        // Premium/Subscription
+        isPremium: {
+            type: Boolean,
+            default: false,
+        },
+        premiumTier: {
+            type: String,
+            enum: ["free", "basic", "pro", "vip"],
+            default: "free",
+        },
+        premiumExpiresAt: Date,
+        stripeCustomerId: String,
+        stripeSubscriptionId: String,
 
-    // Two-Factor Auth
-    twoFactorEnabled: {
-        type: Boolean,
-        default: false
-    },
-    twoFactorSecret: String,
+        // Activity
+        lastSeen: {
+            type: Date,
+        },
+        lastActive: Date,
+        lastLogin: Date,
+        lastIp: String,
+        loginCount: {
+            type: Number,
+            default: 0,
+        },
 
-    // OAuth
-    googleId: String,
-    appleId: String,
-    facebookId: String,
+        // Device tokens for push notifications
+        deviceTokens: [
+            {
+                token: String,
+                platform: { type: String, enum: ["ios", "android", "web"] },
+                addedAt: { type: Date, default: Date.now },
+            },
+        ],
 
-    // Referral
-    referralCode: {
-        type: String,
-        unique: true,
-        sparse: true
-    },
-    referredBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User"
-    },
-    referralCount: {
-        type: Number,
-        default: 0
-    },
+        // Two-Factor Auth
+        twoFactorEnabled: {
+            type: Boolean,
+            default: false,
+        },
+        twoFactorSecret: String,
 
-    // Metadata
-    createdAt: {
-        type: Date,
-        default: Date.now
+        // OAuth
+        googleId: String,
+        appleId: String,
+        facebookId: String,
+
+        // Referral
+        referralCode: {
+            type: String,
+            unique: true,
+            sparse: true,
+        },
+        referredBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
+        referralCount: {
+            type: Number,
+            default: 0,
+        },
+
+        // Metadata
+        createdAt: {
+            type: Date,
+            default: Date.now,
+        },
+        updatedAt: {
+            type: Date,
+            default: Date.now,
+        },
     },
-    updatedAt: {
-        type: Date,
-        default: Date.now
+    {
+        timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true },
     }
-}, {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
-});
+);
 
 // ===========================================
 // INDEXES
 // ===========================================
-UserSchema.index({ username: 1 }, { unique: true });
-UserSchema.index({ email: 1 }, { unique: true });
+
+// Let op: username, email en referralCode hebben al 'unique: true' in het veld zelf.
+// Mongoose maakt daarvoor automatisch indexes aan.
+// Daarom hier GEEN extra duplicate index-definities meer.
+
 UserSchema.index({ role: 1 });
 UserSchema.index({ isLive: 1 });
 UserSchema.index({ isBanned: 1 });
@@ -579,7 +659,7 @@ UserSchema.index({ followersCount: -1 });
 UserSchema.index({ createdAt: -1 });
 UserSchema.index({ lastSeen: -1 });
 UserSchema.index({ "wallet.balance": -1 });
-UserSchema.index({ referralCode: 1 }, { sparse: true });
+
 
 // Text search
 UserSchema.index({
@@ -587,6 +667,7 @@ UserSchema.index({
     displayName: "text",
     bio: "text"
 });
+
 
 // ===========================================
 // VIRTUALS
@@ -619,9 +700,11 @@ UserSchema.virtual("isCreator").get(function () {
 
 // PK win rate
 UserSchema.virtual("pkWinRate").get(function () {
-    const total = (this.stats?.pkWins || 0) + (this.stats?.pkLosses || 0);
+    const wins = this.stats?.pkWins || 0;
+    const losses = this.stats?.pkLosses || 0;
+    const total = wins + losses;
     if (total === 0) return 0;
-    return Math.round((this.stats.pkWins / total) * 100);
+    return Math.round((wins / total) * 100);
 });
 
 // ===========================================
@@ -644,7 +727,8 @@ UserSchema.pre("save", async function (next) {
 
     // Update unread notifications count
     if (this.isModified("notifications")) {
-        this.unreadNotifications = this.notifications?.filter(n => !n.read).length || 0;
+        this.unreadNotifications =
+            this.notifications?.filter((n) => !n.read).length || 0;
     }
 
     // Generate referral code if not set
@@ -652,11 +736,22 @@ UserSchema.pre("save", async function (next) {
         this.referralCode = `WS${this._id.toString().slice(-6).toUpperCase()}`;
     }
 
-    // Update PK win rate
-    if (this.isModified("stats.pkWins") || this.isModified("stats.pkLosses")) {
-        const total = (this.stats?.pkWins || 0) + (this.stats?.pkLosses || 0);
-        this.stats.pkWinRate = total > 0 ? Math.round((this.stats.pkWins / total) * 100) : 0;
-        this.stats.pkTotalBattles = total + (this.stats?.pkDraws || 0);
+    // Update PK win rate & total battles
+    if (
+        this.isModified("stats.pkWins") ||
+        this.isModified("stats.pkLosses") ||
+        this.isModified("stats.pkDraws")
+    ) {
+        const wins = this.stats?.pkWins || 0;
+        const losses = this.stats?.pkLosses || 0;
+        const draws = this.stats?.pkDraws || 0;
+        const total = wins + losses + draws;
+
+        this.stats.pkTotalBattles = total;
+        this.stats.pkWinRate =
+            wins + losses > 0
+                ? Math.round((wins / (wins + losses)) * 100)
+                : 0;
     }
 
     this.updatedAt = new Date();
@@ -680,7 +775,7 @@ UserSchema.methods.comparePassword = async function (candidate) {
 UserSchema.methods.addNotification = async function (notification) {
     this.notifications.unshift({
         ...notification,
-        createdAt: new Date()
+        createdAt: new Date(),
     });
 
     // Keep only last 100 notifications
@@ -688,18 +783,20 @@ UserSchema.methods.addNotification = async function (notification) {
         this.notifications = this.notifications.slice(0, 100);
     }
 
-    this.unreadNotifications = this.notifications.filter(n => !n.read).length;
+    this.unreadNotifications = this.notifications.filter((n) => !n.read).length;
     return this.save();
 };
 
 /**
  * Mark notifications as read
  */
-UserSchema.methods.markNotificationsRead = async function (notificationIds = null) {
+UserSchema.methods.markNotificationsRead = async function (
+    notificationIds = null
+) {
     const now = new Date();
 
     if (notificationIds) {
-        this.notifications.forEach(n => {
+        this.notifications.forEach((n) => {
             if (notificationIds.includes(n._id.toString())) {
                 n.read = true;
                 n.readAt = now;
@@ -707,7 +804,7 @@ UserSchema.methods.markNotificationsRead = async function (notificationIds = nul
         });
     } else {
         // Mark all as read
-        this.notifications.forEach(n => {
+        this.notifications.forEach((n) => {
             if (!n.read) {
                 n.read = true;
                 n.readAt = now;
@@ -715,7 +812,7 @@ UserSchema.methods.markNotificationsRead = async function (notificationIds = nul
         });
     }
 
-    this.unreadNotifications = this.notifications.filter(n => !n.read).length;
+    this.unreadNotifications = this.notifications.filter((n) => !n.read).length;
     return this.save();
 };
 
@@ -726,13 +823,36 @@ UserSchema.methods.addTransaction = async function (transaction) {
     const balanceBefore = this.wallet.balance;
 
     // Update balance
-    if (["topup", "gift_received", "pk_reward", "content_sale", "subscription_received", "bonus", "refund"].includes(transaction.type)) {
+    if (
+        [
+            "topup",
+            "gift_received",
+            "pk_reward",
+            "content_sale",
+            "subscription_received",
+            "bonus",
+            "refund",
+        ].includes(transaction.type)
+    ) {
         this.wallet.balance += Math.abs(transaction.amount);
         this.wallet.totalReceived += Math.abs(transaction.amount);
-        if (["content_sale", "subscription_received", "gift_received"].includes(transaction.type)) {
+        if (
+            ["content_sale", "subscription_received", "gift_received"].includes(
+                transaction.type
+            )
+        ) {
             this.wallet.totalEarned += Math.abs(transaction.amount);
         }
-    } else if (["purchase", "gift_sent", "content_purchase", "subscription_payment", "withdraw", "payout"].includes(transaction.type)) {
+    } else if (
+        [
+            "purchase",
+            "gift_sent",
+            "content_purchase",
+            "subscription_payment",
+            "withdraw",
+            "payout",
+        ].includes(transaction.type)
+    ) {
         this.wallet.balance -= Math.abs(transaction.amount);
         this.wallet.totalSpent += Math.abs(transaction.amount);
         if (["withdraw", "payout"].includes(transaction.type)) {
@@ -744,14 +864,17 @@ UserSchema.methods.addTransaction = async function (transaction) {
     if (this.wallet.balance < 0) this.wallet.balance = 0;
 
     // Update lifetime balance
-    this.wallet.lifetimeBalance = Math.max(this.wallet.lifetimeBalance, this.wallet.balance);
+    this.wallet.lifetimeBalance = Math.max(
+        this.wallet.lifetimeBalance,
+        this.wallet.balance
+    );
 
     // Add transaction record
     this.wallet.transactions.unshift({
         ...transaction,
         balanceBefore,
         balanceAfter: this.wallet.balance,
-        createdAt: new Date()
+        createdAt: new Date(),
     });
 
     // Keep only last 500 transactions
@@ -774,7 +897,7 @@ UserSchema.methods.hasBalance = function (amount) {
  * Follow user
  */
 UserSchema.methods.follow = async function (userId) {
-    if (!this.following.includes(userId)) {
+    if (!this.following.some((id) => id.toString() === userId.toString())) {
         this.following.push(userId);
         this.followingCount = this.following.length;
         return this.save();
@@ -786,7 +909,9 @@ UserSchema.methods.follow = async function (userId) {
  * Unfollow user
  */
 UserSchema.methods.unfollow = async function (userId) {
-    this.following = this.following.filter(id => id.toString() !== userId.toString());
+    this.following = this.following.filter(
+        (id) => id.toString() !== userId.toString()
+    );
     this.followingCount = this.following.length;
     return this.save();
 };
@@ -795,17 +920,19 @@ UserSchema.methods.unfollow = async function (userId) {
  * Check if following
  */
 UserSchema.methods.isFollowing = function (userId) {
-    return this.following.some(id => id.toString() === userId.toString());
+    return this.following.some((id) => id.toString() === userId.toString());
 };
 
 /**
  * Block user
  */
 UserSchema.methods.blockUser = async function (userId) {
-    if (!this.blockedUsers.includes(userId)) {
+    if (!this.blockedUsers.some((id) => id.toString() === userId.toString())) {
         this.blockedUsers.push(userId);
         // Also unfollow
-        this.following = this.following.filter(id => id.toString() !== userId.toString());
+        this.following = this.following.filter(
+            (id) => id.toString() !== userId.toString()
+        );
         return this.save();
     }
     return this;
@@ -815,14 +942,14 @@ UserSchema.methods.blockUser = async function (userId) {
  * Check if blocked
  */
 UserSchema.methods.hasBlocked = function (userId) {
-    return this.blockedUsers.some(id => id.toString() === userId.toString());
+    return this.blockedUsers.some((id) => id.toString() === userId.toString());
 };
 
 /**
  * Update stats
  */
 UserSchema.methods.updateStats = async function (updates) {
-    Object.keys(updates).forEach(key => {
+    Object.keys(updates).forEach((key) => {
         if (this.stats[key] !== undefined) {
             if (typeof updates[key] === "number" && updates[key] > 0) {
                 this.stats[key] += updates[key];
@@ -844,16 +971,25 @@ UserSchema.methods.recordPKResult = async function (won, draw = false) {
     } else if (won) {
         this.stats.pkWins += 1;
         this.stats.pkStreak += 1;
-        this.stats.pkBestStreak = Math.max(this.stats.pkBestStreak, this.stats.pkStreak);
+        this.stats.pkBestStreak = Math.max(
+            this.stats.pkBestStreak,
+            this.stats.pkStreak
+        );
     } else {
         this.stats.pkLosses += 1;
         this.stats.pkStreak = 0;
     }
 
-    this.stats.pkTotalBattles = this.stats.pkWins + this.stats.pkLosses + this.stats.pkDraws;
-    this.stats.pkWinRate = this.stats.pkTotalBattles > 0
-        ? Math.round((this.stats.pkWins / (this.stats.pkWins + this.stats.pkLosses)) * 100)
-        : 0;
+    this.stats.pkTotalBattles =
+        this.stats.pkWins + this.stats.pkLosses + this.stats.pkDraws;
+    this.stats.pkWinRate =
+        this.stats.pkWins + this.stats.pkLosses > 0
+            ? Math.round(
+                (this.stats.pkWins /
+                    (this.stats.pkWins + this.stats.pkLosses)) *
+                100
+            )
+            : 0;
 
     return this.save();
 };
@@ -880,10 +1016,10 @@ UserSchema.methods.toPublicProfile = function () {
             pkLosses: this.stats.pkLosses,
             pkWinRate: this.pkWinRate,
             totalStreams: this.stats.totalStreams,
-            totalPosts: this.stats.totalPosts
+            totalPosts: this.stats.totalPosts,
         },
         socialLinks: this.socialLinks,
-        createdAt: this.createdAt
+        createdAt: this.createdAt,
     };
 };
 
@@ -895,11 +1031,9 @@ UserSchema.methods.toPublicProfile = function () {
  * Find by username or email
  */
 UserSchema.statics.findByLogin = async function (login) {
+    const q = login.toLowerCase();
     return this.findOne({
-        $or: [
-            { username: login.toLowerCase() },
-            { email: login.toLowerCase() }
-        ]
+        $or: [{ username: q }, { email: q }],
     });
 };
 
@@ -912,12 +1046,14 @@ UserSchema.statics.searchUsers = async function (query, options = {}) {
     return this.find({
         $text: { $search: query },
         isBanned: false,
-        isDeactivated: false
+        isDeactivated: false,
     })
         .sort({ score: { $meta: "textScore" }, followersCount: -1 })
         .skip(skip)
         .limit(limit)
-        .select("username displayName avatar bio isVerified followersCount isLive")
+        .select(
+            "username displayName avatar bio isVerified followersCount isLive"
+        )
         .lean();
 };
 
@@ -927,11 +1063,13 @@ UserSchema.statics.searchUsers = async function (query, options = {}) {
 UserSchema.statics.getTopCreators = async function (limit = 50) {
     return this.find({
         role: { $in: ["creator", "admin"] },
-        isBanned: false
+        isBanned: false,
     })
         .sort({ followersCount: -1 })
         .limit(limit)
-        .select("username displayName avatar bio isVerified followersCount isLive stats")
+        .select(
+            "username displayName avatar bio isVerified followersCount isLive stats"
+        )
         .lean();
 };
 
@@ -953,12 +1091,113 @@ UserSchema.statics.getSuggested = async function (userId, limit = 10) {
     return this.find({
         _id: { $nin: [...(user?.following || []), userId] },
         isBanned: false,
-        isDeactivated: false
+        isDeactivated: false,
     })
         .sort({ followersCount: -1, lastSeen: -1 })
         .limit(limit)
-        .select("username displayName avatar bio isVerified followersCount")
+        .select(
+            "username displayName avatar bio isVerified followersCount"
+        )
         .lean();
+};
+
+/**
+ * Get dashboard stats for admin panel
+ */
+UserSchema.statics.getDashboardStats = async function () {
+    const now = new Date();
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+        totalUsers,
+        creators,
+        admins,
+        moderators,
+        banned,
+        live,
+        premium,
+        newToday,
+        newThisWeek,
+    ] = await Promise.all([
+        this.countDocuments(),
+        this.countDocuments({ role: "creator" }),
+        this.countDocuments({ role: "admin" }),
+        this.countDocuments({ role: "moderator" }),
+        this.countDocuments({ isBanned: true }),
+        this.countDocuments({ isLive: true, isBanned: false }),
+        this.countDocuments({ isPremium: true }),
+        this.countDocuments({ createdAt: { $gte: dayAgo } }),
+        this.countDocuments({ createdAt: { $gte: weekAgo } }),
+    ]);
+
+    const walletAgg = await this.aggregate([
+        {
+            $group: {
+                _id: null,
+                totalBalance: { $sum: "$wallet.balance" },
+                totalPendingBalance: { $sum: "$wallet.pendingBalance" },
+                totalEarned: { $sum: "$wallet.totalEarned" },
+                totalWithdrawn: { $sum: "$wallet.totalWithdrawn" },
+                totalReceived: { $sum: "$wallet.totalReceived" },
+                totalSpent: { $sum: "$wallet.totalSpent" },
+            },
+        },
+    ]);
+
+    const statsAgg = await this.aggregate([
+        {
+            $group: {
+                _id: null,
+                totalPosts: { $sum: "$stats.totalPosts" },
+                totalStreams: { $sum: "$stats.totalStreams" },
+                totalStreamViewers: { $sum: "$stats.totalStreamViewers" },
+                totalPkBattles: { $sum: "$stats.pkTotalBattles" },
+                totalGiftsReceivedValue: {
+                    $sum: "$stats.totalGiftsReceivedValue",
+                },
+                totalEarnings: { $sum: "$stats.totalEarnings" },
+            },
+        },
+    ]);
+
+    const walletStats = walletAgg[0] || {
+        totalBalance: 0,
+        totalPendingBalance: 0,
+        totalEarned: 0,
+        totalWithdrawn: 0,
+        totalReceived: 0,
+        totalSpent: 0,
+    };
+
+    const platformStats = statsAgg[0] || {
+        totalPosts: 0,
+        totalStreams: 0,
+        totalStreamViewers: 0,
+        totalPkBattles: 0,
+        totalGiftsReceivedValue: 0,
+        totalEarnings: 0,
+    };
+
+    return {
+        users: {
+            total: totalUsers,
+            creators,
+            admins,
+            moderators,
+            premium,
+            banned,
+        },
+        live: {
+            currentlyLive: live,
+        },
+        wallet: walletStats,
+        platform: platformStats,
+        growth: {
+            newToday,
+            newThisWeek,
+        },
+    };
 };
 
 // ===========================================
@@ -973,3 +1212,4 @@ module.exports.NotificationSchema = NotificationSchema;
 module.exports.WalletTransactionSchema = WalletTransactionSchema;
 module.exports.WalletSchema = WalletSchema;
 module.exports.StatsSchema = StatsSchema;
+module.exports.ModerationEventSchema = ModerationEventSchema;

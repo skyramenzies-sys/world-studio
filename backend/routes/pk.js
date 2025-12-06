@@ -1,14 +1,33 @@
 // backend/routes/pk.js
-// World-Studio.live - PK Battle Routes
+// World-Studio.live - PK Battle Routes (UNIVERSE EDITION 🚀)
 // Handles PK challenges, battles, gifts, and scoring
 
 const express = require("express");
 const router = express.Router();
 const PK = require("../models/PK");
 const User = require("../models/User");
-const Gift = require("../models/Gift");
+
 const Stream = require("../models/Stream");
-const PlatformWallet = require("../models/PlatformWallet");
+
+// Gift is OPTIONAL
+let Gift = null;
+try {
+    Gift = require("../models/Gift");
+} catch (err) {
+    console.warn("⚠️ Optional model 'Gift' not found in PK routes:", err.message);
+}
+
+// PlatformWallet is OPTIONAL
+let PlatformWallet = null;
+try {
+    PlatformWallet = require("../models/PlatformWallet");
+} catch (err) {
+    console.warn(
+        "⚠️ Optional model 'PlatformWallet' not found in PK routes:",
+        err.message
+    );
+}
+
 const authMiddleware = require("../middleware/authMiddleware");
 
 // ===========================================
@@ -31,14 +50,26 @@ const getStreamRoom = (streamId) => `stream_${streamId}`;
 const getPKRoom = (pkId) => `pk_${pkId}`;
 
 // ===========================================
+// AUTH HELPER
+// ===========================================
+
+const getAuthUserId = (req) => {
+    if (req.user && (req.user.id || req.user._id)) {
+        return req.user.id || req.user._id;
+    }
+    if (req.userId) return req.userId;
+    return null;
+};
+
+// ===========================================
 // CONSTANTS
 // ===========================================
 
 const PK_DURATIONS = {
-    SHORT: 180,    // 3 minutes
-    MEDIUM: 300,   // 5 minutes (default)
-    LONG: 600,     // 10 minutes
-    EXTENDED: 900  // 15 minutes
+    SHORT: 180, // 3 minutes
+    MEDIUM: 300, // 5 minutes (default)
+    LONG: 600, // 10 minutes
+    EXTENDED: 900, // 15 minutes
 };
 
 const PLATFORM_FEE_PERCENT = 15;
@@ -55,42 +86,51 @@ const CREATOR_SHARE_PERCENT = 85;
 router.post("/challenge", authMiddleware, async (req, res) => {
     try {
         const { opponentId, duration = PK_DURATIONS.MEDIUM, message } = req.body;
-        const challengerId = req.userId;
+        const challengerId = getAuthUserId(req);
+
+        if (!challengerId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
 
         // Validation
         if (!opponentId) {
             return res.status(400).json({
                 success: false,
-                error: "Opponent is required"
+                error: "Opponent is required",
             });
         }
 
-        if (challengerId.toString() === opponentId.toString()) {
+        if (String(challengerId) === String(opponentId)) {
             return res.status(400).json({
                 success: false,
-                error: "Cannot challenge yourself"
+                error: "Cannot challenge yourself",
             });
         }
 
         // Check if challenger is live
-        const challenger = await User.findById(challengerId)
-            .select("username avatar isLive currentStreamId isVerified");
+        const challenger = await User.findById(challengerId).select(
+            "username avatar isLive currentStreamId isVerified"
+        );
 
         if (!challenger?.isLive || !challenger.currentStreamId) {
             return res.status(400).json({
                 success: false,
-                error: "You must be live to start a PK battle"
+                error: "You must be live to start a PK battle",
             });
         }
 
         // Check if opponent is live
-        const opponent = await User.findById(opponentId)
-            .select("username avatar isLive currentStreamId isVerified");
+        const opponent = await User.findById(opponentId).select(
+            "username avatar isLive currentStreamId isVerified"
+        );
 
         if (!opponent?.isLive || !opponent.currentStreamId) {
             return res.status(400).json({
                 success: false,
-                error: "Opponent is not currently live"
+                error: "Opponent is not currently live",
             });
         }
 
@@ -101,15 +141,15 @@ router.post("/challenge", authMiddleware, async (req, res) => {
                 { "challenger.user": challengerId },
                 { "opponent.user": challengerId },
                 { "challenger.user": opponentId },
-                { "opponent.user": opponentId }
-            ]
+                { "opponent.user": opponentId },
+            ],
         });
 
         if (existingPK) {
             return res.status(400).json({
                 success: false,
                 error: "One of the users is already in a PK battle",
-                existingPK: existingPK._id
+                existingPK: existingPK._id,
             });
         }
 
@@ -125,7 +165,7 @@ router.post("/challenge", authMiddleware, async (req, res) => {
                 streamId: challenger.currentStreamId,
                 score: 0,
                 giftsReceived: [],
-                isVerified: challenger.isVerified
+                isVerified: challenger.isVerified,
             },
             opponent: {
                 user: opponentId,
@@ -134,20 +174,26 @@ router.post("/challenge", authMiddleware, async (req, res) => {
                 streamId: opponent.currentStreamId,
                 score: 0,
                 giftsReceived: [],
-                isVerified: opponent.isVerified
+                isVerified: opponent.isVerified,
             },
             duration: clampedDuration,
             status: "pending",
             challengeMessage: message?.slice(0, 200) || "",
-            challengeExpiresAt: new Date(Date.now() + 60 * 1000) // 60 seconds to respond
+            challengeExpiresAt: new Date(Date.now() + 60 * 1000), // 60 seconds to respond
         });
 
         await pk.save();
 
         // Populate for response
         await pk.populate([
-            { path: "challenger.user", select: "username avatar isVerified followersCount" },
-            { path: "opponent.user", select: "username avatar isVerified followersCount" }
+            {
+                path: "challenger.user",
+                select: "username avatar isVerified followersCount",
+            },
+            {
+                path: "opponent.user",
+                select: "username avatar isVerified followersCount",
+            },
         ]);
 
         // Emit socket event to opponent
@@ -159,21 +205,26 @@ router.post("/challenge", authMiddleware, async (req, res) => {
                     id: challenger._id,
                     username: challenger.username,
                     avatar: challenger.avatar,
-                    isVerified: challenger.isVerified
+                    isVerified: challenger.isVerified,
                 },
                 duration: pk.duration,
                 message: pk.challengeMessage,
-                expiresAt: pk.challengeExpiresAt
+                expiresAt: pk.challengeExpiresAt,
             });
 
             // Also notify opponent's stream viewers
-            io.to(getStreamRoom(opponent.currentStreamId)).emit("pk:challenge_received", {
-                pkId: pk._id,
-                challengerUsername: challenger.username
-            });
+            io.to(getStreamRoom(opponent.currentStreamId)).emit(
+                "pk:challenge_received",
+                {
+                    pkId: pk._id,
+                    challengerUsername: challenger.username,
+                }
+            );
         }
 
-        console.log(`⚔️ PK Challenge: ${challenger.username} → ${opponent.username}`);
+        console.log(
+            `⚔️ PK Challenge: ${challenger.username} → ${opponent.username}`
+        );
 
         res.json({
             success: true,
@@ -184,14 +235,14 @@ router.post("/challenge", authMiddleware, async (req, res) => {
                 opponent: pk.opponent,
                 duration: pk.duration,
                 status: pk.status,
-                expiresAt: pk.challengeExpiresAt
-            }
+                expiresAt: pk.challengeExpiresAt,
+            },
         });
     } catch (err) {
         console.error("❌ PK challenge error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -206,27 +257,35 @@ router.post("/challenge", authMiddleware, async (req, res) => {
  */
 router.post("/:pkId/accept", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const pk = await PK.findById(req.params.pkId);
 
         if (!pk) {
             return res.status(404).json({
                 success: false,
-                error: "PK challenge not found"
+                error: "PK challenge not found",
             });
         }
 
         // Verify it's the opponent accepting
-        if (pk.opponent.user.toString() !== req.userId.toString()) {
+        if (String(pk.opponent.user) !== String(authUserId)) {
             return res.status(403).json({
                 success: false,
-                error: "Not authorized to accept this challenge"
+                error: "Not authorized to accept this challenge",
             });
         }
 
         if (pk.status !== "pending") {
             return res.status(400).json({
                 success: false,
-                error: "PK is no longer pending"
+                error: "PK is no longer pending",
             });
         }
 
@@ -236,7 +295,7 @@ router.post("/:pkId/accept", authMiddleware, async (req, res) => {
             await pk.save();
             return res.status(400).json({
                 success: false,
-                error: "Challenge has expired"
+                error: "Challenge has expired",
             });
         }
 
@@ -249,8 +308,14 @@ router.post("/:pkId/accept", authMiddleware, async (req, res) => {
 
         // Populate for response
         await pk.populate([
-            { path: "challenger.user", select: "username avatar isVerified" },
-            { path: "opponent.user", select: "username avatar isVerified" }
+            {
+                path: "challenger.user",
+                select: "username avatar isVerified",
+            },
+            {
+                path: "opponent.user",
+                select: "username avatar isVerified",
+            },
         ]);
 
         // Update both users' PK status
@@ -258,32 +323,36 @@ router.post("/:pkId/accept", authMiddleware, async (req, res) => {
             $set: {
                 "pkBattle.isInPK": true,
                 "pkBattle.pkId": pk._id,
-                "pkBattle.opponentId": pk.opponent.user._id
-            }
+                "pkBattle.opponentId": pk.opponent.user._id,
+            },
         });
 
         await User.findByIdAndUpdate(pk.opponent.user._id, {
             $set: {
                 "pkBattle.isInPK": true,
                 "pkBattle.pkId": pk._id,
-                "pkBattle.opponentId": pk.challenger.user._id
-            }
+                "pkBattle.opponentId": pk.challenger.user._id,
+            },
         });
 
         // Update both streams
         if (Stream) {
             try {
                 await Stream.updateMany(
-                    { _id: { $in: [pk.challenger.streamId, pk.opponent.streamId] } },
+                    {
+                        _id: {
+                            $in: [pk.challenger.streamId, pk.opponent.streamId],
+                        },
+                    },
                     {
                         $set: {
                             "pkBattle.isInPK": true,
-                            "pkBattle.pkId": pk._id
-                        }
+                            "pkBattle.pkId": pk._id,
+                        },
                     }
                 );
             } catch (err) {
-                console.log("Stream PK update skipped");
+                console.log("Stream PK update skipped:", err.message);
             }
         }
 
@@ -297,49 +366,60 @@ router.post("/:pkId/accept", authMiddleware, async (req, res) => {
                     username: pk.challenger.username,
                     avatar: pk.challenger.avatar,
                     streamId: pk.challenger.streamId,
-                    score: 0
+                    score: 0,
                 },
                 opponent: {
                     user: pk.opponent.user,
                     username: pk.opponent.username,
                     avatar: pk.opponent.avatar,
                     streamId: pk.opponent.streamId,
-                    score: 0
+                    score: 0,
                 },
                 duration: pk.duration,
                 startTime: pk.startTime,
                 endTime: pk.endTime,
-                status: "active"
+                status: "active",
             };
 
             // Notify both streams
             if (pk.challenger.streamId) {
-                io.to(getStreamRoom(pk.challenger.streamId)).emit("pk:started", pkData);
+                io.to(getStreamRoom(pk.challenger.streamId)).emit(
+                    "pk:started",
+                    pkData
+                );
             }
             if (pk.opponent.streamId) {
-                io.to(getStreamRoom(pk.opponent.streamId)).emit("pk:started", pkData);
+                io.to(getStreamRoom(pk.opponent.streamId)).emit(
+                    "pk:started",
+                    pkData
+                );
             }
 
             // Notify both users
-            io.to(getUserRoom(pk.challenger.user._id)).emit("pk:started", pkData);
+            io.to(getUserRoom(pk.challenger.user._id)).emit(
+                "pk:started",
+                pkData
+            );
             io.to(getUserRoom(pk.opponent.user._id)).emit("pk:started", pkData);
 
-            // Create PK room
+            // PK room
             io.to(getPKRoom(pk._id)).emit("pk:started", pkData);
         }
 
-        console.log(`⚔️ PK Started: ${pk.challenger.username} vs ${pk.opponent.username} (${pk.duration}s)`);
+        console.log(
+            `⚔️ PK Started: ${pk.challenger.username} vs ${pk.opponent.username} (${pk.duration}s)`
+        );
 
         res.json({
             success: true,
             message: "PK battle started!",
-            pk
+            pk,
         });
     } catch (err) {
         console.error("❌ PK accept error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -354,26 +434,34 @@ router.post("/:pkId/accept", authMiddleware, async (req, res) => {
  */
 router.post("/:pkId/decline", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const pk = await PK.findById(req.params.pkId);
 
         if (!pk) {
             return res.status(404).json({
                 success: false,
-                error: "PK challenge not found"
+                error: "PK challenge not found",
             });
         }
 
-        if (pk.opponent.user.toString() !== req.userId.toString()) {
+        if (String(pk.opponent.user) !== String(authUserId)) {
             return res.status(403).json({
                 success: false,
-                error: "Not authorized"
+                error: "Not authorized",
             });
         }
 
         if (pk.status !== "pending") {
             return res.status(400).json({
                 success: false,
-                error: "PK is no longer pending"
+                error: "PK is no longer pending",
             });
         }
 
@@ -384,23 +472,28 @@ router.post("/:pkId/decline", authMiddleware, async (req, res) => {
         // Notify challenger
         const io = req.app.get("io");
         if (io) {
-            io.to(getUserRoom(pk.challenger.user.toString())).emit("pk:declined", {
-                pkId: pk._id,
-                opponentUsername: pk.opponent.username
-            });
+            io.to(getUserRoom(pk.challenger.user.toString())).emit(
+                "pk:declined",
+                {
+                    pkId: pk._id,
+                    opponentUsername: pk.opponent.username,
+                }
+            );
         }
 
-        console.log(`❌ PK Declined: ${pk.opponent.username} declined ${pk.challenger.username}'s challenge`);
+        console.log(
+            `❌ PK Declined: ${pk.opponent.username} declined ${pk.challenger.username}'s challenge`
+        );
 
         res.json({
             success: true,
-            message: "PK challenge declined"
+            message: "PK challenge declined",
         });
     } catch (err) {
         console.error("❌ PK decline error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -415,12 +508,20 @@ router.post("/:pkId/decline", authMiddleware, async (req, res) => {
  */
 router.post("/:pkId/gift", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const {
             targetUserId,
             giftType = "Coins",
             amount = 1,
             coins,
-            message
+            message,
         } = req.body;
 
         const pk = await PK.findById(req.params.pkId);
@@ -428,14 +529,14 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
         if (!pk) {
             return res.status(404).json({
                 success: false,
-                error: "PK not found"
+                error: "PK not found",
             });
         }
 
         if (pk.status !== "active") {
             return res.status(400).json({
                 success: false,
-                error: "PK is not active"
+                error: "PK is not active",
             });
         }
 
@@ -443,16 +544,16 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
         if (pk.endTime && new Date() > pk.endTime) {
             return res.status(400).json({
                 success: false,
-                error: "PK has ended"
+                error: "PK has ended",
             });
         }
 
         // Get sender
-        const sender = await User.findById(req.userId);
+        const sender = await User.findById(authUserId);
         if (!sender) {
             return res.status(404).json({
                 success: false,
-                error: "User not found"
+                error: "User not found",
             });
         }
 
@@ -464,68 +565,81 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                 success: false,
                 error: "Insufficient coins",
                 balance: sender.wallet?.balance || 0,
-                required: totalCost
+                required: totalCost,
             });
         }
 
         // Validate target is in this PK
-        const isChallenger = pk.challenger.user.toString() === targetUserId.toString();
-        const isOpponent = pk.opponent.user.toString() === targetUserId.toString();
+        const isChallenger =
+            String(pk.challenger.user) === String(targetUserId);
+        const isOpponent =
+            String(pk.opponent.user) === String(targetUserId);
 
         if (!isChallenger && !isOpponent) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid target user - not in this PK"
+                error: "Invalid target user - not in this PK",
             });
         }
 
         // Deduct from sender
         sender.wallet.balance -= totalCost;
-        sender.wallet.totalSpent = (sender.wallet.totalSpent || 0) + totalCost;
+        sender.wallet.totalSpent =
+            (sender.wallet.totalSpent || 0) + totalCost;
+        sender.wallet.transactions = sender.wallet.transactions || [];
         sender.wallet.transactions.unshift({
             type: "gift_sent",
             amount: -totalCost,
-            description: `PK Gift: ${giftType} x${amount} to ${isChallenger ? pk.challenger.username : pk.opponent.username}`,
+            description: `PK Gift: ${giftType} x${amount} to ${isChallenger
+                    ? pk.challenger.username
+                    : pk.opponent.username
+                }`,
             relatedUserId: targetUserId,
             pkId: pk._id,
             status: "completed",
-            createdAt: new Date()
+            createdAt: new Date(),
         });
 
         // Keep only last 500 transactions
         if (sender.wallet.transactions.length > 500) {
-            sender.wallet.transactions = sender.wallet.transactions.slice(0, 500);
+            sender.wallet.transactions =
+                sender.wallet.transactions.slice(0, 500);
         }
 
         await sender.save();
 
-        // Create gift record
+        // Create gift record (embedded in PK)
         const giftData = {
-            from: req.userId,
+            from: authUserId,
             fromUsername: sender.username,
             fromAvatar: sender.avatar,
             giftType,
             amount,
             coins: totalCost,
             message: message?.slice(0, 100) || "",
-            timestamp: new Date()
+            timestamp: new Date(),
         };
 
         // Add to target's score and gifts
         if (isChallenger) {
-            pk.challenger.giftsReceived = pk.challenger.giftsReceived || [];
+            pk.challenger.giftsReceived =
+                pk.challenger.giftsReceived || [];
             pk.challenger.giftsReceived.push(giftData);
-            pk.challenger.score += totalCost;
+            pk.challenger.score =
+                (pk.challenger.score || 0) + totalCost;
         } else {
             pk.opponent.giftsReceived = pk.opponent.giftsReceived || [];
             pk.opponent.giftsReceived.push(giftData);
-            pk.opponent.score += totalCost;
+            pk.opponent.score =
+                (pk.opponent.score || 0) + totalCost;
         }
 
         await pk.save();
 
         // Give coins to streamer (85% of gift value)
-        const creatorShare = Math.floor(totalCost * (CREATOR_SHARE_PERCENT / 100));
+        const creatorShare = Math.floor(
+            totalCost * (CREATOR_SHARE_PERCENT / 100)
+        );
         const platformFee = totalCost - creatorShare;
 
         const streamer = await User.findById(targetUserId);
@@ -534,11 +648,14 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                 balance: 0,
                 totalReceived: 0,
                 totalSpent: 0,
-                transactions: []
+                transactions: [],
             };
             streamer.wallet.balance += creatorShare;
-            streamer.wallet.totalReceived = (streamer.wallet.totalReceived || 0) + creatorShare;
-            streamer.wallet.totalEarned = (streamer.wallet.totalEarned || 0) + creatorShare;
+            streamer.wallet.totalReceived =
+                (streamer.wallet.totalReceived || 0) +
+                creatorShare;
+            streamer.wallet.totalEarned =
+                (streamer.wallet.totalEarned || 0) + creatorShare;
             streamer.wallet.transactions.unshift({
                 type: "gift_received",
                 amount: creatorShare,
@@ -548,16 +665,20 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                 pkId: pk._id,
                 meta: { originalAmount: totalCost, platformFee },
                 status: "completed",
-                createdAt: new Date()
+                createdAt: new Date(),
             });
 
             // Update stats
             streamer.stats = streamer.stats || {};
-            streamer.stats.totalGiftsReceived = (streamer.stats.totalGiftsReceived || 0) + 1;
-            streamer.stats.totalGiftsReceivedValue = (streamer.stats.totalGiftsReceivedValue || 0) + totalCost;
+            streamer.stats.totalGiftsReceived =
+                (streamer.stats.totalGiftsReceived || 0) + 1;
+            streamer.stats.totalGiftsReceivedValue =
+                (streamer.stats.totalGiftsReceivedValue || 0) +
+                totalCost;
 
             if (streamer.wallet.transactions.length > 500) {
-                streamer.wallet.transactions = streamer.wallet.transactions.slice(0, 500);
+                streamer.wallet.transactions =
+                    streamer.wallet.transactions.slice(0, 500);
             }
 
             await streamer.save();
@@ -571,16 +692,22 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                     await wallet.addTransaction({
                         amount: platformFee,
                         type: "pk_gift_fee",
-                        reason: `PK gift fee: ${sender.username} → ${isChallenger ? pk.challenger.username : pk.opponent.username}`,
+                        reason: `PK gift fee: ${sender.username} → ${isChallenger
+                                ? pk.challenger.username
+                                : pk.opponent.username
+                            }`,
                         fromUserId: sender._id,
                         fromUsername: sender.username,
                         isRevenue: true,
-                        metadata: { pkId: pk._id, giftType }
+                        metadata: { pkId: pk._id, giftType },
                     });
                 }
             }
         } catch (err) {
-            console.log("Platform fee recording skipped:", err.message);
+            console.log(
+                "Platform fee recording skipped:",
+                err.message
+            );
         }
 
         // Create gift record in Gift collection
@@ -591,7 +718,9 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                     senderUsername: sender.username,
                     senderAvatar: sender.avatar,
                     recipientId: targetUserId,
-                    recipientUsername: isChallenger ? pk.challenger.username : pk.opponent.username,
+                    recipientUsername: isChallenger
+                        ? pk.challenger.username
+                        : pk.opponent.username,
                     item: giftType,
                     itemName: giftType,
                     amount: totalCost,
@@ -599,14 +728,19 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                     message,
                     context: "pk_battle",
                     pkBattleId: pk._id,
-                    streamId: isChallenger ? pk.challenger.streamId : pk.opponent.streamId,
+                    streamId: isChallenger
+                        ? pk.challenger.streamId
+                        : pk.opponent.streamId,
                     platformFee: PLATFORM_FEE_PERCENT,
                     recipientReceives: creatorShare,
-                    status: "completed"
+                    status: "completed",
                 });
             }
         } catch (err) {
-            console.log("Gift record creation skipped:", err.message);
+            console.log(
+                "Gift record creation skipped:",
+                err.message
+            );
         }
 
         // Emit score update to both streams
@@ -620,54 +754,74 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                     from: sender.username,
                     fromAvatar: sender.avatar,
                     to: targetUserId,
-                    toUsername: isChallenger ? pk.challenger.username : pk.opponent.username,
+                    toUsername: isChallenger
+                        ? pk.challenger.username
+                        : pk.opponent.username,
                     giftType,
                     amount,
                     coins: totalCost,
-                    side: isChallenger ? "challenger" : "opponent"
-                }
+                    side: isChallenger ? "challenger" : "opponent",
+                },
             };
 
             // Notify both streams
             if (pk.challenger.streamId) {
-                io.to(getStreamRoom(pk.challenger.streamId)).emit("pk:scoreUpdate", scoreUpdate);
-                io.to(getStreamRoom(pk.challenger.streamId)).emit("pk:gift", scoreUpdate.lastGift);
+                io.to(
+                    getStreamRoom(pk.challenger.streamId)
+                ).emit("pk:scoreUpdate", scoreUpdate);
+                io.to(
+                    getStreamRoom(pk.challenger.streamId)
+                ).emit("pk:gift", scoreUpdate.lastGift);
             }
             if (pk.opponent.streamId) {
-                io.to(getStreamRoom(pk.opponent.streamId)).emit("pk:scoreUpdate", scoreUpdate);
-                io.to(getStreamRoom(pk.opponent.streamId)).emit("pk:gift", scoreUpdate.lastGift);
+                io.to(
+                    getStreamRoom(pk.opponent.streamId)
+                ).emit("pk:scoreUpdate", scoreUpdate);
+                io.to(
+                    getStreamRoom(pk.opponent.streamId)
+                ).emit("pk:gift", scoreUpdate.lastGift);
             }
 
             // Notify PK room
             io.to(getPKRoom(pk._id)).emit("pk:scoreUpdate", scoreUpdate);
 
             // Notify recipient
-            io.to(getUserRoom(targetUserId)).emit("gift_received", {
-                from: sender.username,
-                giftType,
-                amount: totalCost,
-                creatorShare,
-                context: "pk_battle"
-            });
+            io.to(getUserRoom(targetUserId)).emit(
+                "gift_received",
+                {
+                    from: sender.username,
+                    giftType,
+                    amount: totalCost,
+                    creatorShare,
+                    context: "pk_battle",
+                }
+            );
         }
 
-        console.log(`🎁 PK Gift: ${sender.username} → ${isChallenger ? pk.challenger.username : pk.opponent.username}: ${totalCost} coins`);
+        console.log(
+            `🎁 PK Gift: ${sender.username} → ${isChallenger
+                ? pk.challenger.username
+                : pk.opponent.username
+            }: ${totalCost} coins`
+        );
 
         res.json({
             success: true,
             message: "Gift sent!",
-            newScore: isChallenger ? pk.challenger.score : pk.opponent.score,
+            newScore: isChallenger
+                ? pk.challenger.score
+                : pk.opponent.score,
             scores: {
                 challenger: pk.challenger.score,
-                opponent: pk.opponent.score
+                opponent: pk.opponent.score,
             },
-            newBalance: sender.wallet.balance
+            newBalance: sender.wallet.balance,
         });
     } catch (err) {
         console.error("❌ PK gift error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -682,31 +836,39 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
  */
 router.post("/:pkId/end", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const pk = await PK.findById(req.params.pkId);
 
         if (!pk) {
             return res.status(404).json({
                 success: false,
-                error: "PK not found"
+                error: "PK not found",
             });
         }
 
         if (pk.status !== "active") {
             return res.status(400).json({
                 success: false,
-                error: "PK is not active"
+                error: "PK is not active",
             });
         }
 
         // Verify user is participant
         const isParticipant =
-            pk.challenger.user.toString() === req.userId.toString() ||
-            pk.opponent.user.toString() === req.userId.toString();
+            String(pk.challenger.user) === String(authUserId) ||
+            String(pk.opponent.user) === String(authUserId);
 
         if (!isParticipant) {
             return res.status(403).json({
                 success: false,
-                error: "Not authorized to end this PK"
+                error: "Not authorized to end this PK",
             });
         }
 
@@ -732,49 +894,79 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
 
         // Populate winner
         await pk.populate([
-            { path: "challenger.user", select: "username avatar isVerified" },
-            { path: "opponent.user", select: "username avatar isVerified" },
-            { path: "winner", select: "username avatar isVerified" }
+            {
+                path: "challenger.user",
+                select: "username avatar isVerified",
+            },
+            {
+                path: "opponent.user",
+                select: "username avatar isVerified",
+            },
+            { path: "winner", select: "username avatar isVerified" },
         ]);
 
-        // Update user stats and streaks
-        const challengerId = pk.challenger.user._id || pk.challenger.user;
-        const opponentId = pk.opponent.user._id || pk.opponent.user;
+        const challengerId =
+            pk.challenger.user._id || pk.challenger.user;
+        const opponentId =
+            pk.opponent.user._id || pk.opponent.user;
 
         if (!pk.isDraw && pk.winner) {
             const winnerId = pk.winner._id || pk.winner;
-            const loserId = winnerId.toString() === challengerId.toString()
-                ? opponentId
-                : challengerId;
+            const loserId =
+                String(winnerId) === String(challengerId)
+                    ? opponentId
+                    : challengerId;
 
             // Update winner
             const winner = await User.findById(winnerId);
             if (winner) {
                 winner.stats = winner.stats || {};
-                winner.stats.pkWins = (winner.stats.pkWins || 0) + 1;
-                winner.stats.pkStreak = (winner.stats.pkStreak || 0) + 1;
-                winner.stats.pkTotalBattles = (winner.stats.pkTotalBattles || 0) + 1;
+                winner.stats.pkWins =
+                    (winner.stats.pkWins || 0) + 1;
+                winner.stats.pkStreak =
+                    (winner.stats.pkStreak || 0) + 1;
+                winner.stats.pkTotalBattles =
+                    (winner.stats.pkTotalBattles || 0) + 1;
 
                 // Update best streak
-                if (winner.stats.pkStreak > (winner.stats.pkBestStreak || 0)) {
-                    winner.stats.pkBestStreak = winner.stats.pkStreak;
+                if (
+                    winner.stats.pkStreak >
+                    (winner.stats.pkBestStreak || 0)
+                ) {
+                    winner.stats.pkBestStreak =
+                        winner.stats.pkStreak;
                 }
 
                 // Calculate win rate
-                const totalBattles = (winner.stats.pkWins || 0) + (winner.stats.pkLosses || 0);
-                winner.stats.pkWinRate = totalBattles > 0
-                    ? Math.round((winner.stats.pkWins / totalBattles) * 100)
-                    : 0;
+                const totalBattles =
+                    (winner.stats.pkWins || 0) +
+                    (winner.stats.pkLosses || 0);
+                winner.stats.pkWinRate =
+                    totalBattles > 0
+                        ? Math.round(
+                            (winner.stats.pkWins /
+                                totalBattles) *
+                            100
+                        )
+                        : 0;
 
                 await winner.save();
 
                 // Notify winner
                 if (winner.addNotification) {
                     await winner.addNotification({
-                        message: `🏆 You won the PK battle against ${winnerId.toString() === challengerId.toString() ? pk.opponent.username : pk.challenger.username}!`,
+                        message: `🏆 You won the PK battle against ${String(winnerId) ===
+                                String(challengerId)
+                                ? pk.opponent.username
+                                : pk.challenger.username
+                            }!`,
                         type: "pk_result",
                         pkId: pk._id,
-                        amount: winnerId.toString() === challengerId.toString() ? cScore : oScore
+                        amount:
+                            String(winnerId) ===
+                                String(challengerId)
+                                ? cScore
+                                : oScore,
                     });
                 }
             }
@@ -783,15 +975,24 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
             const loser = await User.findById(loserId);
             if (loser) {
                 loser.stats = loser.stats || {};
-                loser.stats.pkLosses = (loser.stats.pkLosses || 0) + 1;
+                loser.stats.pkLosses =
+                    (loser.stats.pkLosses || 0) + 1;
                 loser.stats.pkStreak = 0;
-                loser.stats.pkTotalBattles = (loser.stats.pkTotalBattles || 0) + 1;
+                loser.stats.pkTotalBattles =
+                    (loser.stats.pkTotalBattles || 0) + 1;
 
                 // Calculate win rate
-                const totalBattles = (loser.stats.pkWins || 0) + (loser.stats.pkLosses || 0);
-                loser.stats.pkWinRate = totalBattles > 0
-                    ? Math.round((loser.stats.pkWins / totalBattles) * 100)
-                    : 0;
+                const totalBattles =
+                    (loser.stats.pkWins || 0) +
+                    (loser.stats.pkLosses || 0);
+                loser.stats.pkWinRate =
+                    totalBattles > 0
+                        ? Math.round(
+                            (loser.stats.pkWins /
+                                totalBattles) *
+                            100
+                        )
+                        : 0;
 
                 await loser.save();
             }
@@ -802,8 +1003,8 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
                 {
                     $inc: {
                         "stats.pkDraws": 1,
-                        "stats.pkTotalBattles": 1
-                    }
+                        "stats.pkTotalBattles": 1,
+                    },
                 }
             );
         }
@@ -815,8 +1016,8 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
                 $set: {
                     "pkBattle.isInPK": false,
                     "pkBattle.pkId": null,
-                    "pkBattle.opponentId": null
-                }
+                    "pkBattle.opponentId": null,
+                },
             }
         );
 
@@ -824,16 +1025,23 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
         if (Stream) {
             try {
                 await Stream.updateMany(
-                    { _id: { $in: [pk.challenger.streamId, pk.opponent.streamId] } },
+                    {
+                        _id: {
+                            $in: [
+                                pk.challenger.streamId,
+                                pk.opponent.streamId,
+                            ],
+                        },
+                    },
                     {
                         $set: {
                             "pkBattle.isInPK": false,
-                            "pkBattle.pkId": null
-                        }
+                            "pkBattle.pkId": null,
+                        },
                     }
                 );
             } catch (err) {
-                console.log("Stream PK clear skipped");
+                console.log("Stream PK clear skipped:", err.message);
             }
         }
 
@@ -850,46 +1058,59 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
                     user: pk.challenger.user,
                     username: pk.challenger.username,
                     avatar: pk.challenger.avatar,
-                    score: pk.challenger.score
+                    score: pk.challenger.score,
                 },
                 opponent: {
                     user: pk.opponent.user,
                     username: pk.opponent.username,
                     avatar: pk.opponent.avatar,
-                    score: pk.opponent.score
+                    score: pk.opponent.score,
                 },
                 totalGifts: pk.totalGifts,
-                duration: pk.duration
+                duration: pk.duration,
             };
 
             if (pk.challenger.streamId) {
-                io.to(getStreamRoom(pk.challenger.streamId)).emit("pk:ended", resultData);
+                io.to(
+                    getStreamRoom(pk.challenger.streamId)
+                ).emit("pk:ended", resultData);
             }
             if (pk.opponent.streamId) {
-                io.to(getStreamRoom(pk.opponent.streamId)).emit("pk:ended", resultData);
+                io.to(
+                    getStreamRoom(pk.opponent.streamId)
+                ).emit("pk:ended", resultData);
             }
 
             io.to(getPKRoom(pk._id)).emit("pk:ended", resultData);
         }
 
-        console.log(`⚔️ PK Ended: ${pk.challenger.username} (${cScore}) vs ${pk.opponent.username} (${oScore}) - ${pk.isDraw ? "DRAW" : `Winner: ${pk.winner.username}`}`);
+        const winnerName = pk.isDraw
+            ? "DRAW"
+            : pk.winner?.username || "unknown";
+
+        console.log(
+            `⚔️ PK Ended: ${pk.challenger.username} (${cScore}) vs ${pk.opponent.username} (${oScore}) - ${pk.isDraw ? "DRAW" : `Winner: ${winnerName}`
+            }`
+        );
 
         res.json({
             success: true,
-            message: pk.isDraw ? "PK ended in a draw!" : `${pk.winner.username} wins!`,
+            message: pk.isDraw
+                ? "PK ended in a draw!"
+                : `${winnerName} wins!`,
             winner: pk.winner,
             isDraw: pk.isDraw,
             scores: {
                 challenger: pk.challenger.score,
-                opponent: pk.opponent.score
+                opponent: pk.opponent.score,
             },
-            totalGifts: pk.totalGifts
+            totalGifts: pk.totalGifts,
         });
     } catch (err) {
         console.error("❌ PK end error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -904,60 +1125,41 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
  */
 router.get("/active", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const pk = await PK.findOne({
             status: "active",
             $or: [
-                { "challenger.user": req.userId },
-                { "opponent.user": req.userId }
-            ]
+                { "challenger.user": authUserId },
+                { "opponent.user": authUserId },
+            ],
         }).populate([
-            { path: "challenger.user", select: "username avatar isVerified" },
-            { path: "opponent.user", select: "username avatar isVerified" }
+            {
+                path: "challenger.user",
+                select: "username avatar isVerified",
+            },
+            {
+                path: "opponent.user",
+                select: "username avatar isVerified",
+            },
         ]);
 
         res.json({
             success: true,
             pk,
-            isInPK: !!pk
+            isInPK: !!pk,
         });
     } catch (err) {
         console.error("❌ Get active PK error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
-        });
-    }
-});
-
-/**
- * GET /api/pk/:pkId
- * Get specific PK details
- */
-router.get("/:pkId", async (req, res) => {
-    try {
-        const pk = await PK.findById(req.params.pkId)
-            .populate([
-                { path: "challenger.user", select: "username avatar isVerified followersCount" },
-                { path: "opponent.user", select: "username avatar isVerified followersCount" },
-                { path: "winner", select: "username avatar" }
-            ]);
-
-        if (!pk) {
-            return res.status(404).json({
-                success: false,
-                error: "PK not found"
-            });
-        }
-
-        res.json({
-            success: true,
-            pk
-        });
-    } catch (err) {
-        console.error("❌ Get PK error:", err);
-        res.status(500).json({
-            success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -972,22 +1174,33 @@ router.get("/:pkId", async (req, res) => {
  */
 router.get("/pending", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const challenges = await PK.find({
             status: "pending",
-            "opponent.user": req.userId,
-            challengeExpiresAt: { $gt: new Date() }
-        }).populate("challenger.user", "username avatar isVerified followersCount");
+            "opponent.user": authUserId,
+            challengeExpiresAt: { $gt: new Date() },
+        }).populate(
+            "challenger.user",
+            "username avatar isVerified followersCount"
+        );
 
         res.json({
             success: true,
             challenges,
-            count: challenges.length
+            count: challenges.length,
         });
     } catch (err) {
         console.error("❌ Get pending PKs error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -1002,27 +1215,37 @@ router.get("/pending", authMiddleware, async (req, res) => {
  */
 router.get("/live-streamers", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         // Find users currently in a PK
         const activePKs = await PK.find({
-            status: { $in: ["pending", "active"] }
+            status: { $in: ["pending", "active"] },
         });
 
         const usersInPK = new Set();
-        activePKs.forEach(pk => {
-            usersInPK.add(pk.challenger.user.toString());
-            usersInPK.add(pk.opponent.user.toString());
+        activePKs.forEach((pk) => {
+            usersInPK.add(String(pk.challenger.user));
+            usersInPK.add(String(pk.opponent.user));
         });
 
         // Find live streamers not in PK and not the requester
         const liveStreamers = await User.find({
             isLive: true,
             _id: {
-                $ne: req.userId,
-                $nin: Array.from(usersInPK)
+                $ne: authUserId,
+                $nin: Array.from(usersInPK),
             },
-            isBanned: { $ne: true }
+            isBanned: { $ne: true },
         })
-            .select("username avatar currentStreamId followersCount isVerified stats.pkWins stats.pkWinRate")
+            .select(
+                "username avatar currentStreamId followersCount isVerified stats.pkWins stats.pkWinRate"
+            )
             .sort({ followersCount: -1 })
             .limit(50)
             .lean();
@@ -1030,13 +1253,13 @@ router.get("/live-streamers", authMiddleware, async (req, res) => {
         res.json({
             success: true,
             streamers: liveStreamers,
-            count: liveStreamers.length
+
         });
     } catch (err) {
         console.error("❌ Get live streamers error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -1051,40 +1274,58 @@ router.get("/live-streamers", authMiddleware, async (req, res) => {
  */
 router.get("/history", authMiddleware, async (req, res) => {
     try {
+        const authUserId = getAuthUserId(req);
+        if (!authUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
+        }
+
         const { limit = 20, skip = 0 } = req.query;
 
         const [history, total] = await Promise.all([
             PK.find({
                 status: "finished",
                 $or: [
-                    { "challenger.user": req.userId },
-                    { "opponent.user": req.userId }
-                ]
+                    { "challenger.user": authUserId },
+                    { "opponent.user": authUserId },
+                ],
             })
                 .sort({ createdAt: -1 })
                 .skip(parseInt(skip))
                 .limit(parseInt(limit))
                 .populate([
-                    { path: "challenger.user", select: "username avatar" },
-                    { path: "opponent.user", select: "username avatar" },
-                    { path: "winner", select: "username" }
+                    {
+                        path: "challenger.user",
+                        select: "username avatar",
+                    },
+                    {
+                        path: "opponent.user",
+                        select: "username avatar",
+                    },
+                    { path: "winner", select: "username" },
                 ])
                 .lean(),
             PK.countDocuments({
                 status: "finished",
                 $or: [
-                    { "challenger.user": req.userId },
-                    { "opponent.user": req.userId }
-                ]
-            })
+                    { "challenger.user": authUserId },
+                    { "opponent.user": authUserId },
+                ],
+            }),
         ]);
 
+        const authIdStr = String(authUserId);
+
         // Add win/loss indicator for current user
-        const historyWithResult = history.map(pk => ({
+        const historyWithResult = history.map((pk) => ({
             ...pk,
             result: pk.isDraw
                 ? "draw"
-                : (pk.winner?._id?.toString() === req.userId.toString() ? "win" : "loss")
+                : String(pk.winner?._id) === authIdStr
+                    ? "win"
+                    : "loss",
         }));
 
         res.json({
@@ -1094,14 +1335,14 @@ router.get("/history", authMiddleware, async (req, res) => {
                 total,
                 limit: parseInt(limit),
                 skip: parseInt(skip),
-                hasMore: parseInt(skip) + history.length < total
-            }
+                hasMore: parseInt(skip) + history.length < total,
+            },
         });
     } catch (err) {
         console.error("❌ Get PK history error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -1118,38 +1359,41 @@ router.get("/leaderboard", async (req, res) => {
     try {
         const { period = "all", limit = 20 } = req.query;
 
-        let dateFilter = {};
-        if (period === "week") {
-            dateFilter.createdAt = { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
-        } else if (period === "month") {
-            dateFilter.createdAt = { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) };
-        }
+        // period is currently not applied directly; stats are aggregated on User
+        // (Je kan later een PK-aggregate toevoegen als je echt per periode wilt filteren)
 
-        // Get users with most wins
         const leaderboard = await User.find({
-            "stats.pkWins": { $gt: 0 }
+            "stats.pkWins": { $gt: 0 },
         })
-            .select("username avatar isVerified stats.pkWins stats.pkLosses stats.pkDraws stats.pkStreak stats.pkWinRate followersCount")
-            .sort({ "stats.pkWins": -1, "stats.pkWinRate": -1 })
+            .select(
+                "username avatar isVerified stats.pkWins stats.pkLosses stats.pkDraws stats.pkStreak stats.pkWinRate followersCount"
+            )
+            .sort({
+                "stats.pkWins": -1,
+                "stats.pkWinRate": -1,
+            })
             .limit(parseInt(limit))
             .lean();
 
         const ranked = leaderboard.map((user, index) => ({
             rank: index + 1,
             ...user,
-            totalBattles: (user.stats?.pkWins || 0) + (user.stats?.pkLosses || 0) + (user.stats?.pkDraws || 0)
+            totalBattles:
+                (user.stats?.pkWins || 0) +
+                (user.stats?.pkLosses || 0) +
+                (user.stats?.pkDraws || 0),
         }));
 
         res.json({
             success: true,
             period,
-            leaderboard: ranked
+            leaderboard: ranked,
         });
     } catch (err) {
         console.error("❌ PK leaderboard error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
         });
     }
 });
@@ -1167,13 +1411,15 @@ router.get("/stats/:userId", async (req, res) => {
         const { userId } = req.params;
 
         const user = await User.findById(userId)
-            .select("username avatar stats.pkWins stats.pkLosses stats.pkDraws stats.pkStreak stats.pkBestStreak stats.pkWinRate stats.pkTotalBattles")
+            .select(
+                "username avatar stats.pkWins stats.pkLosses stats.pkDraws stats.pkStreak stats.pkBestStreak stats.pkWinRate stats.pkTotalBattles"
+            )
             .lean();
 
         if (!user) {
             return res.status(404).json({
                 success: false,
-                error: "User not found"
+                error: "User not found",
             });
         }
 
@@ -1182,15 +1428,21 @@ router.get("/stats/:userId", async (req, res) => {
             status: "finished",
             $or: [
                 { "challenger.user": userId },
-                { "opponent.user": userId }
-            ]
+                { "opponent.user": userId },
+            ],
         })
             .sort({ createdAt: -1 })
             .limit(5)
             .populate([
-                { path: "challenger.user", select: "username avatar" },
-                { path: "opponent.user", select: "username avatar" },
-                { path: "winner", select: "username" }
+                {
+                    path: "challenger.user",
+                    select: "username avatar",
+                },
+                {
+                    path: "opponent.user",
+                    select: "username avatar",
+                },
+                { path: "winner", select: "username" },
             ])
             .lean();
 
@@ -1198,24 +1450,68 @@ router.get("/stats/:userId", async (req, res) => {
             success: true,
             user: {
                 username: user.username,
-                avatar: user.avatar
+                avatar: user.avatar,
             },
-            stats: user.stats || {
-                pkWins: 0,
-                pkLosses: 0,
-                pkDraws: 0,
-                pkStreak: 0,
-                pkBestStreak: 0,
-                pkWinRate: 0,
-                pkTotalBattles: 0
-            },
-            recentBattles
+            stats:
+                user.stats || {
+                    pkWins: 0,
+                    pkLosses: 0,
+                    pkDraws: 0,
+                    pkStreak: 0,
+                    pkBestStreak: 0,
+                    pkWinRate: 0,
+                    pkTotalBattles: 0,
+                },
+            recentBattles,
         });
     } catch (err) {
         console.error("❌ PK stats error:", err);
         res.status(500).json({
             success: false,
-            error: err.message
+            error: err.message,
+        });
+    }
+});
+
+// ===========================================
+// GET SPECIFIC PK DETAILS
+// (LET OP: staat bewust NA alle /fixed routes)
+// ===========================================
+
+/**
+ * GET /api/pk/:pkId
+ * Get specific PK details
+ */
+router.get("/:pkId", async (req, res) => {
+    try {
+        const pk = await PK.findById(req.params.pkId).populate([
+            {
+                path: "challenger.user",
+                select: "username avatar isVerified followersCount",
+            },
+            {
+                path: "opponent.user",
+                select: "username avatar isVerified followersCount",
+            },
+            { path: "winner", select: "username avatar" },
+        ]);
+
+        if (!pk) {
+            return res.status(404).json({
+                success: false,
+                error: "PK not found",
+            });
+        }
+
+        res.json({
+            success: true,
+            pk,
+        });
+    } catch (err) {
+        console.error("❌ Get PK error:", err);
+        res.status(500).json({
+            success: false,
+            error: err.message,
         });
     }
 });

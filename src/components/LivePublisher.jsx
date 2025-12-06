@@ -1,14 +1,18 @@
-// src/components/LivePublisher.jsx - WORLD STUDIO LIVE EDITION 📹
+// src/components/LivePublisher.jsx - WORLD STUDIO LIVE EDITION 📹 (U.E.)
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import axios from "axios";
 import { io } from "socket.io-client";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION
+   WORLD STUDIO LIVE CONFIGURATION (U.E.)
    ============================================================ */
-const API_BASE_URL = "https://world-studio-production.up.railway.app";
-const SOCKET_URL = "https://world-studio-production.up.railway.app";
+const RAW_BASE_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
+
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+const SOCKET_URL = API_BASE_URL;
 
 // Create API instance
 const api = axios.create({
@@ -313,9 +317,14 @@ export default function LivePublisher({
                     if (!pc) return;
 
                     try {
-                        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                        await pc.setRemoteDescription(new RTCPeerConnection.prototype.constructor.prototype._RTCSessionDescription(sdp));
                     } catch (e) {
-                        console.error("setRemoteDescription error:", e);
+                        // fallback – mostly browsers expose RTCSessionDescription globally
+                        try {
+                            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                        } catch (err2) {
+                            console.error("setRemoteDescription error:", err2);
+                        }
                     }
                 });
 
@@ -339,24 +348,33 @@ export default function LivePublisher({
                 });
 
                 // Viewer count update
-                socket.on("viewer_count", ({ viewers: count }) => setViewers(count));
+                socket.on("viewer_count", ({ viewers: count, roomId: rid }) => {
+                    if (rid && rid !== roomId) return;
+                    setViewers(count || 0);
+                });
 
                 // Chat messages
                 socket.on("chat_message", (msg) => {
+                    if (msg.roomId && msg.roomId !== roomId) return;
                     setChat((prev) => [...prev.slice(-50), msg]);
                 });
 
                 // Gift received
                 socket.on("gift_received", (gift) => {
-                    setGifts((prev) => [...prev.slice(-10), { ...gift, timestamp: Date.now() }]);
-                    setTotalGifts((prev) => prev + (gift.amount || 0));
-                    toast.success(`🎁 ${gift.senderUsername} sent ${gift.icon || "💝"} x${gift.amount}!`, {
-                        duration: 3000,
-                    });
+                    const timestamp = Date.now();
+                    const giftObj = { ...gift, timestamp };
 
-                    // Auto-remove gift after 5 seconds
+                    setGifts((prev) => [...prev.slice(-10), giftObj]);
+                    setTotalGifts((prev) => prev + (gift.amount || 0));
+
+                    toast.success(
+                        `🎁 ${gift.senderUsername} sent ${gift.icon || "💝"} x${gift.amount}!`,
+                        { duration: 3000 }
+                    );
+
+                    // Auto-remove gift after 5 seconds (per eigen timestamp)
                     setTimeout(() => {
-                        setGifts((prev) => prev.filter(g => g.timestamp !== gift.timestamp));
+                        setGifts((prev) => prev.filter((g) => g.timestamp !== timestamp));
                     }, 5000);
                 });
 
@@ -436,14 +454,16 @@ export default function LivePublisher({
             {/* Top bar */}
             <div className="p-3 flex items-center gap-3 bg-black/80 border-b border-white/10">
                 {/* Live badge */}
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isLive ? "bg-red-500" : "bg-white/20"}`}>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isLive ? "bg-red-500" : "bg.white/20"}`}>
                     <span className={`w-2 h-2 rounded-full ${isLive ? "bg-white animate-pulse" : "bg-white/50"}`}></span>
                     <span className="font-bold text-sm">{isLive ? "LIVE" : "STARTING..."}</span>
                 </div>
 
                 {/* Duration */}
                 {isLive && (
-                    <span className="text-white/60 text-sm font-mono">{formatDuration(duration)}</span>
+                    <span className="text-white/60 text-sm font-mono">
+                        {formatDuration(duration)}
+                    </span>
                 )}
 
                 {/* Stream title (desktop) */}
@@ -454,7 +474,10 @@ export default function LivePublisher({
 
                 {/* Connection status */}
                 <div className="flex items-center gap-1">
-                    <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
+                    <div
+                        className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"
+                            }`}
+                    />
                     <span className="text-xs text-white/50 hidden md:inline">
                         {isConnected ? "Connected" : "Reconnecting..."}
                     </span>
@@ -465,7 +488,9 @@ export default function LivePublisher({
                     {totalGifts > 0 && (
                         <div className="flex items-center gap-2 text-yellow-400 bg-yellow-500/10 px-3 py-1.5 rounded-lg">
                             <span>🎁</span>
-                            <span className="font-semibold">{totalGifts.toLocaleString()}</span>
+                            <span className="font-semibold">
+                                {totalGifts.toLocaleString()}
+                            </span>
                         </div>
                     )}
                     <div className="flex items-center gap-2 text-white/70 bg-white/10 px-3 py-1.5 rounded-lg">
@@ -511,14 +536,20 @@ export default function LivePublisher({
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3">
                         <button
                             onClick={toggleMute}
-                            className={`p-3 rounded-full transition ${isMuted ? "bg-red-500 hover:bg-red-400" : "bg-white/20 hover:bg-white/30"}`}
+                            className={`p-3 rounded-full transition ${isMuted
+                                    ? "bg-red-500 hover:bg-red-400"
+                                    : "bg-white/20 hover:bg-white/30"
+                                }`}
                             title={isMuted ? "Unmute" : "Mute"}
                         >
                             {isMuted ? "🔇" : "🎤"}
                         </button>
                         <button
                             onClick={toggleCamera}
-                            className={`p-3 rounded-full transition ${isCameraOff ? "bg-red-500 hover:bg-red-400" : "bg-white/20 hover:bg-white/30"}`}
+                            className={`p-3 rounded-full transition ${isCameraOff
+                                    ? "bg-red-500 hover:bg-red-400"
+                                    : "bg-white/20 hover:bg.white/30"
+                                }`}
                             title={isCameraOff ? "Turn on camera" : "Turn off camera"}
                         >
                             {isCameraOff ? "📷" : "🎥"}
@@ -528,7 +559,10 @@ export default function LivePublisher({
                     {/* Room ID badge */}
                     <div className="absolute top-4 left-4 bg-black/60 backdrop-blur px-3 py-1.5 rounded-lg text-sm">
                         <span className="text-white/50">Room: </span>
-                        <span className="text-white font-mono">{roomId?.slice(0, 20)}{roomId?.length > 20 ? "..." : ""}</span>
+                        <span className="text-white font-mono">
+                            {roomId?.slice(0, 20)}
+                            {roomId?.length > 20 ? "..." : ""}
+                        </span>
                     </div>
 
                     {/* Gift overlays */}
@@ -536,12 +570,19 @@ export default function LivePublisher({
                         {gifts.slice(-5).map((gift, i) => (
                             <div
                                 key={gift.timestamp || i}
-                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color || "from-purple-500/80 to-pink-500/80"} px-3 py-2 rounded-lg animate-slideIn`}
+                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color || "from-purple-500/80 to-pink-500/80"
+                                    } px-3 py-2 rounded-lg animate-slideIn`}
                             >
-                                <span className="text-2xl animate-bounce">{gift.icon || "🎁"}</span>
+                                <span className="text-2xl animate-bounce">
+                                    {gift.icon || "🎁"}
+                                </span>
                                 <div>
-                                    <p className="text-sm font-semibold text-white">{gift.senderUsername}</p>
-                                    <p className="text-xs text-white/80">sent {gift.item || "gift"} x{gift.amount}</p>
+                                    <p className="text-sm font-semibold text-white">
+                                        {gift.senderUsername}
+                                    </p>
+                                    <p className="text-xs text-white/80">
+                                        sent {gift.item || "gift"} x{gift.amount}
+                                    </p>
                                 </div>
                             </div>
                         ))}
@@ -553,27 +594,48 @@ export default function LivePublisher({
                     <div className="p-3 border-b border-white/10">
                         <h3 className="font-semibold flex items-center gap-2">
                             💬 Live Chat
-                            <span className="text-xs text-white/40">({chat.length})</span>
+                            <span className="text-xs text-white/40">
+                                ({chat.length})
+                            </span>
                         </h3>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         {chat.length === 0 ? (
-                            <p className="text-white/40 text-sm text-center py-8">No messages yet</p>
+                            <p className="text-white/40 text-sm text-center py-8">
+                                No messages yet
+                            </p>
                         ) : (
                             chat.map((msg, i) => (
-                                <div key={i} className={`text-sm p-2 rounded-lg ${msg.isHost ? "bg-cyan-500/20" : "bg-white/5"}`}>
-                                    <span className={`font-semibold ${msg.isHost ? "text-cyan-400" : "text-purple-400"}`}>
-                                        {msg.username}{msg.isHost ? " 👑" : ""}:
+                                <div
+                                    key={i}
+                                    className={`text-sm p-2 rounded-lg ${msg.isHost
+                                            ? "bg-cyan-500/20"
+                                            : "bg-white/5"
+                                        }`}
+                                >
+                                    <span
+                                        className={`font-semibold ${msg.isHost
+                                                ? "text-cyan-400"
+                                                : "text-purple-400"
+                                            }`}
+                                    >
+                                        {msg.username}
+                                        {msg.isHost ? " 👑" : ""}:
                                     </span>{" "}
-                                    <span className="text-white/80">{msg.text}</span>
+                                    <span className="text-white/80">
+                                        {msg.text}
+                                    </span>
                                 </div>
                             ))
                         )}
                     </div>
 
                     {/* Host chat input */}
-                    <form onSubmit={sendChatMessage} className="p-3 border-t border-white/10">
+                    <form
+                        onSubmit={sendChatMessage}
+                        className="p-3 border-t border-white/10"
+                    >
                         <div className="flex gap-2">
                             <input
                                 type="text"

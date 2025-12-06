@@ -1,5 +1,5 @@
 // backend/routes/cleanupRoutes.js
-// World-Studio.live - Cleanup & Maintenance Routes
+// World-Studio.live - Cleanup & Maintenance Routes (ULTIMATE EDITION 🚀)
 // Handles database cleanup, expired data removal, and maintenance tasks
 
 const express = require("express");
@@ -7,17 +7,17 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const requireAdmin = require("../middleware/requireAdmin");
 
-// Models (with safe loading)
+// Models (safe loading - optional modules won't crash server)
 let User, Stream, Post, Gift, PK, Notification, PredictionLog, PlatformWallet;
 
-try { User = require("../models/User"); } catch (e) { }
-try { Stream = require("../models/Stream"); } catch (e) { }
-try { Post = require("../models/Post"); } catch (e) { }
-try { Gift = require("../models/Gift"); } catch (e) { }
-try { PK = require("../models/PK"); } catch (e) { }
-try { Notification = require("../models/Notification"); } catch (e) { }
-try { PredictionLog = require("../models/PredictionLog"); } catch (e) { }
-try { PlatformWallet = require("../models/PlatformWallet"); } catch (e) { }
+try { User = require("../models/User"); } catch (e) { console.log("ℹ️ User model not loaded in cleanupRoutes"); }
+try { Stream = require("../models/Stream"); } catch (e) { console.log("ℹ️ Stream model not loaded in cleanupRoutes"); }
+try { Post = require("../models/Post"); } catch (e) { console.log("ℹ️ Post model not loaded in cleanupRoutes"); }
+try { Gift = require("../models/Gift"); } catch (e) { console.log("ℹ️ Gift model not loaded in cleanupRoutes"); }
+try { PK = require("../models/PK"); } catch (e) { console.log("ℹ️ PK model not loaded in cleanupRoutes"); }
+try { Notification = require("../models/Notification"); } catch (e) { console.log("ℹ️ Notification model not loaded in cleanupRoutes"); }
+try { PredictionLog = require("../models/PredictionLog"); } catch (e) { console.log("ℹ️ PredictionLog model not loaded in cleanupRoutes"); }
+try { PlatformWallet = require("../models/PlatformWallet"); } catch (e) { console.log("ℹ️ PlatformWallet model not loaded in cleanupRoutes"); }
 
 // ===========================================
 // HELPER FUNCTIONS
@@ -27,16 +27,24 @@ try { PlatformWallet = require("../models/PlatformWallet"); } catch (e) { }
  * Safe delete with count
  */
 const safeDeleteMany = async (Model, query, description) => {
-    if (!Model) return { deleted: 0, skipped: true, description };
+    if (!Model) {
+        return { deleted: 0, skipped: true, description, success: false, error: "Model not available" };
+    }
 
     try {
         const result = await Model.deleteMany(query);
+        const deletedCount =
+            typeof result.deletedCount === "number"
+                ? result.deletedCount
+                : (result.result && result.result.n) || 0;
+
         return {
-            deleted: result.deletedCount,
+            deleted: deletedCount,
             description,
             success: true
         };
     } catch (err) {
+        console.error(`❌ safeDeleteMany error [${description}]:`, err);
         return {
             deleted: 0,
             error: err.message,
@@ -50,16 +58,26 @@ const safeDeleteMany = async (Model, query, description) => {
  * Safe update with count
  */
 const safeUpdateMany = async (Model, query, update, description) => {
-    if (!Model) return { updated: 0, skipped: true, description };
+    if (!Model) {
+        return { updated: 0, skipped: true, description, success: false, error: "Model not available" };
+    }
 
     try {
         const result = await Model.updateMany(query, update);
+        const modified =
+            typeof result.modifiedCount === "number"
+                ? result.modifiedCount
+                : typeof result.nModified === "number"
+                    ? result.nModified
+                    : 0;
+
         return {
-            updated: result.modifiedCount,
+            updated: modified,
             description,
             success: true
         };
     } catch (err) {
+        console.error(`❌ safeUpdateMany error [${description}]:`, err);
         return {
             updated: 0,
             error: err.message,
@@ -148,7 +166,7 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
                 const usersWithOldNotifications = await User.find({
                     "notifications.read": true,
                     "notifications.createdAt": { $lt: cutoffDate }
-                }).select("_id notifications");
+                }).select("_id notifications unreadNotifications");
 
                 let notificationsRemoved = 0;
                 for (const user of usersWithOldNotifications) {
@@ -156,8 +174,10 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
                     user.notifications = user.notifications.filter(n =>
                         !n.read || new Date(n.createdAt) > cutoffDate
                     );
-                    notificationsRemoved += originalCount - user.notifications.length;
-                    if (originalCount !== user.notifications.length) {
+                    const removed = originalCount - user.notifications.length;
+                    if (removed > 0) {
+                        notificationsRemoved += removed;
+                        user.unreadNotifications = user.notifications.filter(n => !n.read).length;
                         await user.save();
                     }
                 }
@@ -167,6 +187,7 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
                     success: true
                 });
             } catch (err) {
+                console.error("❌ Notification cleanup (all) error:", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -180,31 +201,41 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
         if (Stream && User) {
             try {
                 const allStreamerIds = await Stream.distinct("streamerId");
-                const existingUserIds = await User.find({
-                    _id: { $in: allStreamerIds }
-                }).distinct("_id");
+                if (allStreamerIds.length > 0) {
+                    const existingUserIds = await User.find({
+                        _id: { $in: allStreamerIds }
+                    }).distinct("_id");
 
-                const orphanedStreamerIds = allStreamerIds.filter(
-                    id => !existingUserIds.some(uid => uid.toString() === id.toString())
-                );
+                    const existingSet = new Set(existingUserIds.map(id => id.toString()));
+                    const orphanedStreamerIds = allStreamerIds.filter(
+                        id => !existingSet.has(id.toString())
+                    );
 
-                if (orphanedStreamerIds.length > 0) {
-                    const result = await Stream.deleteMany({
-                        streamerId: { $in: orphanedStreamerIds }
-                    });
-                    results.push({
-                        deleted: result.deletedCount,
-                        description: "Orphaned streams (user deleted)",
-                        success: true
-                    });
+                    if (orphanedStreamerIds.length > 0) {
+                        const result = await Stream.deleteMany({
+                            streamerId: { $in: orphanedStreamerIds }
+                        });
+                        results.push({
+                            deleted: result.deletedCount || 0,
+                            description: "Orphaned streams (user deleted)",
+                            success: true
+                        });
+                    } else {
+                        results.push({
+                            deleted: 0,
+                            description: "Orphaned streams (none found)",
+                            success: true
+                        });
+                    }
                 } else {
                     results.push({
                         deleted: 0,
-                        description: "Orphaned streams (none found)",
+                        description: "Orphaned streams (no streams found)",
                         success: true
                     });
                 }
             } catch (err) {
+                console.error("❌ Orphaned streams cleanup error:", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -214,7 +245,7 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
             }
         }
 
-        // 8. Reset stale live status (streams marked live but ended 24+ hours ago)
+        // 8. Reset stale live status (streams marked live but older than 24h)
         results.push(await safeUpdateMany(
             Stream,
             {
@@ -281,6 +312,7 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
                     success: true
                 });
             } catch (err) {
+                console.error("❌ Wallet trimming error (all):", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -311,6 +343,7 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
                     });
                 }
             } catch (err) {
+                console.error("❌ Platform wallet history trimming error:", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -354,7 +387,7 @@ router.post("/all", auth, requireAdmin, async (req, res) => {
  */
 router.post("/streams", auth, requireAdmin, async (req, res) => {
     try {
-        const { daysOld = 30 } = req.body;
+        const { daysOld = 30 } = req.body || {};
 
         const results = [];
 
@@ -403,7 +436,7 @@ router.post("/streams", auth, requireAdmin, async (req, res) => {
  */
 router.post("/pk", auth, requireAdmin, async (req, res) => {
     try {
-        const { daysOld = 90 } = req.body;
+        const { daysOld = 90 } = req.body || {};
 
         const results = [];
 
@@ -448,7 +481,7 @@ router.post("/pk", auth, requireAdmin, async (req, res) => {
  */
 router.post("/notifications", auth, requireAdmin, async (req, res) => {
     try {
-        const { daysOld = 60 } = req.body;
+        const { daysOld = 60 } = req.body || {};
 
         if (!User) {
             return res.status(400).json({
@@ -505,7 +538,7 @@ router.post("/notifications", auth, requireAdmin, async (req, res) => {
  */
 router.post("/posts", auth, requireAdmin, async (req, res) => {
     try {
-        const { daysOld = 30 } = req.body;
+        const { daysOld = 30 } = req.body || {};
 
         const results = [];
 
@@ -523,25 +556,41 @@ router.post("/posts", auth, requireAdmin, async (req, res) => {
         if (Post && User) {
             try {
                 const allUserIds = await Post.distinct("userId");
-                const existingUserIds = await User.find({
-                    _id: { $in: allUserIds }
-                }).distinct("_id");
+                if (allUserIds.length > 0) {
+                    const existingUserIds = await User.find({
+                        _id: { $in: allUserIds }
+                    }).distinct("_id");
 
-                const orphanedUserIds = allUserIds.filter(
-                    id => !existingUserIds.some(uid => uid.toString() === id.toString())
-                );
+                    const existingSet = new Set(existingUserIds.map(id => id.toString()));
+                    const orphanedUserIds = allUserIds.filter(
+                        id => !existingSet.has(id.toString())
+                    );
 
-                if (orphanedUserIds.length > 0) {
-                    const result = await Post.deleteMany({
-                        userId: { $in: orphanedUserIds }
-                    });
+                    if (orphanedUserIds.length > 0) {
+                        const result = await Post.deleteMany({
+                            userId: { $in: orphanedUserIds }
+                        });
+                        results.push({
+                            deleted: result.deletedCount || 0,
+                            description: "Orphaned posts (user deleted)",
+                            success: true
+                        });
+                    } else {
+                        results.push({
+                            deleted: 0,
+                            description: "Orphaned posts (none found)",
+                            success: true
+                        });
+                    }
+                } else {
                     results.push({
-                        deleted: result.deletedCount,
-                        description: "Orphaned posts (user deleted)",
+                        deleted: 0,
+                        description: "Orphaned posts (no posts found)",
                         success: true
                     });
                 }
             } catch (err) {
+                console.error("❌ Orphaned posts cleanup error:", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -608,7 +657,7 @@ router.post("/users", auth, requireAdmin, async (req, res) => {
             try {
                 const usersWithManyNotifications = await User.find({
                     "notifications.100": { $exists: true }
-                }).select("_id notifications");
+                }).select("_id notifications unreadNotifications");
 
                 let notificationsTrimmed = 0;
                 for (const user of usersWithManyNotifications) {
@@ -616,6 +665,7 @@ router.post("/users", auth, requireAdmin, async (req, res) => {
                         const excess = user.notifications.length - 100;
                         user.notifications = user.notifications.slice(0, 100);
                         notificationsTrimmed += excess;
+                        user.unreadNotifications = user.notifications.filter(n => !n.read).length;
                         await user.save();
                     }
                 }
@@ -625,6 +675,7 @@ router.post("/users", auth, requireAdmin, async (req, res) => {
                     success: true
                 });
             } catch (err) {
+                console.error("❌ Excess notifications trim error:", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -639,7 +690,7 @@ router.post("/users", auth, requireAdmin, async (req, res) => {
             try {
                 const usersWithManyTransactions = await User.find({
                     "wallet.transactions.500": { $exists: true }
-                }).select("_id wallet");
+                }).select("_id wallet.transactions");
 
                 let transactionsTrimmed = 0;
                 for (const user of usersWithManyTransactions) {
@@ -656,6 +707,7 @@ router.post("/users", auth, requireAdmin, async (req, res) => {
                     success: true
                 });
             } catch (err) {
+                console.error("❌ Excess wallet transactions trim error:", err);
                 results.push({
                     deleted: 0,
                     error: err.message,
@@ -685,7 +737,7 @@ router.post("/users", auth, requireAdmin, async (req, res) => {
  */
 router.post("/predictions", auth, requireAdmin, async (req, res) => {
     try {
-        const { daysOld = 180 } = req.body;
+        const { daysOld = 180 } = req.body || {};
 
         const result = await safeDeleteMany(
             PredictionLog,
@@ -787,7 +839,7 @@ router.get("/stats", auth, requireAdmin, async (req, res) => {
  */
 router.post("/cron", async (req, res) => {
     try {
-        const { apiKey } = req.body;
+        const { apiKey } = req.body || {};
 
         // Verify API key
         if (apiKey !== process.env.CLEANUP_API_KEY && apiKey !== process.env.CRON_SECRET) {

@@ -1,5 +1,5 @@
 // backend/scripts/fixGhostStream.js
-// World-Studio.live - Fix Ghost Streams Script
+// World-Studio.live - Fix Ghost Streams Script (UNIVERSE EDITION 🚀)
 // Run: node scripts/fixGhostStream.js [streamId or username]
 //
 // Examples:
@@ -13,76 +13,109 @@ const mongoose = require("mongoose");
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 const DRY_RUN = process.argv.includes("--dry-run");
+const STREAM_COLLECTIONS = ["streams", "livestreams"];
 
-// Helper to check if string is valid ObjectId
+// ===========================================
+// HELPERS
+// ===========================================
+
+
 const isValidObjectId = (str) => {
-    return mongoose.Types.ObjectId.isValid(str) &&
-        new mongoose.Types.ObjectId(str).toString() === str;
+    if (!str) return false;
+    if (!mongoose.Types.ObjectId.isValid(str)) return false;
+    return new mongoose.Types.ObjectId(str).toString() === str;
 };
 
+const safeGetCollection = (db, name) => {
+    try {
+        return db.collection(name);
+    } catch {
+        return null;
+    }
+};
+
+const formatDate = (d) => (d ? new Date(d).toLocaleString() : "N/A");
+
+// ===========================================
+// FIX BY STREAM ID
+// ===========================================
 async function fixStreamById(db, streamId) {
     console.log(`\n🎯 FIXING STREAM BY ID: ${streamId}\n`);
 
-    const collections = ["streams", "livestreams"];
+
     let found = false;
+    let fixed = 0;
 
-    for (const collName of collections) {
+    for (const collName of STREAM_COLLECTIONS) {
+        const collection = safeGetCollection(db, collName);
+        if (!collection) continue;
+
+
         try {
-            const collection = db.collection(collName);
+            const _id = new mongoose.Types.ObjectId(streamId);
+            const stream = await collection.findOne({ _id });
 
-            const stream = await collection.findOne({
-                _id: new mongoose.Types.ObjectId(streamId)
-            });
+            if (!stream) continue;
 
-            if (stream) {
-                found = true;
-                console.log(`Found in ${collName}:`);
-                console.log(`  Title: "${stream.title || "Untitled"}"`);
-                console.log(`  Streamer: ${stream.username || stream.streamerName || "Unknown"}`);
-                console.log(`  isLive: ${stream.isLive}`);
-                console.log(`  status: ${stream.status || "(not set)"}`);
-                console.log(`  Created: ${stream.createdAt}`);
+            found = true;
+            console.log(`Found in ${collName}:`);
+            console.log(`  Title:    "${stream.title || "Untitled"}"`);
+            console.log(`  Streamer: ${stream.username || stream.streamerName || "Unknown"}`);
+            console.log(`  isLive:   ${stream.isLive}`);
+            console.log(`  status:   ${stream.status || "(not set)"}`);
+            console.log(`  Created:  ${formatDate(stream.createdAt)}`);
 
-                if (stream.isLive) {
-                    if (!DRY_RUN) {
-                        const result = await collection.updateOne(
-                            { _id: new mongoose.Types.ObjectId(streamId) },
-                            {
-                                $set: {
-                                    isLive: false,
-                                    status: "ended",
-                                    endedAt: new Date(),
-                                    endReason: "manual_fix"
-                                }
-                            }
-                        );
-                        console.log(`\n✅ Fixed! Modified: ${result.modifiedCount}`);
-                    } else {
-                        console.log(`\n⚠️  Would fix this stream (dry run)`);
+            if (!stream.isLive) {
+                console.log(`\n✅ Stream is already ended\n`);
+                return 0;
+            }
+
+            if (!DRY_RUN) {
+                const result = await collection.updateOne(
+                    { _id },
+                    {
+                        $set: {
+                            isLive: false,
+                            status: "ended",
+                            endedAt: new Date(),
+                            endReason: "manual_fix_by_id"
+                        }
                     }
+                );
+                console.log(`\n✅ Fixed stream in ${collName}. Modified: ${result.modifiedCount}`);
+                fixed += result.modifiedCount;
+            } else {
+                console.log(`\n⚠️  DRY RUN → Would mark this stream as ended in ${collName}`);
+                fixed += 1;
+            }
 
-                    // Also reset user status
-                    const streamerId = stream.streamerId || stream.host || stream.userId;
-                    if (streamerId && !DRY_RUN) {
-                        await db.collection("users").updateOne(
-                            { _id: streamerId },
-                            {
-                                $set: {
-                                    isLive: false,
-                                    currentStreamId: null
-                                }
+            // Also reset user status
+            const streamerId = stream.streamerId || stream.host || stream.userId;
+            if (streamerId) {
+                const usersCollection = safeGetCollection(db, "users");
+                if (usersCollection && !DRY_RUN) {
+                    const userResult = await usersCollection.updateOne(
+                        { _id: streamerId },
+                        {
+                            $set: {
+                                isLive: false,
+                                currentStreamId: null
                             }
-                        );
-                        console.log(`✅ Reset user status`);
+                        }
+                    );
+                    if (userResult.modifiedCount > 0) {
+                        console.log(`✅ Reset user live status for streamer (${streamerId})`);
                     }
-                } else {
-                    console.log(`\n✅ Stream is already ended`);
+                } else if (DRY_RUN) {
+                    console.log(`⚠️  DRY RUN → Would reset user live status for ${streamerId}`);
                 }
 
-                return 1;
+
             }
+
+            return fixed;
         } catch (e) {
-            // Collection doesn't exist or error
+            console.log(`⚠️  Error checking ${collName}: ${e.message}`);
         }
     }
 
@@ -90,85 +123,99 @@ async function fixStreamById(db, streamId) {
         console.log(`❌ Stream not found with ID: ${streamId}`);
     }
 
-    return 0;
+    return fixed;
 }
 
+// ===========================================
+// FIX BY USERNAME
+// ===========================================
 async function fixStreamsByUsername(db, username) {
     console.log(`\n🎯 FIXING STREAMS BY USERNAME: ${username}\n`);
 
-    const usersCollection = db.collection("users");
+    const usersCollection = safeGetCollection(db, "users");
+    if (!usersCollection) {
+        console.log("❌ Users collection not found");
+        return 0;
+    }
+
     const user = await usersCollection.findOne({
         username: { $regex: new RegExp(`^${username}$`, "i") }
     });
 
     if (!user) {
-        console.log(`❌ User "${username}" not found`);
+        console.log(`❌ User "@${username}" not found`);
         return 0;
     }
 
     console.log(`Found user: @${user.username} (${user._id})`);
-    console.log(`  isLive: ${user.isLive}`);
-    console.log(`  currentStreamId: ${user.currentStreamId || "(none)"}`);
+    console.log(`  isLive:          ${user.isLive}`);
+    console.log(`  currentStreamId: ${user.currentStreamId || "(none)"}\n`);
 
-    const collections = ["streams", "livestreams"];
+
+
     let totalFixed = 0;
 
-    for (const collName of collections) {
+    for (const collName of STREAM_COLLECTIONS) {
+        const collection = safeGetCollection(db, collName);
+        if (!collection) continue;
+
         try {
-            const collection = db.collection(collName);
+            const userStreams = await collection
+                .find({
+                    isLive: true,
+                    $or: [
+                        { streamerId: user._id },
+                        { host: user._id },
+                        { userId: user._id },
+                        { username: user.username }
+                    ]
+                })
+                .toArray();
 
-            const userStreams = await collection.find({
-                $or: [
-                    { streamerId: user._id },
-                    { host: user._id },
-                    { userId: user._id },
-                    { username: user.username }
-                ],
-                isLive: true
-            }).toArray();
+            if (userStreams.length === 0) {
+                console.log(`No live streams for @${user.username} in ${collName}`);
+                continue;
+            }
 
-            if (userStreams.length > 0) {
-                console.log(`\nFound ${userStreams.length} live streams in ${collName}:`);
+            console.log(`Found ${userStreams.length} live streams in ${collName}:`);
+            for (const stream of userStreams) {
+                console.log(`  - "${stream.title || "Untitled"}" (${stream._id})`);
+            }
 
-                for (const stream of userStreams) {
-                    console.log(`  - "${stream.title || "Untitled"}" (${stream._id})`);
-                }
-
-                if (!DRY_RUN) {
-                    const result = await collection.updateMany(
-                        {
-                            $or: [
-                                { streamerId: user._id },
-                                { host: user._id },
-                                { userId: user._id },
-                                { username: user.username }
-                            ],
-                            isLive: true
-                        },
-                        {
-                            $set: {
-                                isLive: false,
-                                status: "ended",
-                                endedAt: new Date(),
-                                endReason: "manual_fix"
-                            }
+            if (!DRY_RUN) {
+                const result = await collection.updateMany(
+                    {
+                        isLive: true,
+                        $or: [
+                            { streamerId: user._id },
+                            { host: user._id },
+                            { userId: user._id },
+                            { username: user.username }
+                        ]
+                    },
+                    {
+                        $set: {
+                            isLive: false,
+                            status: "ended",
+                            endedAt: new Date(),
+                            endReason: "manual_fix_by_username"
                         }
-                    );
-                    totalFixed += result.modifiedCount;
-                    console.log(`✅ Fixed ${result.modifiedCount} streams`);
-                } else {
-                    totalFixed += userStreams.length;
-                    console.log(`⚠️  Would fix ${userStreams.length} streams (dry run)`);
-                }
+                    }
+                );
+                totalFixed += result.modifiedCount;
+                console.log(`✅ Fixed ${result.modifiedCount} streams in ${collName}`);
+            } else {
+                totalFixed += userStreams.length;
+                console.log(`⚠️  DRY RUN → Would fix ${userStreams.length} streams in ${collName}`);
             }
         } catch (e) {
-            // Collection doesn't exist
+            console.log(`⚠️  Error with ${collName}: ${e.message}`);
         }
     }
 
     // Reset user status
-    if (user.isLive && !DRY_RUN) {
-        await usersCollection.updateOne(
+    if (!DRY_RUN) {
+        const result = await usersCollection.updateOne(
             { _id: user._id },
             {
                 $set: {
@@ -177,58 +224,92 @@ async function fixStreamsByUsername(db, username) {
                 }
             }
         );
-        console.log(`\n✅ Reset user live status`);
+        if (result.modifiedCount > 0) {
+            console.log(`\n✅ Reset user live status for @${user.username}`);
+        }
+    } else {
+        console.log(`\n⚠️  DRY RUN → Would reset user live status for @${user.username}`);
     }
 
     return totalFixed;
 }
 
+// ===========================================
+// FIX ALL GHOST STREAMS
+// ===========================================
 async function fixAllGhostStreams(db) {
     console.log(`\n🧹 FIXING ALL GHOST STREAMS\n`);
 
-    const collections = ["streams", "livestreams"];
+
     let totalFixed = 0;
     const fixedUsers = new Set();
 
-    for (const collName of collections) {
+    for (const collName of STREAM_COLLECTIONS) {
+        const collection = safeGetCollection(db, collName);
+        if (!collection) continue;
+
         try {
-            const collection = db.collection(collName);
-
-            // Find all live streams
-            const liveStreams = await collection.find({ isLive: true }).toArray();
-
-            if (liveStreams.length > 0) {
-                console.log(`Found ${liveStreams.length} live streams in ${collName}:`);
-
-                for (const stream of liveStreams) {
-                    const streamerId = stream.streamerId || stream.host || stream.userId;
-                    console.log(`  🟢 "${stream.title || "Untitled"}" by ${stream.username || "Unknown"}`);
-
-                    if (streamerId) {
-                        fixedUsers.add(streamerId.toString());
-                    }
-                }
-
-                if (!DRY_RUN) {
-                    const result = await collection.updateMany(
+            // Find all streams that think they are live
+            const liveStreams = await collection
+                .find({
+                    $or: [
                         { isLive: true },
-                        {
-                            $set: {
-                                isLive: false,
-                                status: "ended",
-                                endedAt: new Date(),
-                                endReason: "ghost_fix"
-                            }
+                        { status: "live" },
+                        { status: "active" },
+                        { live: true },
+                        { streaming: true }
+                    ]
+                })
+                .toArray();
+
+            if (liveStreams.length === 0) {
+                console.log(`No ghost/live streams in ${collName}`);
+                continue;
+            }
+
+            console.log(`Found ${liveStreams.length} ghost/live streams in ${collName}:`);
+
+            for (const stream of liveStreams.slice(0, 30)) {
+                console.log(
+                    `  🟢 "${stream.title || "Untitled"}" by ${stream.username || "Unknown"
+                    } (isLive=${stream.isLive}, status=${stream.status || "n/a"})`
+                );
+                const streamerId = stream.streamerId || stream.host || stream.userId;
+                if (streamerId) fixedUsers.add(streamerId.toString());
+            }
+            if (liveStreams.length > 30) {
+                console.log(`  ... and ${liveStreams.length - 30} more\n`);
+            }
+
+            if (!DRY_RUN) {
+                const result = await collection.updateMany(
+                    {
+                        $or: [
+                            { isLive: true },
+                            { status: "live" },
+                            { status: "active" },
+                            { live: true },
+                            { streaming: true }
+                        ]
+                    },
+                    {
+                        $set: {
+                            isLive: false,
+                            live: false,
+                            streaming: false,
+                            status: "ended",
+                            endedAt: new Date(),
+                            endReason: "ghost_fix_all"
                         }
-                    );
-                    totalFixed += result.modifiedCount;
-                    console.log(`\n✅ Fixed ${result.modifiedCount} streams in ${collName}`);
-                } else {
-                    totalFixed += liveStreams.length;
-                    console.log(`\n⚠️  Would fix ${liveStreams.length} streams in ${collName} (dry run)`);
-                }
+                    }
+                );
+                totalFixed += result.modifiedCount;
+                console.log(`\n✅ Fixed ${result.modifiedCount} streams in ${collName}`);
             } else {
-                console.log(`No live streams in ${collName}`);
+                totalFixed += liveStreams.length;
+                console.log(
+                    `\n⚠️  DRY RUN → Would fix ${liveStreams.length} streams in ${collName}`
+                );
             }
         } catch (e) {
             if (!e.message.includes("ns not found")) {
@@ -237,67 +318,99 @@ async function fixAllGhostStreams(db) {
         }
     }
 
+    const usersCollection = safeGetCollection(db, "users");
+
     // Reset all affected user statuses
-    if (fixedUsers.size > 0 && !DRY_RUN) {
-        const usersCollection = db.collection("users");
-
-        for (const userIdStr of fixedUsers) {
-            try {
-                await usersCollection.updateOne(
-                    { _id: new mongoose.Types.ObjectId(userIdStr) },
-                    {
-                        $set: {
-                            isLive: false,
-                            currentStreamId: null
+    if (usersCollection && fixedUsers.size > 0) {
+        if (!DRY_RUN) {
+            for (const userIdStr of fixedUsers) {
+                try {
+                    await usersCollection.updateOne(
+                        { _id: new mongoose.Types.ObjectId(userIdStr) },
+                        {
+                            $set: {
+                                isLive: false,
+                                currentStreamId: null
+                            }
                         }
-                    }
-                );
-            } catch (e) { }
-        }
-        console.log(`\n✅ Reset ${fixedUsers.size} user statuses`);
-    }
-
-    // Also fix any users still marked as live
-    if (!DRY_RUN) {
-        const usersCollection = db.collection("users");
-        const stuckUsers = await usersCollection.updateMany(
-            { isLive: true },
-            {
-                $set: {
-                    isLive: false,
-                    currentStreamId: null
+                    );
+                } catch {
+                    // ignore per user
                 }
             }
-        );
-
-        if (stuckUsers.modifiedCount > 0) {
-            console.log(`✅ Fixed ${stuckUsers.modifiedCount} additional stuck user statuses`);
+            console.log(`\n✅ Reset ${fixedUsers.size} user statuses (from streams)`);
+        } else {
+            console.log(
+                `\n⚠️  DRY RUN → Would reset ${fixedUsers.size} user statuses (from streams)`
+            );
         }
     }
 
-    // Verify
-    let remaining = 0;
-    for (const collName of collections) {
-        try {
-            remaining += await db.collection(collName).countDocuments({ isLive: true });
-        } catch (e) { }
+    // Also fix any remaining users still marked as live
+    if (usersCollection) {
+        if (!DRY_RUN) {
+            const stuckUsers = await usersCollection.updateMany(
+                { isLive: true },
+                {
+                    $set: {
+                        isLive: false,
+                        currentStreamId: null
+                    }
+                }
+            );
+
+            if (stuckUsers.modifiedCount > 0) {
+                console.log(
+                    `✅ Fixed ${stuckUsers.modifiedCount} additional stuck user statuses`
+                );
+            }
+        } else {
+            const stuckCount = await usersCollection.countDocuments({ isLive: true });
+            if (stuckCount > 0) {
+                console.log(
+                    `⚠️  DRY RUN → Would reset ${stuckCount} additional stuck user statuses`
+                );
+            }
+        }
     }
 
-    console.log(`\n📊 Streams still live: ${remaining}`);
+    // Verify: any streams still live?
+    let remaining = 0;
+    for (const collName of STREAM_COLLECTIONS) {
+        const collection = safeGetCollection(db, collName);
+        if (!collection) continue;
+        try {
+            remaining += await collection.countDocuments({
+                $or: [
+                    { isLive: true },
+                    { status: "live" },
+                    { status: "active" },
+                    { live: true },
+                    { streaming: true }
+                ]
+            });
+        } catch {
+            // ignore
+        }
+    }
 
+    console.log(`\n📊 Streams still marked live/active: ${remaining}`);
     if (remaining === 0) {
-        console.log("🎉 All ghost streams fixed!");
+        console.log("🎉 All ghost streams fixed (from DB perspective)!");
     }
 
     return totalFixed;
 }
 
+// ===========================================
+// MAIN
+// ===========================================
 async function main() {
-    const args = process.argv.slice(2).filter(a => !a.startsWith("--"));
+    const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
     const target = args[0];
 
     console.log("╔════════════════════════════════════════╗");
-    console.log("║  🔧 FIX GHOST STREAMS                  ║");
+    console.log("║  🔧 FIX GHOST STREAMS (UNIVERSE ED.)   ║");
     console.log("╚════════════════════════════════════════╝\n");
 
     if (DRY_RUN) {
@@ -305,7 +418,7 @@ async function main() {
     }
 
     if (!MONGO_URI) {
-        console.error("❌ No MONGO_URI found in .env");
+        console.error("❌ No MONGO_URI / MONGODB_URI found in .env");
         process.exit(1);
     }
 
@@ -327,14 +440,14 @@ async function main() {
                 fixed = await fixStreamsByUsername(db, target);
             }
         } else {
-            // Fix all
+            // Fix all ghost streams
             fixed = await fixAllGhostStreams(db);
         }
 
-        console.log(`\n📊 Total fixed: ${fixed} stream(s)`);
+        console.log(`\n📊 Total fixed (affected): ${fixed} stream(s)`);
 
         if (DRY_RUN && fixed > 0) {
-            console.log(`\n⚠️  Run without --dry-run to apply changes`);
+            console.log(`\n⚠️  Run without --dry-run to apply these changes`);
         }
 
     } catch (error) {

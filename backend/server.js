@@ -1,7 +1,7 @@
 // =======================================================
-// World-Studio.live - Main Server Entry Point
+// World-Studio.live - Main Server Entry Point (U.E.)
 // Engineered for Commander Sandro Menzies
-// by AIRPATH
+// by AIRPATH (Ultimate Edition)
 // Stack: Express + Socket.io + MongoDB + Mongoose
 // =======================================================
 
@@ -14,13 +14,27 @@ const { Server } = require("socket.io");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
+// Middleware
+const auth = require("./middleware/auth");
+const checkBan = require("./middleware/checkBan");
+const requireAdmin = require("./middleware/requireAdmin");
+
+// Sockets
+const pkSocket = require("./sockets/pkSocket");
+
 const isProduction = process.env.NODE_ENV === "production";
 
 // ============================================
 // 1. LOAD MODELS
 // ============================================
-const { User, Stream } = require("./models");
-console.log("✅ Models loaded via ./models");
+const User = require("./models/User");
+let Stream = null;
+try {
+    Stream = require("./models/Stream");
+    console.log("✅ Stream model loaded");
+} catch (err) {
+    console.warn("⚠️ Stream model not loaded:", err.message);
+}
 
 // ============================================
 // 2. EXPRESS SETUP
@@ -37,34 +51,67 @@ app.use(
     })
 );
 
-// Rate limiting
-app.use(
-    rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        max: isProduction ? 500 : 2000,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: { error: "Too many requests, please try again later" },
-    })
-);
+// ============================================
+// 2a. RATE LIMITING (health endpoints uitgesloten)
+// ============================================
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: isProduction ? 500 : 2000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later" },
+    skip: (req) => {
+        // Geen rate limit op health endpoints
+        if (req.path === "/health" || req.path === "/healthz") return true;
+        return false;
+    },
+});
 
-// CORS configuration
-const allowedOrigins = (
-    process.env.CORS_ORIGINS
-        ? process.env.CORS_ORIGINS.split(",")
-        : [
-            "http://localhost:5173",
-            "http://localhost:3000",
-            "https://world-studio.live",
-            "https://www.world-studio.live",
-        ]
-).map((o) => o.trim());
+app.use(apiLimiter);
+
+// ============================================
+// 2b. CORS CONFIGURATION (U.E.)
+// ============================================
+
+// Basis origins
+let allowedOrigins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://world-studio.live",
+    "https://www.world-studio.live",
+    "https://world-studio.vercel.app", // 🔥 Vercel frontend
+];
+
+// Extra origins uit env
+if (process.env.CORS_ORIGINS) {
+    allowedOrigins = allowedOrigins.concat(
+        process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+    );
+}
+
+// FRONTEND_URL uit .env meenemen
+if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL.trim());
+}
+
+// Uniek maken
+allowedOrigins = [...new Set(allowedOrigins)];
 
 console.log("🌍 Allowed CORS origins:", allowedOrigins);
 
 app.use(
     cors({
-        origin: allowedOrigins,
+        origin: (origin, callback) => {
+            // Geen origin bij tools / health / server-side calls
+            if (!origin) return callback(null, true);
+
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            console.warn("🚫 Blocked CORS origin:", origin);
+            return callback(new Error("Not allowed by CORS"));
+        },
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
         allowedHeaders: ["Content-Type", "Authorization"],
         credentials: true,
@@ -95,7 +142,7 @@ app.set("io", io);
 // Socket state management
 io.broadcasters = new Map(); // roomId -> socketId
 io.viewerCounts = new Map(); // roomId -> count
-io.multiRooms = new Map();   // roomId -> room data
+
 io.userSockets = new Map();  // userId -> socketId
 
 // ============================================
@@ -122,7 +169,7 @@ app.get("/", (req, res) =>
 // 5. API ROUTES
 // ============================================
 
-// Auth & Users
+// Auth & Users (publiek / eigen auth-check binnen routes)
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
 
@@ -136,7 +183,7 @@ app.use("/api/platform-wallet", require("./routes/platformWallet"));
 app.use("/api/admin-wallet", require("./routes/adminWallet"));
 app.use("/api/gifts", require("./routes/gifts.route"));
 
-// Live Streaming
+// Live Streaming + PK
 app.use("/api/live", require("./routes/Live"));
 app.use("/api/live-analytics", require("./routes/LiveAnalytics"));
 app.use("/api/pk", require("./routes/pk"));
@@ -147,6 +194,26 @@ app.use("/api/admin", adminRoutes);
 // Compat voor frontend-calls zoals /admin/users, /admin/stats, etc.
 app.use("/admin", adminRoutes);
 
+// Moderation / ban robot admin-panel
+try {
+    const adminModerationRoutes = require("./routes/adminModeration");
+    app.use(
+        "/api/admin/moderation",
+        auth,
+        requireAdmin,
+        adminModerationRoutes
+    );
+} catch (e) {
+    console.log(
+        "ℹ️ Optional route /api/admin/moderation not loaded:",
+        e.message
+    );
+}
+
+// Vanaf hier: /api/* achter auth + checkBan (extra beveiligd)
+app.use("/api", auth, checkBan);
+
+// Protected API routes (achter auth + checkBan)
 app.use("/api/stocks", require("./routes/stocks"));
 app.use("/api/cleanup", require("./routes/cleanupRoutes"));
 
@@ -156,22 +223,32 @@ try {
         "/api/stream-cleanup",
         require("./routes/streamCleanupRoutes")
     );
-} catch (e) { }
+} catch (e) {
+    console.log("ℹ️ Optional route /api/stream-cleanup not loaded:", e.message);
+}
 try {
     app.use(
         "/api/admin-dashboard",
         require("./routes/adminDashboard")
     );
-} catch (e) { }
+} catch (e) {
+    console.log("ℹ️ Optional route /api/admin-dashboard not loaded:", e.message);
+}
 try {
     app.use("/api/notifications", require("./routes/notifications"));
-} catch (e) { }
+} catch (e) {
+    console.log("ℹ️ Optional route /api/notifications not loaded:", e.message);
+}
 try {
     app.use("/api/search", require("./routes/search"));
-} catch (e) { }
+} catch (e) {
+    console.log("ℹ️ Optional route /api/search not loaded:", e.message);
+}
 try {
     app.use("/api/predictions", require("./routes/predictions"));
-} catch (e) { }
+} catch (e) {
+    console.log("ℹ️ Optional route /api/predictions not loaded:", e.message);
+}
 
 // 404 handler for API routes
 app.use((req, res, next) => {
@@ -206,7 +283,7 @@ const endStreamInDB = async (streamId) => {
             ? { $or: [{ _id: streamId }, { roomId: streamId }] }
             : { roomId: streamId };
 
-        // Actieve stream zoeken
+
         const stream = await Stream.findOne({
             ...baseQuery,
             isLive: true,
@@ -215,13 +292,13 @@ const endStreamInDB = async (streamId) => {
 
         if (!stream) return;
 
-        // 1️⃣ Stream beëindigen
+
         stream.isLive = false;
         stream.status = "ended";
         stream.endedAt = new Date();
         await stream.save();
 
-        // 2️⃣ Streamer offline zetten
+
         if (User && stream.streamerId) {
             await User.updateOne(
                 { _id: stream.streamerId },
@@ -239,10 +316,7 @@ const endStreamInDB = async (streamId) => {
     }
 };
 
-/**
- * Get room by ID from any collection
- */
-const getRoom = (roomId) => io.multiRooms.get(roomId); // (nu nog niet gebruikt)
+
 
 // ============================================
 // 7. SOCKET HANDLERS
@@ -250,20 +324,19 @@ const getRoom = (roomId) => io.multiRooms.get(roomId); // (nu nog niet gebruikt)
 io.on("connection", (socket) => {
     console.log(`✅ Socket connected: ${socket.id}`);
 
-    // ========== USER ROOMS ==========
-
+    // ========== USER ROOMS (voor notificaties / moderation) ==========
     socket.on("join_user_room", (userId) => {
         if (!userId) return;
         socket.join(`user_${userId}`);
-        io.userSockets.set(userId, socket.id);
-        socket.userId = userId;
+        io.userSockets.set(userId.toString(), socket.id);
+        socket.userId = userId.toString();
         console.log(`👤 User ${userId} joined personal room`);
     });
 
     socket.on("leave_user_room", (userId) => {
         if (!userId) return;
         socket.leave(`user_${userId}`);
-        io.userSockets.delete(userId);
+        io.userSockets.delete(userId.toString());
     });
 
     // ========== STREAM ROOMS ==========
@@ -271,37 +344,40 @@ io.on("connection", (socket) => {
     socket.on("join_stream", (streamId) => {
         if (!streamId) return;
         socket.join(`stream_${streamId}`);
-        socket.join(streamId);
+        socket.join(streamId.toString());
+        console.log(`📺 Socket ${socket.id} joined stream ${streamId}`);
     });
 
     socket.on("leave_stream", (streamId) => {
         if (!streamId) return;
         socket.leave(`stream_${streamId}`);
-        socket.leave(streamId);
+        socket.leave(streamId.toString());
+        console.log(`📺 Socket ${socket.id} left stream ${streamId}`);
     });
 
-    // ========== BROADCASTING ==========
-
+    // ========== BROADCASTING (WebRTC Publisher) ==========
     socket.on(
         "start_broadcast",
         async ({ roomId, streamer, title, category, streamerId }) => {
             if (!roomId) return;
 
+            roomId = roomId.toString();
             io.broadcasters.set(roomId, socket.id);
             socket.join(roomId);
             socket.currentStreamId = roomId;
             io.viewerCounts.set(roomId, 0);
 
-            console.log(`📺 Broadcast started: ${title} by ${streamer}`);
+            console.log(`📺 Broadcast started: ${title} by ${streamer} (${roomId})`);
 
             try {
-                if (streamerId) {
+                if (streamerId && User) {
                     const user = await User.findById(streamerId)
                         .select("followers username avatar")
                         .lean();
 
+                    // Notify followers
                     if (user?.followers?.length > 0) {
-                        // Notify followers
+
                         user.followers.forEach((fid) => {
                             io.to(`user_${fid}`).emit(
                                 "followed_user_live",
@@ -317,7 +393,7 @@ io.on("connection", (socket) => {
                         });
                     }
 
-                    // Broadcast naar alle clients
+                    // Update LiveDiscover
                     io.emit("live_started", {
                         _id: roomId,
                         roomId,
@@ -342,6 +418,7 @@ io.on("connection", (socket) => {
 
     socket.on("stop_broadcast", async ({ roomId }) => {
         if (!roomId) return;
+        roomId = roomId.toString();
 
         await endStreamInDB(roomId);
         io.broadcasters.delete(roomId);
@@ -356,27 +433,31 @@ io.on("connection", (socket) => {
 
     socket.on("watcher", ({ roomId }) => {
         if (!roomId) return;
+        roomId = roomId.toString();
 
         const broadcasterId = io.broadcasters.get(roomId);
         if (broadcasterId) {
             socket.join(roomId);
             const count = (io.viewerCounts.get(roomId) || 0) + 1;
             io.viewerCounts.set(roomId, count);
+
             io.to(roomId).emit("viewer_count", { viewers: count, count });
             io.to(broadcasterId).emit("watcher", { watcherId: socket.id });
+
+            console.log(`👀 watcher joined room ${roomId} → ${count} viewers`);
         }
     });
 
     socket.on("leave_watcher", ({ roomId }) => {
         if (!roomId) return;
+        roomId = roomId.toString();
 
         socket.leave(roomId);
-        const count = Math.max(
-            0,
-            (io.viewerCounts.get(roomId) || 1) - 1
-        );
+        const count = Math.max(0, (io.viewerCounts.get(roomId) || 1) - 1);
         io.viewerCounts.set(roomId, count);
         io.to(roomId).emit("viewer_count", { viewers: count, count });
+
+        console.log(`👀 watcher left room ${roomId} → ${count} viewers`);
     });
 
     // ========== WEBRTC SIGNALING ==========
@@ -391,6 +472,7 @@ io.on("connection", (socket) => {
     });
 
     socket.on("answer", ({ roomId, sdp }) => {
+        roomId = roomId?.toString();
         const broadcasterId = io.broadcasters.get(roomId);
         if (broadcasterId && sdp) {
             io.to(broadcasterId).emit("answer", {
@@ -409,280 +491,18 @@ io.on("connection", (socket) => {
         }
     });
 
-    // ========== MULTI-LIVE / CO-STREAMING ==========
+    // ===========================================
+    // PK BATTLES SOCKET HANDLERS
+    // ===========================================
+    pkSocket(io, socket);
 
-    socket.on("join_multi_live", ({ roomId, user }) => {
-        if (!roomId || !user) return;
-
-        socket.join(roomId);
-        socket.roomId = roomId;
-        socket.userData = user;
-
-        if (!io.multiRooms.has(roomId)) {
-            io.multiRooms.set(roomId, { viewers: [], seats: [] });
-        }
-
-        const room = io.multiRooms.get(roomId);
-
-        if (!room.viewers.some((v) => v._id === user._id)) {
-            room.viewers.push({
-                _id: user._id,
-                username: user.username,
-                avatar: user.avatar,
-            });
-        }
-
-        const count = (io.viewerCounts.get(roomId) || 0) + 1;
-        io.viewerCounts.set(roomId, count);
-        io.to(roomId).emit("viewer_count", { count, viewers: count });
-        io.to(roomId).emit("viewers_list", { viewers: room.viewers });
-    });
-
-    socket.on(
-        "start_multi_live",
-        ({ roomId, streamId, host, title, maxSeats }) => {
-            if (!roomId) return;
-
-            io.multiRooms.set(roomId, {
-                hostId: socket.id,
-                host,
-                title,
-                maxSeats: maxSeats || 6,
-                seats: [
-                    {
-                        seatId: 0,
-                        user: host,
-                        socketId: socket.id,
-                    },
-                ],
-                streamId,
-                viewers: [
-                    {
-                        _id: host._id,
-                        username: host.username,
-                        avatar: host.avatar,
-                    },
-                ],
-            });
-
-            socket.join(roomId);
-            socket.roomId = roomId;
-            socket.userData = host;
-            socket.currentStreamId = streamId;
-            io.viewerCounts.set(roomId, 1);
-
-            io.to(roomId).emit("viewers_list", { viewers: [host] });
-            console.log(
-                `🎭 Multi-live started: ${title} by ${host.username}`
-            );
-        }
-    );
-
-    socket.on("request_seat", ({ roomId, seatId, user, odId }) => {
-        const room = io.multiRooms.get(roomId);
-        if (room) {
-            io.to(room.hostId).emit("seat_request", {
-                roomId,
-                seatId,
-                user,
-                odId,
-                socketId: socket.id,
-            });
-        }
-    });
-
-    socket.on("approve_seat", ({ roomId, seatId, user, socketId }) => {
-        const room = io.multiRooms.get(roomId);
-        if (room) {
-            room.seats.push({
-                seatId,
-                user,
-                socketId: socketId || socket.id,
-            });
-            io.to(roomId).emit("seat_approved", { roomId, seatId, user });
-            io.to(roomId).emit("seats_update", { seats: room.seats });
-        }
-    });
-
-    socket.on("reject_seat", ({ roomId, odId }) => {
-        io.to(roomId).emit("seat_rejected", { roomId, odId });
-    });
-
-    socket.on("guest_ready", ({ roomId, odId, seatId }) => {
-        io.to(roomId).emit("guest_ready", { roomId, odId, seatId });
-    });
-
-    socket.on("leave_seat", ({ roomId, odId }) => {
-        const room = io.multiRooms.get(roomId);
-        if (room) {
-            room.seats = room.seats.filter(
-                (s) => s.user?._id !== odId
-            );
-            io.to(roomId).emit("user_left_seat", { roomId, odId });
-            io.to(roomId).emit("seats_update", { seats: room.seats });
-        }
-    });
-
-    socket.on("kick_from_seat", ({ roomId, odId }) => {
-        const room = io.multiRooms.get(roomId);
-        if (room) {
-            room.seats = room.seats.filter(
-                (s) => s.user?._id !== odId
-            );
-            io.to(roomId).emit("user_left_seat", { roomId, odId });
-
-            for (const [, s] of io.sockets.sockets) {
-                if (s.userData?._id === odId) {
-                    s.emit("kicked_from_seat", { roomId });
-                    break;
-                }
-            }
-        }
-    });
-
-    socket.on("mute_user", ({ roomId, odId }) => {
-        if (roomId && odId) {
-            io.to(roomId).emit("user_muted", { roomId, odId });
-        }
-    });
-
-    socket.on("unmute_user", ({ roomId, odId }) => {
-        if (roomId && odId) {
-            io.to(roomId).emit("user_unmuted", { roomId, odId });
-        }
-    });
-
-    // Multi-live WebRTC signaling
-    socket.on("multi_offer", ({ roomId, targetId, sdp, fromId }) => {
-        for (const [, s] of io.sockets.sockets) {
-            if (s.userData?._id === targetId) {
-                s.emit("multi_offer", { roomId, sdp, fromId });
-                break;
-            }
-        }
-    });
-
-    socket.on("multi_answer", ({ roomId, targetId, sdp, fromId }) => {
-        for (const [, s] of io.sockets.sockets) {
-            if (s.userData?._id === targetId) {
-                s.emit("multi_answer", { roomId, sdp, fromId });
-                break;
-            }
-        }
-    });
-
-    socket.on(
-        "multi_ice_candidate",
-        ({ roomId, targetId, candidate, fromId }) => {
-            for (const [, s] of io.sockets.sockets) {
-                if (s.userData?._id === targetId) {
-                    s.emit("multi_ice_candidate", {
-                        roomId,
-                        candidate,
-                        fromId,
-                    });
-                    break;
-                }
-            }
-        }
-    );
-
-    socket.on("end_multi_live", async ({ roomId }) => {
-        const room = io.multiRooms.get(roomId);
-        if (room?.streamId) {
-            await endStreamInDB(room.streamId);
-        }
-        io.to(roomId).emit("multi_live_ended", { roomId });
-        io.multiRooms.delete(roomId);
-        io.viewerCounts.delete(roomId);
-
-        console.log(`🎭 Multi-live ended: ${roomId}`);
-    });
-
-    socket.on("leave_multi_live", ({ roomId, odId }) => {
-        if (!roomId) return;
-
-        socket.leave(roomId);
-        const count = Math.max(
-            0,
-            (io.viewerCounts.get(roomId) || 1) - 1
-        );
-        io.viewerCounts.set(roomId, count);
-        io.to(roomId).emit("viewer_count", { count });
-
-        const room = io.multiRooms.get(roomId);
-        if (room) {
-            if (room.viewers && odId) {
-                room.viewers = room.viewers.filter(
-                    (v) => v._id !== odId
-                );
-                io.to(roomId).emit("viewers_list", {
-                    viewers: room.viewers,
-                });
-            }
-            if (odId && room.seats?.some((s) => s.user?._id === odId)) {
-                room.seats = room.seats.filter(
-                    (s) => s.user?._id !== odId
-                );
-                io.to(roomId).emit("user_left_seat", { roomId, odId });
-            }
-        }
-    });
-
-    // ========== CHAT ==========
-
-    socket.on("chat_message", (data) => {
-        if (!data) return;
-
-        const roomId = data.roomId || data.streamId;
-        if (roomId) {
-            const message = {
-                ...data,
-                timestamp: new Date(),
-            };
-            io.to(roomId).emit("chat_message", message);
-            io.to(`stream_${roomId}`).emit("chat_message", message);
-        }
-    });
-
-    socket.on("chat_gift", (data) => {
-        if (!data) return;
-
-        const roomId = data.roomId || data.streamId;
-        if (roomId) {
-            io.to(roomId).emit("chat_gift", {
-                ...data,
-                timestamp: new Date(),
-            });
-        }
-    });
-
-    // ========== ADMIN ACTIONS ==========
-
-    socket.on("admin_stop_stream", async (streamId) => {
-        if (streamId) {
-            await endStreamInDB(streamId);
-            io.emit("admin_stream_stopped", streamId);
-            io.to(streamId).emit("stream_ended", { reason: "admin" });
-            console.log(`🛑 Admin stopped stream: ${streamId}`);
-        }
-    });
-
-    socket.on("admin_message", ({ streamId, message }) => {
-        if (streamId && message) {
-            io.to(streamId).emit("admin_message", {
-                message,
-                timestamp: new Date(),
-            });
-        }
-    });
-
-    // ========== DISCONNECT ==========
-
+    // ===========================================
+    // DISCONNECT
+    // ===========================================
     socket.on("disconnect", async () => {
         console.log(`❌ Socket disconnected: ${socket.id}`);
 
-        // Clean up broadcaster
+        // Als socket de broadcaster van een room is → stream beëindigen
         for (const [roomId, broadcasterId] of io.broadcasters.entries()) {
             if (broadcasterId === socket.id) {
                 await endStreamInDB(roomId);
@@ -694,58 +514,17 @@ io.on("connection", (socket) => {
             }
         }
 
-        // Clean up multi-live
-        if (socket.roomId && socket.userData) {
-            const room = io.multiRooms.get(socket.roomId);
-            if (room) {
-                // Remove from viewers
-                if (room.viewers) {
-                    room.viewers = room.viewers.filter(
-                        (v) => v._id !== socket.userData._id
-                    );
-                    io.to(socket.roomId).emit("viewers_list", {
-                        viewers: room.viewers,
-                    });
-                }
-
-                // If host disconnected, end the multi-live
-                if (room.hostId === socket.id) {
-                    if (room.streamId) {
-                        await endStreamInDB(room.streamId);
-                    }
-                    io.to(socket.roomId).emit("multi_live_ended", {
-                        roomId: socket.roomId,
-                    });
-                    io.multiRooms.delete(socket.roomId);
-                    io.viewerCounts.delete(socket.roomId);
-                } else {
-                    // Remove from seats
-                    if (room.seats) {
-                        room.seats = room.seats.filter(
-                            (s) => s.socketId !== socket.id
-                        );
-                        io.to(socket.roomId).emit("seats_update", {
-                            seats: room.seats,
-                        });
-                    }
-                    const count = Math.max(
-                        0,
-                        (io.viewerCounts.get(socket.roomId) || 1) - 1
-                    );
-                    io.viewerCounts.set(socket.roomId, count);
-                    io.to(socket.roomId).emit("viewer_count", {
-                        count,
-                    });
-                }
-            }
-        }
-
-        // Clean up stream
+        // Extra safety voor direct gekoppelde stream
         if (socket.currentStreamId) {
             await endStreamInDB(socket.currentStreamId);
+            io.viewerCounts.delete(socket.currentStreamId);
+            io.emit("live_stopped", {
+                _id: socket.currentStreamId,
+                roomId: socket.currentStreamId,
+            });
         }
 
-        // Clean up user socket mapping
+        // User socket cleanup
         if (socket.userId) {
             io.userSockets.delete(socket.userId);
         }
@@ -770,11 +549,13 @@ mongoose
         const PORT = process.env.PORT || 8080;
         server.listen(PORT, () => {
             console.log("╔════════════════════════════════════════╗");
-            console.log("║  🚀 WORLD-STUDIO SERVER                ║");
+            console.log("║  🚀 WORLD-STUDIO SERVER (U.E.)        ║");
             console.log("╠════════════════════════════════════════╣");
-            console.log(`║  Port: ${PORT}                          ║`);
+            console.log(`║  Port: ${PORT.toString().padEnd(28)}║`);
             console.log(
-                `║  Mode: ${process.env.NODE_ENV || "development"}                   ║`
+                `║  Mode: ${(process.env.NODE_ENV || "development").padEnd(
+                    28
+                )}║`
             );
             console.log("║  URL:  https://world-studio.live       ║");
             console.log("╚════════════════════════════════════════╝");
@@ -786,13 +567,18 @@ mongoose
     });
 
 // ============================================
-// 9. GRACEFUL SHUTDOWN (Mongoose v7/v8 compatible)
+// 9. GRACEFUL SHUTDOWN
 // ============================================
 const gracefulShutdown = async (signal) => {
     console.log(`\n${signal} received. Shutting down gracefully...`);
 
+    const forceTimeout = setTimeout(() => {
+        console.error("❌ Forced shutdown after timeout");
+        process.exit(1);
+    }, 10000);
+
     try {
-        // 1️⃣ Stop accepting new HTTP connections
+
         await new Promise((resolve) => {
             server.close(() => {
                 console.log("✅ HTTP server closed");
@@ -800,7 +586,7 @@ const gracefulShutdown = async (signal) => {
             });
         });
 
-        // 2️⃣ Close Socket.io
+
         await new Promise((resolve) => {
             io.close(() => {
                 console.log("✅ Socket.io closed");
@@ -808,22 +594,20 @@ const gracefulShutdown = async (signal) => {
             });
         });
 
-        // 3️⃣ Close MongoDB
+
         await mongoose.connection.close();
         console.log("✅ MongoDB connection closed");
 
+        clearTimeout(forceTimeout);
         console.log("🚀 Graceful shutdown complete.");
         process.exit(0);
     } catch (err) {
         console.error("❌ Error during graceful shutdown:", err);
+        clearTimeout(forceTimeout);
         process.exit(1);
     }
 
-    // Safety timeout
-    setTimeout(() => {
-        console.error("❌ Forced shutdown after timeout");
-        process.exit(1);
-    }, 10000);
+
 };
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
@@ -834,7 +618,7 @@ process.on("uncaughtException", (err) => {
     gracefulShutdown("UNCAUGHT_EXCEPTION");
 });
 
-process.on("unhandledRejection", (reason, promise) => {
+process.on("unhandledRejection", (reason) => {
     console.error("❌ Unhandled Rejection:", reason);
 });
 
