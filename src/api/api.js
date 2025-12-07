@@ -10,7 +10,9 @@ let baseURL =
 
 baseURL = baseURL.replace(/\/$/, "");
 
-const API_BASE = `${baseURL}/api`;
+// Export for use in other files
+export const API_BASE_URL = baseURL;
+export const API_BASE = `${baseURL}/api`;
 
 console.log("🌐 API baseURL =", API_BASE);
 
@@ -57,4 +59,53 @@ export const adminApi = {
     getWithdrawals: (params = {}) => api.get("/admin/withdrawals", { params }),
 
     getReports: (params = {}) => api.get("/admin/reports", { params }),
+
+    // User actions
+    banUser: (id, data) => api.post(`/admin/ban-user/${id}`, data),
+    unbanUser: (id) => api.post(`/admin/unban-user/${id}`),
+    verifyUser: (id, data) => api.post(`/admin/verify-user/${id}`, data),
+    unverifyUser: (id) => api.post(`/admin/unverify-user/${id}`),
+    makeAdmin: (id) => api.post(`/admin/make-admin/${id}`),
+    removeAdmin: (id) => api.post(`/admin/remove-admin/${id}`),
+    deleteUser: (id) => api.delete(`/admin/delete-user/${id}`),
+    addCoins: (id, data) => api.post(`/admin/add-coins/${id}`, data),
+    removeCoins: (id, data) => api.post(`/admin/remove-coins/${id}`, data),
+
+    // Withdrawals
+    approveWithdrawal: (id, data) => api.post(`/admin/withdrawals/${id}/approve`, data),
+    rejectWithdrawal: (id, data) => api.post(`/admin/withdrawals/${id}/reject`, data),
+
+    // Reports
+    resolveReport: (id, data) => api.post(`/admin/reports/${id}/resolve`, data),
+    dismissReport: (id) => api.delete(`/admin/reports/${id}`),
+
+    // Streams
+    stopStream: (id) => api.post(`/admin/stop-stream/${id}`),
+
+    // Announcements
+    sendAnnouncement: (data) => api.post("/admin/announcement", data),
+    broadcast: (data) => api.post("/admin/broadcast", data),
+};
+
+// ---------------------------------------------
+// LIVE API ENDPOINTS
+// ---------------------------------------------
+export const liveApi = {
+    getStreams: () => api.get("/live"),
+    getStream: (id) => api.get(`/live/${id}`),
+    startStream: (data) => api.post("/live/start", data),
+    stopStream: (id) => api.post(`/live/stop/${id}`),
+    getUserStatus: (userId) => api.get(`/live/user/${userId}/status`),
+    getUserHistory: (userId, params = {}) => api.get(`/live/user/${userId}/history`, { params }),
+};
+
+// ---------------------------------------------
+// CRYPTO API ENDPOINTS (via backend proxy)
+// ---------------------------------------------
+export const cryptoApi = {
+    getPrices: (ids) => api.get("/crypto/prices", { params: { ids } }),
+    getCoin: (coinId) => api.get(`/crypto/coin/${coinId}`),
+    getChart: (coinId, params = {}) => api.get(`/crypto/chart/${coinId}`, { params }),
+    getMarkets: (params = {}) => api.get("/crypto/markets", { params }),
+    getTrending: () => api.get("/crypto/trending"),
 };
