@@ -1,417 +1,416 @@
-// =======================================================
-// World-Studio.live - Users Routes (Universe Edition 🚀)
-// Engineered for Commander Sandro Menzies
-// by AIRPATH
-// =======================================================
+// backend/routes/users.js
+// World-Studio.live - Users Routes (UNIVERSE EDITION 🌌)
 
 const express = require("express");
 const router = express.Router();
-const mongoose = require("mongoose");
+
+const auth = require("../middleware/auth");
+const checkBan = require("../middleware/checkBan");
 const User = require("../models/User");
-const Post = require("../models/Post"); // gebruikt voor profiel posts
-const auth = require("../middleware/authMiddleware");
 
-// -------------------------------------------
-// Helper: maak veilig ObjectId
-// -------------------------------------------
-const toObjectId = (id) => {
-    if (!id) return null;
-    return mongoose.Types.ObjectId.isValid(id)
-        ? new mongoose.Types.ObjectId(id)
-        : null;
-};
-
-// -------------------------------------------
-// Helper: public user shape naar frontend
-// -------------------------------------------
-const toPublicUser = (user) => {
-    if (!user) return null;
-
-    const followersCount =
-        user.followersCount ??
-        (Array.isArray(user.followers) ? user.followers.length : 0);
-
-    const followingCount =
-        user.followingCount ??
-        (Array.isArray(user.following) ? user.following.length : 0);
-
-    return {
+// ---------------------------------------------
+// Helpers
+// ---------------------------------------------
+const toPublicProfile = (user) =>
+    user.toPublicProfile ? user.toPublicProfile() : {
         _id: user._id,
         username: user.username,
-        displayName: user.displayName || user.username,
-        avatar: user.avatar || "",
-        bio: user.bio || "",
-        location: user.location || "",
-        website: user.website || "",
-        isVerified: !!user.isVerified,
-        followersCount,
-        followingCount,
+        displayName: user.displayName,
+        avatar: user.avatar,
+        coverImage: user.coverImage,
+        bio: user.bio,
+        isVerified: user.isVerified,
+        verificationBadge: user.verificationBadge,
+        isLive: user.isLive,
+        currentStreamId: user.currentStreamId,
+        followersCount: user.followersCount || 0,
+        followingCount: user.followingCount || 0,
+        socialLinks: user.socialLinks || {},
+        createdAt: user.createdAt,
     };
-};
 
-// =======================================================
-// 1. GET CURRENT USER / PROFILE
-// =======================================================
+// ---------------------------------------------
+// CURRENT USER
+// ---------------------------------------------
 
 // GET /api/users/me  -> eigen profiel
-router.get("/me", auth, async (req, res) => {
+router.get("/me", auth, checkBan, async (req, res) => {
     try {
-        const meId = req.user.id || req.user._id;
-        const user = await User.findById(meId);
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
 
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        return res.json({
+        res.json({
             success: true,
-            user: toPublicUser(user),
+            user: toPublicProfile(user),
         });
     } catch (err) {
-        console.error("❌ GET /users/me error:", err);
-        return res.status(500).json({ error: "Failed to load profile" });
+        console.error("GET /users/me error:", err);
+        res.status(500).json({ error: "Failed to load profile" });
     }
 });
 
-// PUT /api/users/me  -> profiel updaten
-router.put("/me", auth, async (req, res) => {
+// shared handler voor profile update (meerdere routes kunnen deze gebruiken)
+const handleProfileUpdate = async (req, res) => {
     try {
-        const meId = req.user.id || req.user._id;
-        const allowedFields = [
-            "displayName",
-            "bio",
-            "location",
-            "website",
-            "avatar",
-            "banner",
-        ];
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: "User not found" });
 
-        const updates = {};
-        allowedFields.forEach((field) => {
-            if (req.body[field] !== undefined) {
-                updates[field] = req.body[field];
-            }
-        });
+        const {
+            username,
+            displayName,
+            bio,
+            location,
+            website,
+            avatar,
+            coverImage,
+            socialLinks,
+        } = req.body || {};
 
-        const user = await User.findByIdAndUpdate(meId, updates, {
-            new: true,
-        });
+        if (username) user.username = username.trim();
+        if (displayName !== undefined) user.displayName = displayName;
+        if (bio !== undefined) user.bio = bio;
+        if (location !== undefined) user.location = location;
+        if (website !== undefined) user.website = website;
+        if (avatar !== undefined) user.avatar = avatar;
+        if (coverImage !== undefined) user.coverImage = coverImage;
 
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
+        if (socialLinks && typeof socialLinks === "object") {
+            user.socialLinks = {
+                ...(user.socialLinks || {}),
+                ...socialLinks,
+            };
         }
 
-        return res.json({
+        await user.save();
+
+        res.json({
             success: true,
-            user: toPublicUser(user),
+            message: "Profile updated",
+            user: toPublicProfile(user),
         });
     } catch (err) {
-        console.error("❌ PUT /users/me error:", err);
-        return res.status(500).json({ error: "Failed to update profile" });
+        console.error("UPDATE profile error:", err);
+        if (err.code === 11000 && err.keyPattern?.username) {
+            return res.status(400).json({ error: "Username already taken" });
+        }
+        res.status(500).json({ error: "Failed to update profile" });
     }
-});
+};
 
-// =======================================================
-// 2. PUBLIC PROFILE BY ID
-// =======================================================
+// Aliassen zodat ALLE oude front-end endpoints werken:
+// PUT /api/users/me
+router.put("/me", auth, checkBan, handleProfileUpdate);
+// PUT /api/users/profile
+router.put("/profile", auth, checkBan, handleProfileUpdate);
+// PATCH /api/users/profile
+router.patch("/profile", auth, checkBan, handleProfileUpdate);
 
-// GET /api/users/:id  -> publiek profiel
-// (LET OP: staat NA /me en andere vaste routes)
-router.get("/:id", async (req, res) => {
+// ---------------------------------------------
+// FOLLOW / UNFOLLOW
+// ---------------------------------------------
+
+// core follow-logica
+const followUser = async (currentUserId, targetId) => {
+    if (currentUserId.toString() === targetId.toString()) {
+        throw new Error("You cannot follow yourself");
+    }
+
+    const [me, target] = await Promise.all([
+        User.findById(currentUserId),
+        User.findById(targetId),
+    ]);
+
+    if (!me || !target) {
+        const err = new Error("User not found");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    const alreadyFollowing = me.following.some(
+        (id) => id.toString() === target._id.toString()
+    );
+
+    if (!alreadyFollowing) {
+        me.following.push(target._id);
+        target.followers.push(me._id);
+    }
+
+    me.followingCount = me.following.length;
+    target.followersCount = target.followers.length;
+
+    await Promise.all([me.save(), target.save()]);
+
+    // Probeer notificatie, maar breek niet bij fout
     try {
-        const userId = toObjectId(req.params.id);
-        if (!userId) {
-            return res.status(400).json({ error: "Invalid user id" });
+        if (target.addNotification) {
+            await target.addNotification({
+                type: "follow",
+                fromUser: me._id,
+                fromUsername: me.username,
+                fromAvatar: me.avatar,
+                message: `${me.username} started following you`,
+            });
         }
-
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        // Posts van deze user (volgens Post-schema: userId)
-        let posts = [];
-        let postsCount = 0;
-
-        try {
-            const query = { userId: user._id, status: { $ne: "deleted" } };
-            [posts, postsCount] = await Promise.all([
-                Post.find(query)
-                    .sort({ createdAt: -1 })
-                    .limit(20)
-                    .lean(),
-                Post.countDocuments(query),
-            ]);
-        } catch (e) {
-            console.log("⚠️ Profile posts query failed:", e.message);
-            posts = [];
-            postsCount = 0;
-        }
-
-        return res.json({
-            success: true,
-            user: toPublicUser(user),
-            stats: {
-                postsCount,
-            },
-            posts,
-        });
-    } catch (err) {
-        console.error("❌ GET /users/:id error:", err);
-        return res.status(500).json({ error: "Failed to load user profile" });
+    } catch (e) {
+        console.log("Follow notification error:", e.message);
     }
-});
 
-// =======================================================
-// 3. FOLLOW / UNFOLLOW
-// =======================================================
+    return { me, target, alreadyFollowing };
+};
+
+const unfollowUser = async (currentUserId, targetId) => {
+    const [me, target] = await Promise.all([
+        User.findById(currentUserId),
+        User.findById(targetId),
+    ]);
+
+    if (!me || !target) {
+        const err = new Error("User not found");
+        err.statusCode = 404;
+        throw err;
+    }
+
+    me.following = me.following.filter(
+        (id) => id.toString() !== target._id.toString()
+    );
+    target.followers = target.followers.filter(
+        (id) => id.toString() !== me._id.toString()
+    );
+
+    me.followingCount = me.following.length;
+    target.followersCount = target.followers.length;
+
+    await Promise.all([me.save(), target.save()]);
+
+    return { me, target };
+};
 
 // POST /api/users/:id/follow
-router.post("/:id/follow", auth, async (req, res) => {
+router.post("/:id/follow", auth, checkBan, async (req, res) => {
     try {
-        const targetId = toObjectId(req.params.id);
-        const meId = toObjectId(req.user.id || req.user._id);
-
-        if (!targetId) {
-            return res.status(400).json({ error: "Invalid user id" });
-        }
-
-        if (String(targetId) === String(meId)) {
-            return res
-                .status(400)
-                .json({ error: "You cannot follow yourself" });
-        }
-
-        const [me, target] = await Promise.all([
-            User.findById(meId),
-            User.findById(targetId),
-        ]);
-
-        if (!me || !target) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        // Zorg dat arrays bestaan
-        if (!Array.isArray(me.following)) me.following = [];
-        if (!Array.isArray(target.followers)) target.followers = [];
-
-        const alreadyFollowing = me.following.some(
-            (id) => id.toString() === target._id.toString()
+        const { me, target, alreadyFollowing } = await followUser(
+            req.user.id,
+            req.params.id
         );
 
-        if (alreadyFollowing) {
-            // al aan het volgen → gewoon de state teruggeven
-            return res.json({
-                success: true,
-                alreadyFollowing: true,
-                targetUser: toPublicUser(target),
-                me: {
-                    _id: me._id,
-                    followersCount: Array.isArray(me.followers)
-                        ? me.followers.length
-                        : me.followersCount ?? 0,
-                    followingCount: Array.isArray(me.following)
-                        ? me.following.length
-                        : me.followingCount ?? 0,
-                },
-            });
-        }
-
-        // 1️⃣ voeg target toe aan mijn following
-        me.following.push(target._id);
-        me.followingCount = me.following.length;
-
-        // 2️⃣ voeg mij toe aan target's followers
-        if (
-            !target.followers.some(
-                (id) => id.toString() === me._id.toString()
-            )
-        ) {
-            target.followers.push(me._id);
-        }
-        target.followersCount = target.followers.length;
-
-        // 3️⃣ notificatie (inline – geen apart model nodig)
-        if (!Array.isArray(target.notifications)) {
-            target.notifications = [];
-        }
-
-        const notification = {
-            message: `${me.username} started following you`,
-            type: "follow",
-            fromUser: me._id,
-            postId: null,
-            streamId: null,
-            amount: null,
-            read: false,
-            createdAt: new Date(),
-        };
-
-        // nieuwe notificatie bovenaan
-        target.notifications.unshift(notification);
-        // limiter, bv max 100 notificaties bewaren
-        if (target.notifications.length > 100) {
-            target.notifications = target.notifications.slice(0, 100);
-        }
-
-        // unread counter
-        target.unreadNotifications =
-            (target.unreadNotifications || 0) + 1;
-
-        await Promise.all([me.save(), target.save()]);
-
-        // 4️⃣ real-time push via Socket.io
-        const io = req.app.get("io");
-        if (io) {
-            io.to(`user_${target._id}`).emit("notification", {
-                ...notification,
-                userId: target._id,
-            });
-        }
-
-        return res.json({
+        res.json({
             success: true,
-            targetUser: toPublicUser(target),
+            following: true,
+            alreadyFollowing,
             me: {
                 _id: me._id,
-                followersCount:
-                    Array.isArray(me.followers) && me.followers.length
-                        ? me.followers.length
-                        : me.followersCount ?? 0,
+
+
                 followingCount: me.followingCount,
+            },
+            target: {
+                _id: target._id,
+                followersCount: target.followersCount,
             },
         });
     } catch (err) {
-        console.error("❌ FOLLOW ERROR /users/:id/follow:", err);
-        return res.status(500).json({ error: "Failed to follow user" });
+        console.error("POST /users/:id/follow error:", err);
+        res
+            .status(err.statusCode || 500)
+            .json({ error: err.message || "Failed to follow user" });
     }
 });
 
 // POST /api/users/:id/unfollow
-router.post("/:id/unfollow", auth, async (req, res) => {
+router.post("/:id/unfollow", auth, checkBan, async (req, res) => {
     try {
-        const targetId = toObjectId(req.params.id);
-        const meId = toObjectId(req.user.id || req.user._id);
+        const { me, target } = await unfollowUser(req.user.id, req.params.id);
 
-        if (!targetId) {
-            return res.status(400).json({ error: "Invalid user id" });
-        }
-
-        if (String(targetId) === String(meId)) {
-            return res
-                .status(400)
-                .json({ error: "You cannot unfollow yourself" });
-        }
-
-        const [me, target] = await Promise.all([
-            User.findById(meId),
-            User.findById(targetId),
-        ]);
-
-        if (!me || !target) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        if (!Array.isArray(me.following)) me.following = [];
-        if (!Array.isArray(target.followers)) target.followers = [];
-
-        // 1️⃣ verwijder target uit mijn following
-        me.following = me.following.filter(
-            (id) => id.toString() !== target._id.toString()
-        );
-        me.followingCount = me.following.length;
-
-        // 2️⃣ verwijder mij uit target's followers
-        target.followers = target.followers.filter(
-            (id) => id.toString() !== me._id.toString()
-        );
-        target.followersCount = target.followers.length;
-
-        await Promise.all([me.save(), target.save()]);
-
-        return res.json({
+        res.json({
             success: true,
-            targetUser: toPublicUser(target),
+            following: false,
             me: {
                 _id: me._id,
-                followersCount:
-                    Array.isArray(me.followers) && me.followers.length
-                        ? me.followers.length
-                        : me.followersCount ?? 0,
                 followingCount: me.followingCount,
+            },
+            target: {
+                _id: target._id,
+                followersCount: target.followersCount,
             },
         });
     } catch (err) {
-        console.error("❌ UNFOLLOW ERROR /users/:id/unfollow:", err);
-        return res.status(500).json({ error: "Failed to unfollow user" });
+        console.error("POST /users/:id/unfollow error:", err);
+        res
+            .status(err.statusCode || 500)
+            .json({ error: err.message || "Failed to unfollow user" });
     }
 });
 
-// =======================================================
-// 4. FOLLOWERS / FOLLOWING LISTS
-// =======================================================
-
-// GET /api/users/:id/followers
-router.get("/:id/followers", async (req, res) => {
+// Extra: oude front-end varianten
+// POST /api/users/follow  body: { targetUserId }
+router.post("/follow", auth, checkBan, async (req, res) => {
+    const targetId = req.body.targetUserId || req.body.userId;
+    if (!targetId) {
+        return res.status(400).json({ error: "targetUserId is required" });
+    }
     try {
-        const userId = toObjectId(req.params.id);
-        if (!userId) {
-            return res.status(400).json({ error: "Invalid user id" });
-        }
-
-        const user = await User.findById(userId).populate(
-            "followers",
-            "username displayName avatar isVerified followers followersCount following followingCount"
+        const { me, target, alreadyFollowing } = await followUser(
+            req.user.id,
+            targetId
         );
-
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        const followers = (user.followers || []).map((u) => toPublicUser(u));
-
-        return res.json({
+        res.json({
             success: true,
-            count: followers.length,
-            followers,
+            following: true,
+            alreadyFollowing,
+            me: {
+                _id: me._id,
+
+
+                followingCount: me.followingCount,
+            },
+            target: {
+                _id: target._id,
+                followersCount: target.followersCount,
+            },
         });
     } catch (err) {
-        console.error("❌ GET /users/:id/followers error:", err);
-        return res.status(500).json({ error: "Failed to load followers" });
+        console.error("POST /users/follow error:", err);
+        res
+            .status(err.statusCode || 500)
+            .json({ error: err.message || "Failed to follow user" });
+    }
+});
+
+// POST /api/users/unfollow  body: { targetUserId }
+router.post("/unfollow", auth, checkBan, async (req, res) => {
+    const targetId = req.body.targetUserId || req.body.userId;
+    if (!targetId) {
+        return res.status(400).json({ error: "targetUserId is required" });
+    }
+    try {
+        const { me, target } = await unfollowUser(req.user.id, targetId);
+        res.json({
+            success: true,
+            following: false,
+            me: {
+                _id: me._id,
+
+
+                followingCount: me.followingCount,
+            },
+            target: {
+                _id: target._id,
+                followersCount: target.followersCount,
+            },
+        });
+    } catch (err) {
+        console.error("POST /users/unfollow error:", err);
+        res
+            .status(err.statusCode || 500)
+            .json({ error: err.message || "Failed to unfollow user" });
+    }
+});
+
+// ---------------------------------------------
+// FOLLOWER / FOLLOWING LIJSTEN
+// ---------------------------------------------
+
+// GET /api/users/:id/followers
+router.get("/:id/followers", auth, checkBan, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id).populate(
+            "followers",
+            "username displayName avatar isVerified followersCount"
+        );
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        res.json({
+            success: true,
+            count: user.followers.length,
+            followers: user.followers,
+        });
+    } catch (err) {
+        console.error("GET /users/:id/followers error:", err);
+        res.status(500).json({ error: "Failed to load followers" });
     }
 });
 
 // GET /api/users/:id/following
-router.get("/:id/following", async (req, res) => {
+router.get("/:id/following", auth, checkBan, async (req, res) => {
     try {
-        const userId = toObjectId(req.params.id);
-        if (!userId) {
-            return res.status(400).json({ error: "Invalid user id" });
-        }
-
-        const user = await User.findById(userId).populate(
+        const user = await User.findById(req.params.id).populate(
             "following",
-            "username displayName avatar isVerified followers followersCount following followingCount"
+            "username displayName avatar isVerified followersCount"
         );
+        if (!user) return res.status(404).json({ error: "User not found" });
 
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        const following = (user.following || []).map((u) => toPublicUser(u));
-
-        return res.json({
+        res.json({
             success: true,
-            count: following.length,
-            following,
+            count: user.following.length,
+            following: user.following,
         });
     } catch (err) {
-        console.error("❌ GET /users/:id/following error:", err);
-        return res.status(500).json({ error: "Failed to load following" });
+        console.error("GET /users/:id/following error:", err);
+        res.status(500).json({ error: "Failed to load following" });
     }
 });
 
-// =======================================================
-// EXPORT
-// =======================================================
+// Handige alias voor frontend: eigen followers/following
+router.get("/me/followers", auth, checkBan, (req, res) =>
+    res.redirect(`/api/users/${req.user.id}/followers`)
+);
+router.get("/me/following", auth, checkBan, (req, res) =>
+    res.redirect(`/api/users/${req.user.id}/following`)
+);
+
+// ---------------------------------------------
+// DISCOVER / SEARCH
+// ---------------------------------------------
+
+// GET /api/users/discover  (suggested creators)
+router.get("/discover", auth, checkBan, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit || "20", 10);
+        const users = await User.getSuggested(req.user.id, limit);
+        res.json({ success: true, users });
+    } catch (err) {
+        console.error("GET /users/discover error:", err);
+        res.status(500).json({ error: "Failed to load suggestions" });
+    }
+});
+
+// GET /api/users/search?q=...
+router.get("/search", auth, checkBan, async (req, res) => {
+    try {
+        const q = (req.query.q || "").trim();
+        if (!q) return res.json({ success: true, users: [] });
+
+        const limit = parseInt(req.query.limit || "20", 10);
+        const users = await User.searchUsers(q, { limit });
+
+        res.json({ success: true, users });
+    } catch (err) {
+        console.error("GET /users/search error:", err);
+        res.status(500).json({ error: "Failed to search users" });
+    }
+});
+
+// ---------------------------------------------
+// SINGLE USER PROFIEL (laatste, na alle andere)
+// ---------------------------------------------
+
+// GET /api/users/:id
+router.get("/:id", auth, checkBan, async (req, res) => {
+    try {
+        const userId = req.params.id === "me" ? req.user.id : req.params.id;
+        const user = await User.findById(userId);
+
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        res.json({
+            success: true,
+            user: toPublicProfile(user),
+        });
+    } catch (err) {
+        console.error("GET /users/:id error:", err);
+        res.status(500).json({ error: "Failed to load user" });
+    }
+});
+
+
 module.exports = router;
