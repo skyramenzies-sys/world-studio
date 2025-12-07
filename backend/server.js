@@ -1,7 +1,6 @@
 // backend/server.js - WORLD-STUDIO ULTIMATE EDITION 🌌
 require("dotenv").config();
 const express = require("express");
-
 const cors = require("cors");
 const path = require("path");
 const mongoose = require("mongoose");
@@ -9,20 +8,40 @@ const mongoose = require("mongoose");
 const app = express();
 
 // --------------------------------------------------
+// GLOBAL CORS FIX (PRODUCTION + SOCKET READY)
+// --------------------------------------------------
+
+const allowedOrigins = [
+    "https://www.world-studio.live",
+    "https://world-studio.live",
+    "http://localhost:5173",
+    "http://localhost:3000",
+];
+
+app.use(
+    cors({
+        origin: function (origin, callback) {
+            if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+            } else {
+                console.warn("❌ BLOCKED ORIGIN:", origin);
+                callback(new Error("CORS blocked: " + origin));
+            }
+        },
+        methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+        allowedHeaders: "Content-Type,Authorization",
+        credentials: true,
+    })
+);
+
+// Preflight
+app.options("*", cors());
+
+// --------------------------------------------------
 // MIDDLEWARE
 // --------------------------------------------------
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-
-const FRONTEND_URL =
-    process.env.FRONTEND_URL || "http://localhost:5173";
-
-app.use(
-    cors({
-        origin: [FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"],
-        credentials: false,
-    })
-);
 
 // Static uploads
 const uploadsDir = process.env.UPLOADS_DIR || "uploads";
@@ -49,21 +68,18 @@ mongoose
 // --------------------------------------------------
 const authRoutes = require("./routes/auth");
 const userRoutes = require("./routes/users");
-
 const adminRoutes = require("./routes/admin");
 
-// 🔁 LIVE routes optioneel maken (zodat server niet crasht als file ontbreekt)
+// LIVE routes optioneel, geen crash als file mist
 let liveRoutes = null;
 try {
-    // Als ./routes/live.js bestaat → gebruiken
-    // Als niet → catched en alleen warning loggen
     liveRoutes = require("./routes/live");
-    console.log("🎥 Live routes loaded from ./routes/live");
+    console.log("🎥 Live routes loaded");
 } catch (err) {
-    console.warn("⚠️ ./routes/live niet gevonden – live API uitgeschakeld (geen crash).");
+    console.warn("⚠️ ./routes/live niet gevonden – live API uitgeschakeld.");
 }
 
-// Base check
+// Base
 app.get("/", (req, res) => {
     res.json({
         success: true,
@@ -75,16 +91,14 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 
-// Alleen mounten als liveRoutes bestaat
 if (liveRoutes) {
     app.use("/api/live", liveRoutes);
 }
 
-// Admin
 app.use("/api/admin", adminRoutes);
 
 // --------------------------------------------------
-// 404 fallback voor onbekende /api routes (Express 5 safe)
+// EXPRESS 5 SAFE 404 HANDLER
 // --------------------------------------------------
 app.use((req, res, next) => {
     if (req.path.startsWith("/api/")) {
@@ -97,7 +111,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// Global error handler
+// --------------------------------------------------
+// GLOBAL ERROR HANDLER
+// --------------------------------------------------
 app.use((err, req, res, next) => {
     console.error("🔥 Global error:", err);
     res.status(err.status || 500).json({
