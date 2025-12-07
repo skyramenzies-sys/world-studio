@@ -4,6 +4,7 @@ const express = require("express");
 
 const cors = require("cors");
 const path = require("path");
+const mongoose = require("mongoose");
 
 const app = express();
 
@@ -30,7 +31,7 @@ app.use("/uploads", express.static(path.join(__dirname, uploadsDir)));
 // --------------------------------------------------
 // DATABASE
 // --------------------------------------------------
-const mongoose = require("mongoose");
+
 const MONGODB_URI =
     process.env.MONGODB_URI ||
     "mongodb://127.0.0.1:27017/world-studio";
@@ -48,8 +49,19 @@ mongoose
 // --------------------------------------------------
 const authRoutes = require("./routes/auth");
 const userRoutes = require("./routes/users");
-const liveRoutes = require("./routes/live");
+
 const adminRoutes = require("./routes/admin");
+
+// 🔁 LIVE routes optioneel maken (zodat server niet crasht als file ontbreekt)
+let liveRoutes = null;
+try {
+    // Als ./routes/live.js bestaat → gebruiken
+    // Als niet → catched en alleen warning loggen
+    liveRoutes = require("./routes/live");
+    console.log("🎥 Live routes loaded from ./routes/live");
+} catch (err) {
+    console.warn("⚠️ ./routes/live niet gevonden – live API uitgeschakeld (geen crash).");
+}
 
 // Base check
 app.get("/", (req, res) => {
@@ -62,13 +74,17 @@ app.get("/", (req, res) => {
 // API root
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/live", liveRoutes);
 
-// 🚨 CORRECT MOUNT FOR ADMIN
+// Alleen mounten als liveRoutes bestaat
+if (liveRoutes) {
+    app.use("/api/live", liveRoutes);
+}
+
+// Admin
 app.use("/api/admin", adminRoutes);
 
 // --------------------------------------------------
-// Express 5-safe Fallback for unknown /api routes
+// 404 fallback voor onbekende /api routes (Express 5 safe)
 // --------------------------------------------------
 app.use((req, res, next) => {
     if (req.path.startsWith("/api/")) {
