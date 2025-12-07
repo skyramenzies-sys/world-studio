@@ -34,8 +34,8 @@ app.use(
     })
 );
 
-// Preflight
-app.options("*", cors());
+// Preflight - Express 5 compatible (no wildcard)
+app.options("/{*splat}", cors());
 
 // --------------------------------------------------
 // MIDDLEWARE
@@ -79,23 +79,35 @@ try {
     console.warn("⚠️ ./routes/live niet gevonden – live API uitgeschakeld.");
 }
 
+// Crypto proxy (CoinGecko) - optioneel
+let cryptoRoutes = null;
+try {
+    cryptoRoutes = require("./routes/crypto");
+    console.log("💰 Crypto routes loaded");
+} catch (err) {
+    console.warn("⚠️ ./routes/crypto niet gevonden – crypto API uitgeschakeld.");
+}
+
 // Base
 app.get("/", (req, res) => {
     res.json({
         success: true,
-        message: "World-Studio Backend is running",
+        message: "World-Studio Backend is running 🌌",
     });
 });
 
 // API root
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/admin", adminRoutes);
 
 if (liveRoutes) {
     app.use("/api/live", liveRoutes);
 }
 
-app.use("/api/admin", adminRoutes);
+if (cryptoRoutes) {
+    app.use("/api/crypto", cryptoRoutes);
+}
 
 // --------------------------------------------------
 // EXPRESS 5 SAFE 404 HANDLER
