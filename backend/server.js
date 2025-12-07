@@ -14,6 +14,8 @@ const app = express();
 const allowedOrigins = [
     "https://www.world-studio.live",
     "https://world-studio.live",
+    "https://world-studio.vercel.app",  // <-- ADD THIS
+    "https://world-studio.vercel.app",
     "http://localhost:5173",
     "http://localhost:3000",
 ];
