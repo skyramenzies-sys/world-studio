@@ -41,65 +41,39 @@ const socket = io(baseUrl, {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10000,
     timeout: 20000,
-    // withCredentials: true, // 👉 aanzetten als je cookies/CORS nodig hebt
+
 });
 
 // ============================================
-// CONNECTION EVENTS (LOGGING)
+// CONNECTION EVENTS
 // ============================================
 socket.on("connect", () => {
-    if (!isDev) {
-        console.log("✅ Connected to World Studio Live");
-    } else {
-        console.log("✅ Connected to World Studio Live");
-        console.log("   Socket ID:", socket.id);
-    }
+    console.log("✅ Connected to World Studio Live (ID:", socket.id, ")");
 });
 
 socket.on("disconnect", (reason) => {
-    console.log("❌ Disconnected from World Studio Live:", reason);
-
-    // Als server expliciet disconnect → opnieuw proberen
-    if (reason === "io server disconnect") {
-        // Manuele reconnect
-        socket.connect();
-    }
+    console.log("❌ Disconnected:", reason);
+    if (reason === "io server disconnect") socket.connect();
 });
 
 socket.on("connect_error", (error) => {
     console.error("🔴 Socket connect error:", error?.message || error);
 });
 
-socket.on("reconnect", (attemptNumber) => {
-    console.log(`🔄 Reconnected after ${attemptNumber} attempts`);
-});
 
-socket.on("reconnect_attempt", (attemptNumber) => {
-    if (isDev) {
-        console.log(`🔄 Reconnection attempt ${attemptNumber}...`);
-    }
-});
-
-socket.on("reconnect_error", (error) => {
-    console.error("🔴 Reconnection error:", error?.message || error);
-});
-
-socket.on("reconnect_failed", () => {
-    console.error("🔴 Failed to reconnect after all attempts");
-});
 
 // ============================================
-// AUTHENTICATION HELPER (future-proof)
+// AUTH HELPERS
 // ============================================
 export const authenticateSocket = (token) => {
-    // Werkt als je later auth in de handshake gebruikt (server-side: socket.handshake.auth.token)
+
     socket.auth = { token };
-    // Forceer nieuwe connect
+
     socket.disconnect().connect();
 };
 
 // ============================================
-// USER ROOMS (matcht server: join_user_room / leave_user_room)
+// USER ROOMS
 // ============================================
 export const joinUserRoom = (userId) => {
     if (!userId) return;
@@ -112,33 +86,18 @@ export const leaveUserRoom = (userId) => {
 };
 
 // ============================================
-// LIVE STREAM (SOLO) – matcht server events
-// server.js: join_stream, leave_stream, watcher, leave_watcher
+// LIVE STREAM (SOLO)
 // ============================================
 
-/**
- * Join een live stream als viewer
- * - joint stream room
- * - telt viewer op via 'watcher'
- */
+
 export const joinLiveStream = (streamId, userData) => {
     if (!streamId) return;
 
-    // Join de stream rooms
     socket.emit("join_stream", streamId);
-
-    // Viewer tellen
-    socket.emit("watcher", {
-        roomId: streamId,
-        // user is optioneel, server gebruikt alleen roomId nu,
-        // maar future-proof meegestuurd:
-        user: userData || null,
-    });
+    socket.emit("watcher", { roomId: streamId, user: userData || null });
 };
 
-/**
- * Leave live stream als viewer
- */
+
 export const leaveLiveStream = (streamId, userId) => {
     if (!streamId) return;
 
@@ -146,10 +105,7 @@ export const leaveLiveStream = (streamId, userId) => {
     socket.emit("leave_stream", streamId);
 };
 
-/**
- * Start live broadcast (solo live)
- * → matcht server: start_broadcast
- */
+
 export const startBroadcast = ({ roomId, streamer, title, category, streamerId }) => {
     if (!roomId || !streamerId) return;
 
@@ -162,18 +118,14 @@ export const startBroadcast = ({ roomId, streamer, title, category, streamerId }
     });
 };
 
-/**
- * Stop live broadcast (solo live)
- * → matcht server: stop_broadcast
- */
+
 export const stopBroadcast = (roomId) => {
     if (!roomId) return;
     socket.emit("stop_broadcast", { roomId });
 };
 
 // ============================================
-// MULTI-LIVE / CO-STREAMING – matcht server
-// join_multi_live, start_multi_live, request_seat, approve_seat, etc.
+// MULTI-LIVE
 // ============================================
 
 export const joinMultiLive = (roomId, user) => {
@@ -217,33 +169,10 @@ export const leaveSeat = ({ roomId, odId }) => {
     socket.emit("leave_seat", { roomId, odId });
 };
 
-export const kickFromSeat = ({ roomId, odId }) => {
-    if (!roomId || !odId) return;
-    socket.emit("kick_from_seat", { roomId, odId });
-};
 
-export const muteUserInMultiLive = ({ roomId, odId }) => {
-    if (!roomId || !odId) return;
-    socket.emit("mute_user", { roomId, odId });
-};
-
-export const unmuteUserInMultiLive = ({ roomId, odId }) => {
-    if (!roomId || !odId) return;
-    socket.emit("unmute_user", { roomId, odId });
-};
-
-export const endMultiLive = (roomId) => {
-    if (!roomId) return;
-    socket.emit("end_multi_live", { roomId });
-};
-
-export const leaveMultiLive = ({ roomId, odId }) => {
-    if (!roomId) return;
-    socket.emit("leave_multi_live", { roomId, odId });
-};
 
 // ============================================
-// CHAT & GIFTS – matcht server: chat_message, chat_gift
+// CHAT
 // ============================================
 
 export const sendChatMessage = (roomId, message, userData) => {
@@ -278,20 +207,17 @@ export const sendChatGift = (roomId, giftData, userData) => {
 
 
 // ============================================
-// NOTIFICATIONS (future-proof – server events later)
+// NOTIFICATIONS
 // ============================================
 export const subscribeToNotifications = (userId) => {
     if (!userId) return;
     socket.emit("subscribe_notifications", { userId });
 };
 
-export const unsubscribeFromNotifications = (userId) => {
-    if (!userId) return;
-    socket.emit("unsubscribe_notifications", { userId });
-};
+
 
 // ============================================
-// STATUS HELPERS
+// SOCKET STATUS
 // ============================================
 export const getConnectionStatus = () => ({
     connected: socket.connected,
@@ -301,6 +227,11 @@ export const getConnectionStatus = () => ({
 export const isConnected = () => socket.connected;
 
 // ============================================
-// EXPORT DEFAULT SOCKET
+// ⭐ FIXED EXPORT: getSocket()
+// ============================================
+export const getSocket = () => socket;
+
+// ============================================
+// DEFAULT EXPORT
 // ============================================
 export default socket;
