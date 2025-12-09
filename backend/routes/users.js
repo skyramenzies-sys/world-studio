@@ -416,6 +416,19 @@ router.get("/discover", auth, checkBan, async (req, res) => {
         res.json({ success: true, users });
     } catch (err) {
         console.error("GET /users/discover error:", err);
+
+// GET /api/users/suggested (alias voor discover)
+router.get("/suggested", auth, checkBan, async (req, res) => {
+    try {
+        const currentUserId = getCurrentUserId(req);
+        const limit = parseInt(req.query.limit || "20", 10);
+        const users = await User.getSuggested(currentUserId, limit);
+        res.json({ success: true, users });
+    } catch (err) {
+        console.error("GET /users/suggested error:", err);
+        res.status(500).json({ error: "Failed to load suggestions" });
+    }
+});
         res.status(500).json({ error: "Failed to load suggestions" });
     }
 });
