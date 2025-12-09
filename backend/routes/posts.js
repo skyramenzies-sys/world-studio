@@ -137,7 +137,7 @@ router.get("/", optionalAuth, async (req, res) => {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate("author", "username displayName avatar isVerified");
+            ;
 
         const total = await Post.countDocuments({ status: { $ne: "deleted" } });
 
