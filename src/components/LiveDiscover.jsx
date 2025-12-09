@@ -630,8 +630,8 @@ export default function LiveDiscover() {
                     <button
                         onClick={() => setShowFilters((prev) => !prev)}
                         className={`p-2.5 rounded-xl border transition ${showFilters
-                                ? "bg-cyan-500 border-cyan-500"
-                                : "bg-white/10 border-white/20 hover:bg-white/20"
+                            ? "bg-cyan-500 border-cyan-500"
+                            : "bg-white/10 border-white/20 hover:bg-white/20"
                             }`}
                     >
                         <Filter size={20} />
@@ -667,8 +667,8 @@ export default function LiveDiscover() {
                                     key={option.id}
                                     onClick={() => setSortBy(option.id)}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${sortBy === option.id
-                                            ? "bg-cyan-500 text-white"
-                                            : "bg-white/10 text-white/70 hover:bg-white/20"
+                                        ? "bg-cyan-500 text-white"
+                                        : "bg-white/10 text-white/70 hover:bg-white/20"
                                         }`}
                                 >
                                     <span>{option.icon}</span>
@@ -689,8 +689,8 @@ export default function LiveDiscover() {
                                         setSelectedCategory(category.id)
                                     }
                                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${selectedCategory === category.id
-                                            ? "bg-cyan-500 text-white"
-                                            : "bg-white/10 text-white/70 hover:bg-white/20"
+                                        ? "bg-cyan-500 text-white"
+                                        : "bg-white/10 text-white/70 hover:bg-white/20"
                                         }`}
                                 >
                                     <span>{category.icon}</span>
@@ -711,8 +711,8 @@ export default function LiveDiscover() {
                                 setSelectedCategory(category.id)
                             }
                             className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === category.id
-                                    ? "bg-cyan-500 text-white"
-                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                ? "bg-cyan-500 text-white"
+                                : "bg-white/10 text-white/70 hover:bg-white/20"
                                 }`}
                         >
                             <span>{category.icon}</span>
@@ -800,4 +800,4 @@ export default function LiveDiscover() {
         </div>
     );
 }
-import React, { useState, useEffect, useRef, useCallback } from "react";
+
