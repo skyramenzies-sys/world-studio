@@ -126,23 +126,34 @@ function mapPostToDTO(doc, currentUserId = null) {
 // ===========================================
 // GET /api/posts/:id  → Post detail
 // ===========================================
-router.get("/:id", optionalAuth, async (req, res) => {
+// GET /api/posts - List all posts
+router.get("/", optionalAuth, async (req, res) => {
     try {
-        const { id } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
 
-        const post = await Post.findById(id);
-        if (!post || post.status === "deleted") {
-            return res.status(404).json({ error: "Post not found" });
-        }
+        const posts = await Post.find({ status: { $ne: "deleted" } })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .populate("author", "username displayName avatar isVerified");
 
-        const dto = mapPostToDTO(post, req.userId || null);
-        return res.json(dto);
-    } catch (err) {
-        console.error("❌ GET /api/posts/:id error:", err);
-        return res.status(500).json({
-            error: "Failed to load post",
+        const total = await Post.countDocuments({ status: { $ne: "deleted" } });
+
+        res.json({
+            success: true,
+            posts: posts.map(p => mapPostToDTO(p, req.userId)),
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit)
+            }
         });
-
+    } catch (err) {
+        console.error("GET /posts error:", err);
+        res.status(500).json({ error: "Failed to load posts" });
     }
 });
 
