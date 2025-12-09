@@ -416,8 +416,9 @@ router.get("/discover", auth, checkBan, async (req, res) => {
         res.json({ success: true, users });
     } catch (err) {
         console.error("GET /users/discover error:", err);
-
-// GET /api/users/suggested (alias voor discover)
+    }
+});
+// GET /api/users/suggested
 router.get("/suggested", auth, checkBan, async (req, res) => {
     try {
         const currentUserId = getCurrentUserId(req);
@@ -429,9 +430,48 @@ router.get("/suggested", auth, checkBan, async (req, res) => {
         res.status(500).json({ error: "Failed to load suggestions" });
     }
 });
-        res.status(500).json({ error: "Failed to load suggestions" });
+
+// GET /api/users/notifications
+router.get("/notifications", auth, checkBan, async (req, res) => {
+    try {
+        const currentUserId = getCurrentUserId(req);
+        const user = await User.findById(currentUserId).select("notifications unreadNotifications");
+        res.json({
+            success: true,
+            notifications: user?.notifications || [],
+            unreadCount: user?.unreadNotifications || 0
+        });
+    } catch (err) {
+        console.error("GET /users/notifications error:", err);
+        res.status(500).json({ error: "Failed to load notifications" });
     }
 });
+
+// /:id route MOET LAATST ZIJN
+// /:id route MOET LAATST ZIJN
+router.get("/:id", auth, checkBan, async (req, res) => {
+    try {
+        const currentUserId = getCurrentUserId(req);
+        const userId = req.params.id === "me" ? currentUserId : req.params.id;
+
+        if (!userId) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        res.json({
+            success: true,
+            user: toPublicProfile(user),
+        });
+    } catch (err) {
+        console.error("GET /users/:id error:", err);
+        res.status(500).json({ error: "Failed to load user" });
+    }
+});
+
+
 
 // GET /api/users/search?q=...
 router.get("/search", auth, checkBan, async (req, res) => {
