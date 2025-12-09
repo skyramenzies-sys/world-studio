@@ -117,7 +117,10 @@ export default function GoLiveForm({ onLiveStarted }) {
         if (state.title.length > MAX_TITLE_LENGTH) {
             errors.title = `Title must be ${MAX_TITLE_LENGTH} characters or less.`;
         }
-        if (state.coverFile && state.coverFile.size / 1024 / 1024 > MAX_FILE_SIZE_MB) {
+        if (
+            state.coverFile &&
+            state.coverFile.size / 1024 / 1024 > MAX_FILE_SIZE_MB
+        ) {
             errors.coverFile = `Image must be ≤ ${MAX_FILE_SIZE_MB}MB.`;
         }
         return errors;
@@ -157,7 +160,8 @@ export default function GoLiveForm({ onLiveStarted }) {
             const formData = new FormData();
             formData.append("file", file);
 
-            const res = await api.post("/api/upload", formData, {
+            // ✅ use central api (baseURL already has /api)
+            const res = await api.post("/upload", formData, {
                 headers: {
                     "Content-Type": "multipart/form-data",
                 },
@@ -238,11 +242,12 @@ export default function GoLiveForm({ onLiveStarted }) {
                 hostId: currentUser._id || currentUser.id,
                 hostUsername: currentUser.username,
                 hostAvatar: currentUser.avatar,
-                roomId,             // align with LiveModeSelector
-                mode: "solo",       // simple GoLiveForm = solo mode
+                roomId, // align with LiveModeSelector
+                mode: "solo", // simple GoLiveForm = solo mode
             };
 
-            const res = await api.post("/api/live", payload);
+            // ✅ use central api (no extra /api in path)
+            const res = await api.post("/live", payload);
 
             dispatch({
                 type: "SET",
@@ -304,7 +309,7 @@ export default function GoLiveForm({ onLiveStarted }) {
             noValidate
         >
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex.items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold flex items-center gap-3">
                     <div className="relative">
                         <span className="w-4 h-4 bg-red-500 rounded-full block animate-pulse"></span>
@@ -359,7 +364,7 @@ export default function GoLiveForm({ onLiveStarted }) {
                         <span className="text-xs font-bold">LIVE</span>
                     </div>
                     {/* Category badge */}
-                    <div className="absolute top-3 right-3 px-3 py-1 bg-black/60 backdrop-blur rounded-full text-xs">
+                    <div className="absolute top-3 right-3 px-3.py-1 bg-black/60 backdrop-blur rounded-full text-xs">
                         {selectedCategory.icon} {selectedCategory.name}
                     </div>
                 </div>
@@ -405,12 +410,10 @@ export default function GoLiveForm({ onLiveStarted }) {
                     }
                     placeholder="What are you streaming today?"
                     maxLength={MAX_TITLE_LENGTH}
-                    className={`w-full px-4 py-3 rounded-xl bg-white/10 border ${state.errors.title
-                            ? "border-red-500"
-                            : "border-white/20"
+                    className={`w-full px-4 py-3 rounded-xl bg-white/10 border ${state.errors.title ? "border-red-500" : "border-white/20"
                         } outline-none focus:border-cyan-400 transition`}
                 />
-                <div className="flex justify-between mt-1">
+                <div className="flex justify-between.mt-1">
                     {state.errors.title ? (
                         <span className="text-red-400 text-sm">
                             {state.errors.title}
@@ -554,7 +557,7 @@ export default function GoLiveForm({ onLiveStarted }) {
                                         type: "SET",
                                         payload: {
                                             description: e.target.value,
-                                        },
+                                        }
                                     })
                                 }
                                 placeholder="Tell viewers what your stream is about..."
@@ -623,10 +626,9 @@ export default function GoLiveForm({ onLiveStarted }) {
             {/* GO LIVE BUTTON */}
             <button
                 type="submit"
-                disabled={
-                    state.loading || state.uploading || !currentUser
-                }
+                disabled={state.loading || state.uploading || !currentUser}
                 className={`w-full py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-3 ${state.loading || state.uploading || !currentUser
+
                         ? "bg-gray-600 cursor-not-allowed opacity-60"
                         : "bg-gradient-to-r from-red-500 to-pink-600 hover:from-red-400 hover:to-pink-500 hover:shadow-lg hover:shadow-red-500/30 hover:scale-[1.02]"
                     }`}

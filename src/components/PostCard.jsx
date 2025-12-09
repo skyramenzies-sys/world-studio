@@ -1,5 +1,10 @@
 // src/components/PostCard.jsx - WORLD STUDIO LIVE ULTIMATE EDITION 📝
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, {
+    useState,
+    useEffect,
+    useRef,
+    useMemo,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
     Heart,
@@ -15,28 +20,36 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 
-import api from "../api/api";          // centrale API (zelfde als ProfilePage)
-import socket from "../api/socket";    // centrale socket (single connection)
+import api from "../api/api"; // centrale API (zelfde als ProfilePage)
+import socket from "../api/socket"; // centrale socket (single connection)
 
 /* ============================================================
    CONFIG & HELPERS
    ============================================================ */
 
 // Zelfde logica als andere files: haal base uit env of fallback
-const API_BASE_URL =
-    (import.meta.env.VITE_API_URL || "https://world-studio-production.up.railway.app")
-        .replace(/\/api\/?$/, "");
+const API_BASE_URL = (
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app"
+)
+    .replace(/\/api\/?$/, "")
+    .replace(/\/$/, "");
 
 // Avatar / media resolver – fixt relative paden
 const resolveUrl = (url, fallbackPath) => {
     if (!url) {
-        if (!fallbackPath) return `${API_BASE_URL}/defaults/default-post.png`;
-        return fallbackPath.startsWith("http")
-            ? fallbackPath
-            : `${API_BASE_URL}${fallbackPath.startsWith("/") ? fallbackPath : `/${fallbackPath}`}`;
+        if (!fallbackPath) {
+            return `${API_BASE_URL}/defaults/default-post.png`;
+        }
+        if (fallbackPath.startsWith("http")) return fallbackPath;
+        return `${API_BASE_URL}${fallbackPath.startsWith("/")
+                ? fallbackPath
+                : `/${fallbackPath}`
+            }`;
     }
     if (url.startsWith("http")) return url;
-    return `${API_BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
+    return `${API_BASE_URL}${url.startsWith("/") ? url : `/${url}`
+        }`;
 };
 
 const resolveAvatar = (url) =>
@@ -46,13 +59,16 @@ const resolveAvatar = (url) =>
 const formatDate = (dateString) => {
     if (!dateString) return "";
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "";
     const now = new Date();
     const diff = now - date;
 
     if (diff < 60000) return "Just now";
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
-    if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`;
+    if (diff < 86400000)
+        return `${Math.floor(diff / 3600000)}h`;
+    if (diff < 604800000)
+        return `${Math.floor(diff / 86400000)}d`;
     return date.toLocaleDateString();
 };
 
@@ -65,64 +81,83 @@ const SHARE_PLATFORMS = [
         name: "WhatsApp",
         icon: "https://cdn-icons-png.flaticon.com/512/733/733585.png",
         color: "#25D366",
-        getUrl: (url, text) => `https://wa.me/?text=${encodeURIComponent(text + " " + url)}`,
+        getUrl: (url, text) =>
+            `https://wa.me/?text=${encodeURIComponent(
+                `${text} ${url}`
+            )}`,
     },
     {
         name: "X (Twitter)",
         icon: "https://cdn-icons-png.flaticon.com/512/5968/5968958.png",
         color: "#000000",
         getUrl: (url, text) =>
-            `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+            `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                text
+            )}&url=${encodeURIComponent(url)}`,
     },
     {
         name: "Facebook",
         icon: "https://cdn-icons-png.flaticon.com/512/733/733547.png",
         color: "#1877F2",
-        getUrl: (url) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+        getUrl: (url) =>
+            `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+                url
+            )}`,
     },
     {
         name: "Telegram",
         icon: "https://cdn-icons-png.flaticon.com/512/2111/2111646.png",
         color: "#0088CC",
         getUrl: (url, text) =>
-            `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+            `https://t.me/share/url?url=${encodeURIComponent(
+                url
+            )}&text=${encodeURIComponent(text)}`,
     },
     {
         name: "LinkedIn",
         icon: "https://cdn-icons-png.flaticon.com/512/3536/3536505.png",
         color: "#0A66C2",
         getUrl: (url) =>
-            `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
+            `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
+                url
+            )}`,
     },
     {
         name: "Reddit",
         icon: "https://cdn-icons-png.flaticon.com/512/2111/2111589.png",
         color: "#FF4500",
         getUrl: (url, text) =>
-            `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`,
+            `https://www.reddit.com/submit?url=${encodeURIComponent(
+                url
+            )}&title=${encodeURIComponent(text)}`,
     },
     {
         name: "Email",
         icon: "📧",
         color: "#EA4335",
         getUrl: (url, text) =>
-            `mailto:?subject=${encodeURIComponent(text)}&body=${encodeURIComponent("Check this out: " + url)}`,
+            `mailto:?subject=${encodeURIComponent(
+                text
+            )}&body=${encodeURIComponent(
+                `Check this out: ${url}`
+            )}`,
     },
     {
         name: "Pinterest",
         icon: "https://cdn-icons-png.flaticon.com/512/145/145808.png",
         color: "#E60023",
         getUrl: (url, text) =>
-            `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(url)}&description=${encodeURIComponent(
-                text
-            )}`,
+            `https://pinterest.com/pin/create/button/?url=${encodeURIComponent(
+                url
+            )}&description=${encodeURIComponent(text)}`,
     },
     {
         name: "Copy Link",
         icon: "📋",
         color: "#6B7280",
         action: "copy",
-        message: "Link copied! Paste in TikTok, Instagram, Snapchat, etc.",
+        message:
+            "Link copied! Paste in TikTok, Instagram, Snapchat, etc.",
     },
 ];
 
@@ -130,19 +165,38 @@ const SHARE_PLATFORMS = [
    SHARE MODAL
    ============================================================ */
 
-const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
+const ShareModal = ({
+    isOpen,
+    onClose,
+    postUrl,
+    postTitle,
+}) => {
     if (!isOpen) return null;
 
     const handleShare = (platform) => {
         if (platform.action === "copy") {
-            if (navigator?.clipboard?.writeText) {
+            if (
+                typeof navigator !== "undefined" &&
+                navigator?.clipboard?.writeText
+            ) {
                 navigator.clipboard.writeText(postUrl);
-                toast.success(platform.message || "Link copied to clipboard!");
+                toast.success(
+                    platform.message ||
+                    "Link copied to clipboard!"
+                );
             } else {
-                toast.error("Clipboard not available on this device");
+                toast.error(
+                    "Clipboard not available on this device"
+                );
             }
         } else if (platform.getUrl) {
-            window.open(platform.getUrl(postUrl, postTitle), "_blank", "width=600,height=400");
+            if (typeof window !== "undefined") {
+                window.open(
+                    platform.getUrl(postUrl, postTitle),
+                    "_blank",
+                    "width=600,height=400"
+                );
+            }
         }
         onClose();
     };
@@ -157,12 +211,17 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl font-bold text-white">Share to</h3>
+                    <h3 className="text-xl font-bold text-white">
+                        Share to
+                    </h3>
                     <button
                         onClick={onClose}
                         className="p-2 hover:bg-white/10 rounded-full transition"
                     >
-                        <X size={20} className="text-white/70" />
+                        <X
+                            size={20}
+                            className="text-white/70"
+                        />
                     </button>
                 </div>
 
@@ -170,11 +229,16 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
                     {SHARE_PLATFORMS.map((platform) => (
                         <button
                             key={platform.name}
-                            onClick={() => handleShare(platform)}
+                            onClick={() =>
+                                handleShare(platform)
+                            }
                             className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-white/10 transition group"
                         >
-                            {typeof platform.icon === "string" &&
-                                platform.icon.startsWith("http") ? (
+                            {typeof platform.icon ===
+                                "string" &&
+                                platform.icon.startsWith(
+                                    "http"
+                                ) ? (
                                 <img
                                     src={platform.icon}
                                     alt={platform.name}
@@ -193,8 +257,12 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
                 </div>
 
                 <div className="mt-6 p-3 bg-black/30 rounded-xl">
-                    <p className="text-xs text-white/50 mb-1">Post URL:</p>
-                    <p className="text-sm text-cyan-400 truncate">{postUrl}</p>
+                    <p className="text-xs text-white/50 mb-1">
+                        Post URL:
+                    </p>
+                    <p className="text-sm text-cyan-400 truncate">
+                        {postUrl}
+                    </p>
                 </div>
             </div>
         </div>
@@ -205,7 +273,12 @@ const ShareModal = ({ isOpen, onClose, postUrl, postTitle }) => {
    DELETE MODAL
    ============================================================ */
 
-const DeleteModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
+const DeleteModal = ({
+    isOpen,
+    onClose,
+    onConfirm,
+    isDeleting,
+}) => {
     if (!isOpen) return null;
 
     return (
@@ -219,10 +292,17 @@ const DeleteModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
             >
                 <div className="text-center">
                     <div className="w-16 h-16 mx-auto mb-4 bg-red-500/20 rounded-full flex items-center justify-center">
-                        <Trash2 size={32} className="text-red-500" />
+                        <Trash2
+                            size={32}
+                            className="text-red-500"
+                        />
                     </div>
-                    <h3 className="text-xl font-bold text-white mb-2">Delete Post?</h3>
-                    <p className="text-white/60 mb-6">This action cannot be undone.</p>
+                    <h3 className="text-xl font-bold text-white mb-2">
+                        Delete Post?
+                    </h3>
+                    <p className="text-white/60 mb-6">
+                        This action cannot be undone.
+                    </p>
                     <div className="flex gap-3">
                         <button
                             onClick={onClose}
@@ -259,7 +339,11 @@ const DeleteModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
    MAIN COMPONENT – ULTIMATE EDITION
    ============================================================ */
 
-export default function PostCard({ post, onUpdate, onDelete }) {
+export default function PostCard({
+    post,
+    onUpdate,
+    onDelete,
+}) {
     const navigate = useNavigate();
     const menuRef = useRef(null);
 
@@ -277,8 +361,10 @@ export default function PostCard({ post, onUpdate, onDelete }) {
     const [comments, setComments] = useState([]);
 
     const [isSaved, setIsSaved] = useState(false);
-    const [showShareModal, setShowShareModal] = useState(false);
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showShareModal, setShowShareModal] =
+        useState(false);
+    const [showDeleteModal, setShowDeleteModal] =
+        useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -288,7 +374,11 @@ export default function PostCard({ post, onUpdate, onDelete }) {
 
     const author = useMemo(() => {
         // author/user object kan op verschillende plekken zitten
-        const userObj = post.user || post.userId || post.author || post.owner;
+        const userObj =
+            post.user ||
+            post.userId ||
+            post.author ||
+            post.owner;
 
         const id =
             (userObj && (userObj._id || userObj.id)) ||
@@ -296,7 +386,9 @@ export default function PostCard({ post, onUpdate, onDelete }) {
             post.authorId;
 
         const username =
-            (userObj && (userObj.username || userObj.displayName)) ||
+            (userObj &&
+                (userObj.username ||
+                    userObj.displayName)) ||
             post.username ||
             post.author ||
             "Anonymous";
@@ -314,7 +406,7 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         };
     }, [post]);
 
-    // likes: kan nummer of array zijn
+    // likes & comments initialiseren
     useEffect(() => {
         let initialLikes = 0;
         if (Array.isArray(post.likes)) {
@@ -326,29 +418,41 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         }
         setLikes(initialLikes);
 
-        // comments initialiseren
-        setComments(Array.isArray(post.comments) ? post.comments : []);
+        setComments(
+            Array.isArray(post.comments)
+                ? post.comments
+                : []
+        );
     }, [post]);
 
     // user laden uit localStorage
     useEffect(() => {
-        const storedUser = localStorage.getItem("ws_currentUser");
+        const storedUser =
+            localStorage.getItem("ws_currentUser");
         if (!storedUser) return;
 
         try {
             const user = JSON.parse(storedUser);
-            user.following = Array.isArray(user.following) ? user.following : [];
-            user.followers = Array.isArray(user.followers) ? user.followers : [];
+            user.following = Array.isArray(user.following)
+                ? user.following
+                : [];
+            user.followers = Array.isArray(user.followers)
+                ? user.followers
+                : [];
             setCurrentUser(user);
 
-            // check like-status
             const userId = user._id || user.id;
             if (userId) {
+                // check like-status
                 let liked = false;
                 if (Array.isArray(post.likedBy)) {
-                    liked = post.likedBy.some((id) => String(id) === String(userId));
+                    liked = post.likedBy.some(
+                        (id) => String(id) === String(userId)
+                    );
                 } else if (Array.isArray(post.likes)) {
-                    liked = post.likes.some((id) => String(id) === String(userId));
+                    liked = post.likes.some(
+                        (id) => String(id) === String(userId)
+                    );
                 }
                 setHasLiked(liked);
             }
@@ -356,12 +460,17 @@ export default function PostCard({ post, onUpdate, onDelete }) {
             // check follow-status
             if (author.id && user.following) {
                 const following = user.following.some(
-                    (id) => String(id) === String(author.id)
+                    (id) =>
+                        String(id) ===
+                        String(author.id)
                 );
                 setIsFollowing(following);
             }
         } catch (e) {
-            console.error("Failed to parse ws_currentUser:", e);
+            console.error(
+                "Failed to parse ws_currentUser:",
+                e
+            );
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [post._id, author.id]);
@@ -369,14 +478,17 @@ export default function PostCard({ post, onUpdate, onDelete }) {
     const isOwnPost =
         currentUser &&
         author.id &&
-        String(author.id) === String(currentUser._id || currentUser.id);
+        String(author.id) ===
+        String(currentUser._id || currentUser.id);
 
     const postUrl =
         typeof window !== "undefined"
             ? `${window.location.origin}/post/${post._id}`
             : `/post/${post._id}`;
     const postTitle =
-        post.title || post.caption || "Check out this post on World-Studio!";
+        post.title ||
+        post.caption ||
+        "Check out this post on World-Studio!";
 
     /* ------------------------------------------------------------
        SOCKET EVENTS (REALTIME LIKES & COMMENTS)
@@ -385,24 +497,42 @@ export default function PostCard({ post, onUpdate, onDelete }) {
     useEffect(() => {
         if (!socket) return;
 
-        const handleUpdateLikes = ({ postId, likes: newLikes }) => {
-            if (postId === post._id && typeof newLikes === "number") {
+        const handleUpdateLikes = ({
+            postId,
+            likes: newLikes,
+        }) => {
+            if (
+                postId === post._id &&
+                typeof newLikes === "number"
+            ) {
                 setLikes(newLikes);
             }
         };
 
-        const handleUpdateComments = ({ postId, comments: newComments }) => {
-            if (postId === post._id && Array.isArray(newComments)) {
+        const handleUpdateComments = ({
+            postId,
+            comments: newComments,
+        }) => {
+            if (
+                postId === post._id &&
+                Array.isArray(newComments)
+            ) {
                 setComments(newComments);
             }
         };
 
         socket.on("update_likes", handleUpdateLikes);
-        socket.on("update_comments", handleUpdateComments);
+        socket.on(
+            "update_comments",
+            handleUpdateComments
+        );
 
         return () => {
             socket.off("update_likes", handleUpdateLikes);
-            socket.off("update_comments", handleUpdateComments);
+            socket.off(
+                "update_comments",
+                handleUpdateComments
+            );
         };
     }, [post._id]);
 
@@ -412,12 +542,22 @@ export default function PostCard({ post, onUpdate, onDelete }) {
 
     useEffect(() => {
         const handleClickOutside = (e) => {
-            if (menuRef.current && !menuRef.current.contains(e.target)) {
+            if (
+                menuRef.current &&
+                !menuRef.current.contains(e.target)
+            ) {
                 setShowMenu(false);
             }
         };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
+        document.addEventListener(
+            "mousedown",
+            handleClickOutside
+        );
+        return () =>
+            document.removeEventListener(
+                "mousedown",
+                handleClickOutside
+            );
     }, []);
 
     /* ------------------------------------------------------------
@@ -428,7 +568,9 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         e.stopPropagation();
 
         if (!currentUser) {
-            toast.error("Please log in to follow users");
+            toast.error(
+                "Please log in to follow users"
+            );
             navigate("/login");
             return;
         }
@@ -448,26 +590,43 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         setIsFollowing(!wasFollowing);
 
         try {
-            await api.post(`/api/users/${author.id}/follow`);
+            await api.post(
+                `/api/users/${author.id}/follow`
+            );
 
-            const updatedUser = { ...currentUser };
-            const currentFollowing = Array.isArray(updatedUser.following)
+            const updatedUser = {
+                ...currentUser,
+            };
+            const currentFollowing = Array.isArray(
+                updatedUser.following
+            )
                 ? updatedUser.following
                 : [];
 
             if (wasFollowing) {
-                updatedUser.following = currentFollowing.filter(
-                    (id) => String(id) !== String(author.id)
-                );
+                updatedUser.following =
+                    currentFollowing.filter(
+                        (id) =>
+                            String(id) !==
+                            String(author.id)
+                    );
             } else {
-                updatedUser.following = [...currentFollowing, author.id];
+                updatedUser.following = [
+                    ...currentFollowing,
+                    author.id,
+                ];
             }
 
-            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
+            localStorage.setItem(
+                "ws_currentUser",
+                JSON.stringify(updatedUser)
+            );
             setCurrentUser(updatedUser);
 
             toast.success(
-                wasFollowing ? "Unfollowed" : `Following ${author.username}!`
+                wasFollowing
+                    ? "Unfollowed"
+                    : `Following ${author.username}!`
             );
         } catch (err) {
             console.error("Follow error:", err);
@@ -488,23 +647,29 @@ export default function PostCard({ post, onUpdate, onDelete }) {
 
     const handleLike = async () => {
         if (!currentUser) {
-            toast.error("Please log in to like posts");
+            toast.error(
+                "Please log in to like posts"
+            );
             navigate("/login");
             return;
         }
         if (likeLoading) return;
 
         const wasLiked = hasLiked;
-        const optimisticLikes = wasLiked ? likes - 1 : likes + 1;
+        const optimisticLikes = wasLiked
+            ? likes - 1
+            : likes + 1;
 
         setLikeLoading(true);
         setHasLiked(!wasLiked);
         setLikes(optimisticLikes);
 
         try {
-            const res = await api.post(`/api/posts/${post._id}/like`);
+            const res = await api.post(
+                `/api/posts/${post._id}/like`
+            );
 
-            // Als backend nieuwe likes terugstuurt, gebruik die
+
             const newLikes =
                 typeof res.data?.likes === "number"
                     ? res.data.likes
@@ -527,7 +692,10 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         } catch (err) {
             console.error("Like error:", err);
             setHasLiked(wasLiked);
-            setLikes((prev) => (wasLiked ? prev + 1 : prev - 1));
+            // revert likes
+            setLikes((prev) =>
+                wasLiked ? prev + 1 : prev - 1
+            );
             toast.error(
                 err.response?.data?.error ||
                 err.response?.data?.message ||
@@ -546,7 +714,9 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         e.preventDefault();
 
         if (!currentUser) {
-            toast.error("Please log in to comment");
+            toast.error(
+                "Please log in to comment"
+            );
             navigate("/login");
             return;
         }
@@ -559,6 +729,11 @@ export default function PostCard({ post, onUpdate, onDelete }) {
             _id: tempId,
             username: currentUser.username,
             avatar: currentUser.avatar,
+            user: {
+                _id: currentUser._id || currentUser.id,
+                username: currentUser.username,
+                avatar: currentUser.avatar,
+            },
             text,
             createdAt: new Date().toISOString(),
         };
@@ -567,10 +742,16 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         setCommentText("");
 
         try {
-            const res = await api.post(`/api/posts/${post._id}/comment`, { text });
+            const res = await api.post(
+                `/api/posts/${post._id}/comment`,
+                { text }
+            );
 
-            const updatedComments =
-                Array.isArray(res.data?.comments) ? res.data.comments : null;
+            const updatedComments = Array.isArray(
+                res.data?.comments
+            )
+                ? res.data.comments
+                : null;
 
             if (updatedComments) {
                 setComments(updatedComments);
@@ -585,11 +766,16 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                     });
                 }
             } else if (socket) {
-                socket.emit("commentPost", { postId: post._id, comment: newComment });
+                socket.emit("commentPost", {
+                    postId: post._id,
+                    comment: newComment,
+                });
             }
         } catch (err) {
             console.error("Comment error:", err);
-            setComments((prev) => prev.filter((c) => c._id !== tempId));
+            setComments((prev) =>
+                prev.filter((c) => c._id !== tempId)
+            );
             setCommentText(text);
             toast.error(
                 err.response?.data?.error ||
@@ -608,7 +794,9 @@ export default function PostCard({ post, onUpdate, onDelete }) {
         setIsDeleting(true);
 
         try {
-            await api.delete(`/api/posts/${post._id}`);
+            await api.delete(
+                `/api/posts/${post._id}`
+            );
             toast.success("Post deleted!");
             setShowDeleteModal(false);
             onDelete?.(post._id);
@@ -630,7 +818,9 @@ export default function PostCard({ post, onUpdate, onDelete }) {
 
     const handleSave = () => {
         setIsSaved((prev) => !prev);
-        toast.success(!isSaved ? "Saved!" : "Removed from saved");
+        toast.success(
+            !isSaved ? "Saved!" : "Removed from saved"
+        );
     };
 
     /* ------------------------------------------------------------
@@ -648,18 +838,31 @@ export default function PostCard({ post, onUpdate, onDelete }) {
        ------------------------------------------------------------ */
 
     const mediaType =
-        post.mediaType || post.type || (post.video ? "video" : "image");
+        post.mediaType ||
+        post.type ||
+        (post.video ? "video" : "image");
 
     const mediaUrl = (() => {
         const raw =
-            post.fileUrl || post.mediaUrl || post.image || post.video || post.url;
+            post.fileUrl ||
+            post.mediaUrl ||
+            post.image ||
+            post.video ||
+            post.url;
         if (!raw) return null;
         return resolveUrl(raw);
     })();
 
-    const thumbnailUrl = post.thumbnail ? resolveUrl(post.thumbnail) : undefined;
+    const thumbnailUrl = post.thumbnail
+        ? resolveUrl(post.thumbnail)
+        : undefined;
 
-    const views = typeof post.views === "number" ? post.views : 0;
+    const views =
+        typeof post.views === "number"
+            ? post.views
+            : typeof post.viewCount === "number"
+                ? post.viewCount
+                : 0;
 
     /* ============================================================
        RENDER
@@ -687,74 +890,122 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                                 {author.username}
                             </h3>
                             <p className="text-xs text-white/50">
-                                {formatDate(post.timestamp || post.createdAt)}
+                                {formatDate(
+                                    post.timestamp ||
+                                    post.createdAt
+                                )}
                             </p>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {!isOwnPost && currentUser && author.id && (
-                            <button
-                                onClick={handleFollow}
-                                disabled={followLoading}
-                                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition ${isFollowing
-                                        ? "bg-white/10 text-white/70 hover:bg-white/20"
-                                        : "bg-cyan-500 text-white hover:bg-cyan-400"
-                                    }`}
-                            >
-                                {followLoading ? (
-                                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                                ) : isFollowing ? (
-                                    <>
-                                        <UserCheck size={16} /> Following
-                                    </>
-                                ) : (
-                                    <>
-                                        <UserPlus size={16} /> Follow
-                                    </>
-                                )}
-                            </button>
-                        )}
+                        {!isOwnPost &&
+                            currentUser &&
+                            author.id && (
+                                <button
+                                    onClick={
+                                        handleFollow
+                                    }
+                                    disabled={
+                                        followLoading
+                                    }
+                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition ${isFollowing
+                                            ? "bg-white/10 text-white/70 hover:bg-white/20"
+                                            : "bg-cyan-500 text-white hover:bg-cyan-400"
+                                        }`}
+                                >
+                                    {followLoading ? (
+                                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    ) : isFollowing ? (
+                                        <>
+                                            <UserCheck
+                                                size={16}
+                                            />{" "}
+                                            Following
+                                        </>
+                                    ) : (
+                                        <>
+                                            <UserPlus
+                                                size={16}
+                                            />{" "}
+                                            Follow
+                                        </>
+                                    )}
+                                </button>
+                            )}
 
-                        <div className="relative" ref={menuRef}>
+                        <div
+                            className="relative"
+                            ref={menuRef}
+                        >
                             <button
-                                onClick={() => setShowMenu((prev) => !prev)}
+                                onClick={() =>
+                                    setShowMenu(
+                                        (prev) => !prev
+                                    )
+                                }
                                 className="p-2 hover:bg-white/10 rounded-full transition"
                             >
-                                <MoreHorizontal size={20} className="text-white/70" />
+                                <MoreHorizontal
+                                    size={20}
+                                    className="text-white/70"
+                                />
                             </button>
 
                             {showMenu && (
                                 <div className="absolute right-0 top-full mt-1 w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl overflow-hidden z-10">
                                     <button
                                         onClick={() => {
-                                            setShowShareModal(true);
-                                            setShowMenu(false);
+                                            setShowShareModal(
+                                                true
+                                            );
+                                            setShowMenu(
+                                                false
+                                            );
                                         }}
                                         className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition flex items-center gap-3"
                                     >
-                                        <Share2 size={18} />
+                                        <Share2
+                                            size={18}
+                                        />
                                         Share post
                                     </button>
                                     <button
                                         onClick={() => {
                                             handleSave();
-                                            setShowMenu(false);
+                                            setShowMenu(
+                                                false
+                                            );
                                         }}
                                         className="w-full px-4 py-3 text-left text-white hover:bg-white/10 transition flex items-center gap-3"
                                     >
-                                        <Bookmark size={18} className={isSaved ? "fill-current" : ""} />
-                                        {isSaved ? "Unsave" : "Save post"}
+                                        <Bookmark
+                                            size={18}
+                                            className={
+                                                isSaved
+                                                    ? "fill-current"
+                                                    : ""
+                                            }
+                                        />
+                                        {isSaved
+                                            ? "Unsave"
+                                            : "Save post"}
                                     </button>
                                     {isOwnPost && (
                                         <button
                                             onClick={() => {
-                                                setShowDeleteModal(true);
-                                                setShowMenu(false);
+                                                setShowDeleteModal(
+                                                    true
+                                                );
+                                                setShowMenu(
+                                                    false
+                                                );
                                             }}
                                             className="w-full px-4 py-3 text-left text-red-400 hover:bg-red-500/10 transition flex items-center gap-3"
                                         >
-                                            <Trash2 size={18} />
+                                            <Trash2
+                                                size={18}
+                                            />
                                             Delete post
                                         </button>
                                     )}
@@ -767,7 +1018,10 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                 {/* CAPTION / TITLE */}
                 {(post.caption || post.title) && (
                     <div className="px-4 pb-3">
-                        <p className="text-white/90">{post.caption || post.title}</p>
+                        <p className="text-white/90">
+                            {post.caption ||
+                                post.title}
+                        </p>
                     </div>
                 )}
 
@@ -784,16 +1038,25 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                             />
                         ) : mediaType === "audio" ? (
                             <div className="p-6 flex items-center justify-center bg-gradient-to-br from-purple-900/50 to-blue-900/50">
-                                <audio src={mediaUrl} controls className="w-full max-w-md" />
+                                <audio
+                                    src={mediaUrl}
+                                    controls
+                                    className="w-full max-w-md"
+                                />
                             </div>
                         ) : (
                             <img
                                 src={mediaUrl}
-                                alt={post.title || post.caption || "Post"}
+                                alt={
+                                    post.title ||
+                                    post.caption ||
+                                    "Post"
+                                }
                                 className="w-full max-h-[500px] object-contain"
                                 loading="lazy"
                                 onError={(e) => {
-                                    e.target.onerror = null;
+                                    e.target.onerror =
+                                        null;
                                     e.target.src = `${API_BASE_URL}/defaults/default-post.png`;
                                 }}
                             />
@@ -815,17 +1078,33 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                             >
                                 <Heart
                                     size={22}
-                                    className={hasLiked ? "fill-current" : ""}
+                                    className={
+                                        hasLiked
+                                            ? "fill-current"
+                                            : ""
+                                    }
                                 />
-                                <span className="font-medium">{likes}</span>
+                                <span className="font-medium">
+                                    {likes}
+                                </span>
                             </button>
 
                             <button
-                                onClick={() => setShowComments((prev) => !prev)}
+                                onClick={() =>
+                                    setShowComments(
+                                        (prev) => !prev
+                                    )
+                                }
                                 className="flex items-center gap-2 text-white/70 hover:text-cyan-400 transition"
                             >
-                                <MessageCircle size={22} />
-                                <span className="font-medium">{comments.length}</span>
+                                <MessageCircle
+                                    size={22}
+                                />
+                                <span className="font-medium">
+                                    {
+                                        comments.length
+                                    }
+                                </span>
                             </button>
 
                             <div className="flex items-center gap-2 text-white/50">
@@ -836,7 +1115,9 @@ export default function PostCard({ post, onUpdate, onDelete }) {
 
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={() => setShowShareModal(true)}
+                                onClick={() =>
+                                    setShowShareModal(true)
+                                }
                                 className="p-2 text-white/70 hover:text-cyan-400 hover:bg-white/5 rounded-full transition"
                             >
                                 <Share2 size={20} />
@@ -850,7 +1131,11 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                             >
                                 <Bookmark
                                     size={20}
-                                    className={isSaved ? "fill-current" : ""}
+                                    className={
+                                        isSaved
+                                            ? "fill-current"
+                                            : ""
+                                    }
                                 />
                             </button>
                         </div>
@@ -865,43 +1150,72 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                                         No comments yet
                                     </p>
                                 ) : (
-                                    comments.map((comment, idx) => (
-                                        <div key={comment._id || idx} className="flex gap-3">
-                                            <img
-                                                src={resolveAvatar(
-                                                    comment.avatar ||
-                                                    comment.user?.avatar
-                                                )}
-                                                alt=""
-                                                className="w-8 h-8 rounded-full object-cover"
-                                                onError={(e) => {
-                                                    e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
-                                                }}
-                                            />
-                                            <div className="flex-1 bg-white/5 rounded-xl px-3 py-2">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-semibold text-sm text-white">
-                                                        {comment.username ||
-                                                            comment.user?.username ||
-                                                            "User"}
-                                                    </span>
-                                                    <span className="text-xs text-white/40">
-                                                        {formatDate(comment.createdAt)}
-                                                    </span>
+                                    comments.map(
+                                        (
+                                            comment,
+                                            idx
+                                        ) => (
+                                            <div
+                                                key={
+                                                    comment._id ||
+                                                    idx
+                                                }
+                                                className="flex gap-3"
+                                            >
+                                                <img
+                                                    src={resolveAvatar(
+                                                        comment.avatar ||
+                                                        comment
+                                                            .user
+                                                            ?.avatar
+                                                    )}
+                                                    alt=""
+                                                    className="w-8 h-8 rounded-full object-cover"
+                                                    onError={(
+                                                        e
+                                                    ) => {
+                                                        e.target.src =
+                                                            `${API_BASE_URL}/defaults/default-avatar.png`;
+                                                    }}
+                                                />
+                                                <div className="flex-1 bg-white/5 rounded-xl px-3 py-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-semibold text-sm text-white">
+                                                            {comment.username ||
+                                                                comment
+                                                                    .user
+                                                                    ?.username ||
+                                                                "User"}
+                                                        </span>
+                                                        <span className="text-xs text-white/40">
+                                                            {formatDate(
+                                                                comment.createdAt
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-white/80 text-sm">
+                                                        {
+                                                            comment.text
+                                                        }
+                                                    </p>
                                                 </div>
-                                                <p className="text-white/80 text-sm">
-                                                    {comment.text}
-                                                </p>
                                             </div>
-                                        </div>
-                                    ))
+                                        )
+                                    )
                                 )}
                             </div>
 
                             {currentUser && (
-                                <form onSubmit={handleComment} className="flex gap-2">
+                                <form
+                                    onSubmit={
+                                        handleComment
+                                    }
+                                    className="flex gap-2"
+                                >
                                     <img
-                                        src={resolveAvatar(currentUser.avatar)}
+                                        src={resolveAvatar(
+                                            currentUser.avatar
+                                        )}
                                         alt=""
                                         className="w-8 h-8 rounded-full object-cover"
                                         onError={(e) => {
@@ -910,14 +1224,24 @@ export default function PostCard({ post, onUpdate, onDelete }) {
                                     />
                                     <input
                                         type="text"
-                                        value={commentText}
-                                        onChange={(e) => setCommentText(e.target.value)}
+                                        value={
+                                            commentText
+                                        }
+                                        onChange={(e) =>
+                                            setCommentText(
+                                                e
+                                                    .target
+                                                    .value
+                                            )
+                                        }
                                         placeholder="Write a comment..."
                                         className="flex-1 px-4 py-2 bg-white/10 border border-white/10 rounded-full text-white placeholder-white/40 text-sm focus:outline-none focus:border-cyan-400"
                                     />
                                     <button
                                         type="submit"
-                                        disabled={!commentText.trim()}
+                                        disabled={
+                                            !commentText.trim()
+                                        }
                                         className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 rounded-full text-white text-sm font-medium transition disabled:opacity-50"
                                     >
                                         Post
@@ -932,13 +1256,17 @@ export default function PostCard({ post, onUpdate, onDelete }) {
             {/* MODALS */}
             <ShareModal
                 isOpen={showShareModal}
-                onClose={() => setShowShareModal(false)}
+                onClose={() =>
+                    setShowShareModal(false)
+                }
                 postUrl={postUrl}
                 postTitle={postTitle}
             />
             <DeleteModal
                 isOpen={showDeleteModal}
-                onClose={() => setShowDeleteModal(false)}
+                onClose={() =>
+                    setShowDeleteModal(false)
+                }
                 onConfirm={handleDelete}
                 isDeleting={isDeleting}
             />

@@ -127,7 +127,7 @@ const StreamCard = ({ stream, onClick }) => {
                 <div className="absolute top-3 right-3 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full">
                     {categoryIcon} {categoryLabel}
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex.items-end justify-center pb-4">
                     <span className="px-4 py-2 bg-cyan-500 rounded-full text-white font-semibold text-sm flex items-center gap-2">
                         <Play size={14} />
                         Watch Now
@@ -135,7 +135,7 @@ const StreamCard = ({ stream, onClick }) => {
                 </div>
             </div>
             <div className="p-4">
-                <h3 className="font-bold text-white truncate group-hover:text-cyan-400 transition mb-2">
+                <h3 className="font-bold text-white truncate group-hover:text-cyan-400 transition.mb-2">
                     {title}
                 </h3>
                 <div className="flex items-center gap-3">
@@ -201,7 +201,7 @@ const FeaturedStream = ({ stream, onClick }) => {
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
                 <div className="absolute inset-0 p-6 md:p-8 flex flex-col justify-end">
                     <div className="flex items-center gap-3 mb-3">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text.white text-sm font-bold rounded-full">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-sm font-bold rounded-full">
                             <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
                             FEATURED
                         </div>
@@ -230,7 +230,7 @@ const FeaturedStream = ({ stream, onClick }) => {
                                 {categoryIcon} {categoryLabel}
                             </p>
                         </div>
-                        <button className="ml-auto px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 rounded-full text-white font-semibold transition flex items-center gap-2">
+                        <button className="ml-auto px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 rounded-full text-white font-semibold transition flex.items-center gap-2">
                             <Play size={16} />
                             Watch Now
                         </button>
@@ -263,7 +263,7 @@ const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
         </div>
         <div className="h-4 w-px bg-white/20" />
         <div className="flex items-center gap-2">
-            <Users size={16} className="text-cyan-400" />
+            <Users.size />={16} className="text-cyan-400"
             <span className="text-white font-semibold">
                 {totalViewers.toLocaleString()}
             </span>
@@ -316,7 +316,8 @@ export default function LiveDiscover() {
         try {
             setError(null);
 
-            const res = await api.get("/api/live?isLive=true");
+            // ✅ belangrijk: geen /api hier, api.js heeft baseURL = .../api
+            const res = await api.get("/live?isLive=true");
             const allStreams = Array.isArray(res.data)
                 ? res.data
                 : res.data?.streams || [];
@@ -332,7 +333,7 @@ export default function LiveDiscover() {
 
                 // Auto-clean oude zombie streams
                 if (hoursSinceStart > 12) {
-                    api.post(`/api/live/${stream._id}/end`).catch(() => { });
+                    api.post(`/live/${stream._id}/end`).catch(() => { });
                     return false;
                 }
 
@@ -343,7 +344,7 @@ export default function LiveDiscover() {
                     (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60);
 
                 if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
-                    api.post(`/api/live/${stream._id}/end`).catch(() => { });
+                    api.post(`/live/${stream._id}/end`).catch(() => { });
                     return false;
                 }
 
@@ -575,7 +576,7 @@ export default function LiveDiscover() {
             <div className="flex items-center justify-center py-20">
                 <div className="text-center p-8 bg-white/5 rounded-2xl border border-white/10">
                     <WifiOff className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                    <p className="text-red-400 mb-4">{error}</p>
+                    <p className="text-red-400.mb-4">{error}</p>
                     <button
                         onClick={() => {
                             setLoading(true);
@@ -638,7 +639,7 @@ export default function LiveDiscover() {
                     <button
                         onClick={handleRefresh}
                         disabled={isRefreshing}
-                        className="p-2.5 bg-white/10 border border-white/20 rounded-xl hover:bg-white/20 transition disabled:opacity-50"
+                        className="p-2.5 bg-white/10 border border-white/20 rounded-xl hover:bg-white/20 transition.disabled:opacity-50"
                     >
                         <RefreshCw
                             size={20}
@@ -702,7 +703,7 @@ export default function LiveDiscover() {
             )}
 
             {!showFilters && (
-                <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex.gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
                     {CATEGORIES.slice(0, 8).map((category) => (
                         <button
                             key={category.id}
@@ -723,7 +724,7 @@ export default function LiveDiscover() {
 
             {filteredStreams.length === 0 ? (
                 <div className="text-center py-20">
-                    <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
+                    <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex.items-center justify-center">
                         <Radio size={40} className="text-white/30" />
                     </div>
                     <h3 className="text-xl font-semibold mb-2">
@@ -799,3 +800,4 @@ export default function LiveDiscover() {
         </div>
     );
 }
+import React, { useState, useEffect, useRef, useCallback } from "react";

@@ -144,13 +144,33 @@ const StreamSchema = new mongoose.Schema(
             type: String,
             default: "",
         },
-        thumbnail: String,
-        previewGif: String,
+        // 🔥 Gebruik zowel thumbnail als thumbnailUrl
+        thumbnail: {
+            type: String,
+            default: "",
+        },
+        // 🔥 Compatibel met Live.js (PUBLIC_STREAM_FIELDS gebruikt thumbnailUrl)
+        thumbnailUrl: {
+            type: String,
+            default: "",
+        },
+        previewGif: {
+            type: String,
+            default: "",
+        },
 
         // Stream Type
         type: {
             type: String,
-            enum: ["solo", "multi", "multi-guest", "audio", "screen", "interview", "podcast"],
+            enum: [
+                "solo",
+                "multi",
+                "multi-guest",
+                "audio",
+                "screen",
+                "interview",
+                "podcast",
+            ],
             default: "solo",
         },
         mode: {
@@ -182,7 +202,14 @@ const StreamSchema = new mongoose.Schema(
         ],
 
         // Viewer Stats
+        // 🔥 Canonical viewer count
         viewers: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        // 🔥 Compatibel met oudere/andere routes die viewersCount gebruiken
+        viewersCount: {
             type: Number,
             default: 0,
             min: 0,
@@ -357,6 +384,8 @@ const StreamSchema = new mongoose.Schema(
 // INDEXES
 // ===========================================
 StreamSchema.index({ isLive: 1, viewers: -1 });
+// 🔥 Extra index voor routes die sorteren op viewersCount
+StreamSchema.index({ isLive: 1, viewersCount: -1 });
 StreamSchema.index({ streamerId: 1, isLive: 1 });
 StreamSchema.index({ category: 1, isLive: 1 });
 StreamSchema.index({ roomId: 1, isLive: 1 });
@@ -422,7 +451,9 @@ StreamSchema.virtual("seatsAvailable").get(function () {
 
 // Is multi-guest
 StreamSchema.virtual("isMultiGuest").get(function () {
-    return ["multi", "multi-guest", "interview", "podcast"].includes(this.type);
+    return ["multi", "multi-guest", "interview", "podcast"].includes(
+        this.type
+    );
 });
 
 // ===========================================
@@ -434,9 +465,14 @@ StreamSchema.pre("save", function (next) {
         this.peakViewers = this.viewers;
     }
 
+    // 🔥 Houd viewersCount altijd gelijk aan viewers
+    this.viewersCount = this.viewers;
+
     // Calculate duration on end
     if (this.endedAt && this.startedAt && !this.duration) {
-        this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
+        this.duration = Math.floor(
+            (this.endedAt - this.startedAt) / 1000
+        );
     }
 
     // Generate roomId if not set
@@ -519,6 +555,9 @@ StreamSchema.statics.updateViewers = async function (streamId, count) {
     if (!stream) return null;
 
     stream.viewers = count;
+    // 🔥 Houd viewersCount in sync met viewers
+    stream.viewersCount = count;
+
     if (count > stream.peakViewers) {
         stream.peakViewers = count;
     }
@@ -558,7 +597,9 @@ StreamSchema.statics.endStream = async function (streamId) {
     stream.isLive = false;
     stream.status = "ended";
     stream.endedAt = new Date();
-    stream.duration = Math.floor((stream.endedAt - stream.startedAt) / 1000);
+    stream.duration = Math.floor(
+        (stream.endedAt - stream.startedAt) / 1000
+    );
 
     // Calculate avg watch time
     if (stream.viewerList?.length > 0) {

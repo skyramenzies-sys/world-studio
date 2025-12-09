@@ -1,8 +1,9 @@
-// backend/routes/Live.js
+// backend/routes/live.js
 // World-Studio.live - Live Streaming Routes (UNIVERSE EDITION 🌌)
 
 const express = require("express");
 const router = express.Router();
+
 const auth = require("../middleware/auth");
 const checkBan = require("../middleware/checkBan");
 const Stream = require("../models/Stream");
@@ -14,30 +15,114 @@ const PUBLIC_STREAM_FIELDS =
 const isObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id || "");
 
 // ------------------------------------------------
-// GET /api/live  -> lijst met alle live streams
+// HELPER: basis query voor discover
+// ------------------------------------------------
+function buildDiscoverQuery({ category, type }) {
+    const query = {
+        isLive: true,
+        status: { $in: ["live", "scheduled"] },
+    };
+
+    if (category) {
+        query.category = category;
+    }
+    if (type) {
+        query.type = type;
+    }
+
+    return query;
+}
+
+// ------------------------------------------------
+// GET /api/live
+//  - zonder query: discover live streams
+//  - ?userId=...: streams van specifieke user
+//  - ?userId=...&discover=live: alleen live van user
 // ------------------------------------------------
 router.get("/", async (req, res) => {
 
     try {
-        const streams = await Stream.find({
-            isLive: true,
-            status: { $in: ["live", "scheduled"] },
-        })
-            .sort({ viewersCount: -1, createdAt: -1 })
+        const {
+            userId,
+            discover,
+            category,
+            type,
+            limit = 20,
+            skip = 0,
+            sortBy = "viewers",
+        } = req.query;
+
+        const parsedLimit = Number(limit) || 20;
+        const parsedSkip = Number(skip) || 0;
+
+        // 1) Streams voor specifieke user (ProfilePage)
+        if (userId) {
+            if (!isObjectId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid user ID format",
+                });
+            }
+
+            const query = { streamerId: userId };
+
+            // optioneel: alleen live
+            if (discover === "live" || discover === "true") {
+                query.isLive = true;
+                query.status = "live";
+            }
+
+            const streams = await Stream.find(query)
+                .sort({ startedAt: -1 })
+                .skip(parsedSkip)
+                .limit(parsedLimit)
+                .select(PUBLIC_STREAM_FIELDS)
+                .lean();
+
+            return res.json({
+                success: true,
+                mode: "user",
+                streams,
+            });
+        }
+
+        // 2) Discover live streams (home/live pagina)
+        const query = buildDiscoverQuery({ category, type });
+
+        const sort =
+            sortBy === "createdAt"
+                ? { startedAt: -1 }
+                : { viewersCount: -1, startedAt: -1 };
+
+        const streams = await Stream.find(query)
+            .sort(sort)
+            .skip(parsedSkip)
+            .limit(parsedLimit)
             .select(PUBLIC_STREAM_FIELDS)
             .lean();
 
-        return res.json(streams);
+        return res.json({
+            success: true,
+            mode: "discover",
+            streams,
+        });
     } catch (err) {
         console.error("❌ [GET /api/live] error:", err);
-        return res.status(500).json({ error: "Failed to load live streams" });
+        return res
+            .status(500)
+            .json({ success: false, error: "Failed to load live streams" });
     }
 });
 
-// alias /api/live/discover
+// ------------------------------------------------
+// alias: GET /api/live/discover
+// ------------------------------------------------
 router.get("/discover", async (req, res) => {
-    req.url = "/";
-    return router.handle(req, res);
+    // gewoon dezelfde handler als hierboven gebruiken
+    return router.handle(
+        { ...req, url: "/?discover=true", query: { ...req.query, discover: "true" } },
+        res
+    );
 });
 
 // ------------------------------------------------
@@ -46,7 +131,7 @@ router.get("/discover", async (req, res) => {
 // ------------------------------------------------
 router.post("/start", auth, checkBan, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const {
             title = "Live stream",
             description = "",
@@ -55,9 +140,13 @@ router.post("/start", auth, checkBan, async (req, res) => {
             roomId,
         } = req.body;
 
-        const user = await User.findById(userId).select("username avatar isBanned isDeactivated");
+        const user = await User.findById(userId).select(
+            "username avatar isBanned isDeactivated isLive currentStreamId lastStreamedAt"
+        );
         if (!user || user.isBanned || user.isDeactivated) {
-            return res.status(400).json({ error: "User not allowed to stream" });
+            return res
+                .status(400)
+                .json({ success: false, error: "User not allowed to stream" });
         }
 
         let stream = await Stream.findOne({
@@ -112,30 +201,36 @@ router.post("/start", auth, checkBan, async (req, res) => {
         });
     } catch (err) {
         console.error("❌ [POST /api/live/start] error:", err);
-        return res.status(500).json({ error: "Failed to start live stream" });
+        return res
+            .status(500)
+            .json({ success: false, error: "Failed to start live stream" });
     }
 });
 
 // ------------------------------------------------
 // POST /api/live/stop/:id  -> stop stream
+// :id mag stream _id of roomId zijn
 // ------------------------------------------------
 router.post("/stop/:id", auth, checkBan, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
         const param = req.params.id;
 
-        const stream = await Stream.findOne({
-            $or: [
-                { _id: isObjectId(param) ? param : undefined },
-                { roomId: param },
-            ].filter((q) => q._id || q.roomId),
-        });
+        const orConditions = [];
+        if (isObjectId(param)) {
+            orConditions.push({ _id: param });
+        }
+        orConditions.push({ roomId: param });
+
+        const stream = await Stream.findOne({ $or: orConditions });
 
         if (!stream) {
-            return res.status(404).json({ error: "Stream not found" });
+            return res.status(404).json({ success: false, error: "Stream not found" });
         }
         if (stream.streamerId.toString() !== userId.toString()) {
-            return res.status(403).json({ error: "Not allowed to stop this stream" });
+            return res
+                .status(403)
+                .json({ success: false, error: "Not allowed to stop this stream" });
         }
 
         stream.isLive = false;
@@ -157,28 +252,29 @@ router.post("/stop/:id", auth, checkBan, async (req, res) => {
         return res.json({ success: true });
     } catch (err) {
         console.error("❌ [POST /api/live/stop/:id] error:", err);
-        return res.status(500).json({ error: "Failed to stop live stream" });
+        return res
+            .status(500)
+            .json({ success: false, error: "Failed to stop live stream" });
     }
 });
 
 // ------------------------------------------------
 // GET /api/live/user/:userId/status -> user's live status
-// Returns whether user is live and their current stream info
-// ⚠️ MUST be BEFORE /:id route!
+// ⚠️ MOET VOOR /:id ROUTE STAAN
 // ------------------------------------------------
 router.get("/user/:userId/status", async (req, res) => {
     try {
         const { userId } = req.params;
 
-        // Validate userId format
+
         if (!isObjectId(userId)) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid user ID format"
+                error: "Invalid user ID format",
             });
         }
 
-        // Check if user exists and get their live status
+
         const user = await User.findById(userId)
             .select("isLive currentStreamId username avatar isVerified")
             .lean();
@@ -186,33 +282,37 @@ router.get("/user/:userId/status", async (req, res) => {
         if (!user) {
             return res.status(404).json({
                 success: false,
-                error: "User not found"
+                error: "User not found",
             });
         }
 
-        // If user is live, get their stream info
+
         let stream = null;
         if (user.isLive && user.currentStreamId) {
             stream = await Stream.findById(user.currentStreamId)
-                .select("title category roomId viewersCount thumbnailUrl startedAt status")
+                .select(
+                    "title category roomId viewersCount thumbnailUrl startedAt status"
+                )
                 .lean();
         }
 
-        // Fallback: check for any active stream by this user
+
         if (!stream && user.isLive) {
             stream = await Stream.findOne({
                 streamerId: userId,
                 isLive: true,
-                status: { $in: ["live", "scheduled"] }
+                status: { $in: ["live", "scheduled"] },
             })
-                .select("title category roomId viewersCount thumbnailUrl startedAt status")
+                .select(
+                    "title category roomId viewersCount thumbnailUrl startedAt status"
+                )
                 .lean();
         }
 
-        // Double-check: if we found no stream, user shouldn't be marked as live
+
         const actuallyLive = user.isLive && !!stream;
 
-        // Optionally fix inconsistent state (user marked live but no stream)
+
         if (user.isLive && !stream) {
             await User.updateOne(
                 { _id: userId },
@@ -227,24 +327,26 @@ router.get("/user/:userId/status", async (req, res) => {
                 _id: user._id,
                 username: user.username,
                 avatar: user.avatar,
-                isVerified: user.isVerified
+                isVerified: user.isVerified,
             },
-            stream: stream ? {
-                _id: stream._id,
-                title: stream.title,
-                category: stream.category,
-                roomId: stream.roomId,
-                viewers: stream.viewersCount || 0,
-                thumbnailUrl: stream.thumbnailUrl,
-                startedAt: stream.startedAt,
-                status: stream.status
-            } : null
+            stream: stream
+                ? {
+                    _id: stream._id,
+                    title: stream.title,
+                    category: stream.category,
+                    roomId: stream.roomId,
+                    viewers: stream.viewersCount || 0,
+                    thumbnailUrl: stream.thumbnailUrl,
+                    startedAt: stream.startedAt,
+                    status: stream.status,
+                }
+                : null,
         });
     } catch (err) {
         console.error("❌ [GET /api/live/user/:userId/status] error:", err);
         return res.status(500).json({
             success: false,
-            error: "Failed to get user status"
+            error: "Failed to get user status",
         });
     }
 });
@@ -260,66 +362,73 @@ router.get("/user/:userId/history", async (req, res) => {
         if (!isObjectId(userId)) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid user ID format"
+                error: "Invalid user ID format",
             });
         }
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const parsedLimit = parseInt(limit) || 20;
+        const parsedPage = parseInt(page) || 1;
+        const skip = (parsedPage - 1) * parsedLimit;
 
         const [streams, total] = await Promise.all([
             Stream.find({ streamerId: userId })
                 .sort({ startedAt: -1 })
                 .skip(skip)
-                .limit(parseInt(limit))
-                .select("title category roomId viewersCount peakViewers thumbnailUrl startedAt endedAt status duration")
+                .limit(parsedLimit)
+                .select(
+                    "title category roomId viewersCount peakViewers thumbnailUrl startedAt endedAt status duration"
+                )
                 .lean(),
-            Stream.countDocuments({ streamerId: userId })
+            Stream.countDocuments({ streamerId: userId }),
         ]);
 
         return res.json({
             success: true,
             streams,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page: parsedPage,
+                limit: parsedLimit,
                 total,
-                pages: Math.ceil(total / parseInt(limit))
-            }
+                pages: Math.ceil(total / parsedLimit),
+            },
         });
     } catch (err) {
         console.error("❌ [GET /api/live/user/:userId/history] error:", err);
         return res.status(500).json({
             success: false,
-            error: "Failed to get stream history"
+            error: "Failed to get stream history",
         });
     }
 });
 
 // ------------------------------------------------
 // GET /api/live/:id  -> stream details (id of roomId)
-// ⚠️ MUST be LAST - catches all other params!
+// ⚠️ MOET ALS LAATSTE ROUTE STAAN
 // ------------------------------------------------
 router.get("/:id", async (req, res) => {
     try {
         const param = req.params.id;
 
-        const stream = await Stream.findOne({
-            $or: [
-                { _id: isObjectId(param) ? param : undefined },
-                { roomId: param },
-            ].filter((q) => q._id || q.roomId),
-        })
+        const orConditions = [];
+        if (isObjectId(param)) {
+            orConditions.push({ _id: param });
+        }
+        orConditions.push({ roomId: param });
+
+        const stream = await Stream.findOne({ $or: orConditions })
             .populate("streamerId", "username avatar isVerified")
             .lean();
 
         if (!stream) {
-            return res.status(404).json({ error: "Stream not found" });
+            return res.status(404).json({ success: false, error: "Stream not found" });
         }
 
-        return res.json(stream);
+        return res.json({ success: true, stream });
     } catch (err) {
         console.error("❌ [GET /api/live/:id] error:", err);
-        return res.status(500).json({ error: "Failed to load stream" });
+        return res
+            .status(500)
+            .json({ success: false, error: "Failed to load stream" });
     }
 });
 

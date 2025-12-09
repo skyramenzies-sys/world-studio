@@ -12,7 +12,9 @@ import api from "../api/api"; // centrale API (zelfde als ProfilePage / PostCard
 const API_BASE_URL = (
     import.meta.env.VITE_API_URL ||
     "https://world-studio-production.up.railway.app"
-).replace(/\/api\/?$/, "");
+)
+    .replace(/\/api\/?$/, "")
+    .replace(/\/$/, "");
 
 const resolveAvatar = (url) => {
     if (!url) return `${API_BASE_URL}/defaults/default-avatar.png`;
@@ -24,7 +26,11 @@ const resolveAvatar = (url) => {
    MAIN COMPONENT
    ============================================================ */
 
-export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) {
+export default function PKIncomingChallenge({
+    challenge,
+    onAccept,
+    onDecline,
+}) {
     const [timeLeft, setTimeLeft] = useState(30); // seconds
     const [responding, setResponding] = useState(false);
     const respondedRef = useRef(false);
@@ -39,15 +45,23 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
     }, [challenge?.duration]);
 
     const challenger = useMemo(() => {
-        const raw = challenge?.challenger || challenge?.fromUser || challenge?.user;
+        const raw =
+            challenge?.challenger ||
+            challenge?.fromUser ||
+            challenge?.user;
+
         if (!raw) {
             return {
                 username: "Unknown challenger",
                 avatar: resolveAvatar(null),
             };
         }
+
         return {
-            username: raw.username || raw.displayName || "Unknown challenger",
+            username:
+                raw.username ||
+                raw.displayName ||
+                "Unknown challenger",
             avatar: resolveAvatar(raw.avatar),
         };
     }, [challenge]);
@@ -56,13 +70,15 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
        ACCEPT
        ------------------------------------------------------------ */
     const handleAccept = async () => {
-        if (!challenge || !pkId || respondedRef.current || timeLeft <= 0) return;
+        if (!challenge || !pkId || respondedRef.current || timeLeft <= 0)
+            return;
 
         try {
             respondedRef.current = true;
             setResponding(true);
 
-            await api.post(`/api/pk/${pkId}/accept`);
+            // LET OP: geen /api prefix, api-instance regelt /api al
+            await api.post(`/pk/${pkId}/accept`);
 
             toast.success("PK Battle starting! ⚔️");
 
@@ -90,7 +106,8 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
             respondedRef.current = true;
             setResponding(true);
 
-            await api.post(`/api/pk/${pkId}/decline`);
+            // LET OP: geen /api prefix
+            await api.post(`/pk/${pkId}/decline`);
 
             if (!auto) {
                 toast("PK challenge declined", { icon: "⚔️" });
@@ -99,7 +116,7 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
             onDecline?.(challenge);
         } catch (err) {
             console.error("PK decline error:", err);
-            // We zorgen toch dat de UI het challenge-pane sluit
+            // UI moet sowieso sluiten
             onDecline?.(challenge);
         } finally {
             setResponding(false);
@@ -110,14 +127,14 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
        TIMER (AUTO DECLINE NA 30s)
        ------------------------------------------------------------ */
     useEffect(() => {
-        // Geen challenge -> geen timer
+
         if (!pkId) return;
 
-        // Reset state bij nieuwe challenge
+        // Reset bij nieuwe challenge
         setTimeLeft(30);
         respondedRef.current = false;
 
-        // Opruimen oude interval
+
         if (timerRef.current) {
             clearInterval(timerRef.current);
         }
@@ -133,7 +150,7 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
                         handleDecline(true);
                     }
 
-                    return 0
+                    return 0;
                 }
                 return prev - 1;
             });
@@ -145,12 +162,14 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
                 timerRef.current = null;
             }
         };
-        // pkId is genoeg als dependency, challenge-content zelf is puur visueel
-    }, [pkId]); // eslint-disable-line react-hooks/exhaustive-deps
+        // pkId is genoeg als dependency, challenge zelf is puur visueel
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pkId]);
 
     if (!challenge || !pkId) return null;
 
-    const buttonsDisabled = responding || timeLeft <= 0 || respondedRef.current;
+    const buttonsDisabled =
+        responding || timeLeft <= 0 || respondedRef.current;
 
     /* ============================================================
        RENDER
@@ -170,7 +189,9 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                                 <span className="text-2xl">⚔️</span>
-                                <span className="text-white font-bold">PK CHALLENGE!</span>
+                                <span className="text-white font-bold">
+                                    PK CHALLENGE!
+                                </span>
                             </div>
                             <div className="bg-red-500/20 px-3 py-1 rounded-full">
                                 <span className="text-red-400 font-mono font-bold">
@@ -192,7 +213,11 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
                                 />
                                 <motion.div
                                     animate={{ rotate: 360 }}
-                                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                                    transition={{
+                                        duration: 2,
+                                        repeat: Infinity,
+                                        ease: "linear",
+                                    }}
                                     className="absolute inset-0 border-4 border-transparent border-t-yellow-400 rounded-full"
                                 />
                             </div>
@@ -206,7 +231,9 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
 
                                 <p className="text-orange-400 text-sm font-semibold">
                                     Duration: {durationMinutes}{" "}
-                                    {durationMinutes === 1 ? "minute" : "minutes"}
+                                    {durationMinutes === 1
+                                        ? "minute"
+                                        : "minutes"}
                                 </p>
                             </div>
                         </div>
@@ -217,7 +244,10 @@ export default function PKIncomingChallenge({ challenge, onAccept, onDecline }) 
                                 className="h-full bg-gradient-to-r from-red-500 to-orange-500"
                                 initial={{ width: "100%" }}
                                 animate={{ width: "0%" }}
-                                transition={{ duration: 30, ease: "linear" }}
+                                transition={{
+                                    duration: 30,
+                                    ease: "linear",
+                                }}
                             />
                         </div>
 

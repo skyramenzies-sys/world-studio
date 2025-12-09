@@ -43,10 +43,10 @@ api.interceptors.request.use((config) => {
 /* ============================================================
    SOCKET SINGLETON
    ============================================================ */
-let socket = null;
+let socketSingleton = null;
 const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
+    if (!socketSingleton) {
+        socketSingleton = io(SOCKET_URL, {
             transports: ["websocket", "polling"],
             autoConnect: true,
             reconnection: true,
@@ -54,7 +54,7 @@ const getSocket = () => {
             reconnectionDelay: 1000,
         });
     }
-    return socket;
+    return socketSingleton;
 };
 
 /* ============================================================
@@ -162,12 +162,25 @@ export default function NotificationsPage() {
     const [filter, setFilter] = useState("all");
 
     /* ------------------------------------------------------------
-       INIT SOCKET
+       INIT SOCKET (DIRECT + JOIN USER ROOM)
        ------------------------------------------------------------ */
     useEffect(() => {
-        socketRef.current = getSocket();
+        const s = getSocket();
+        socketRef.current = s;
+
+        // Zorg dat hij echt connected is
+        if (!s.connected) {
+            s.connect();
+        }
+
+        // Join user-specifieke notification-room -> instant push
+        const userId = getUserIdFromStorage();
+        if (userId) {
+            s.emit("join_notifications", { userId });
+        }
+
         return () => {
-            // socket blijft global bestaan
+            // socket blijft global; geen disconnect
         };
     }, []);
 
@@ -196,7 +209,7 @@ export default function NotificationsPage() {
                     );
                 } catch (err) {
                     console.log(
-                        "Falling back to profile notifications"
+                        "[Notifications] Falling back to profile notifications"
                     );
                     // 2) Fallback user profile
                     try {
@@ -232,7 +245,7 @@ export default function NotificationsPage() {
     }, [navigate]);
 
     /* ------------------------------------------------------------
-       SOCKET LISTENERS
+       SOCKET LISTENERS (REALTIME)
        ------------------------------------------------------------ */
     useEffect(() => {
         const socket = socketRef.current;
@@ -247,10 +260,9 @@ export default function NotificationsPage() {
                 ...data,
             };
             const normalized = normalizeNotification(base);
-            setNotifications((prev) => [
-                normalized,
-                ...prev,
-            ]);
+            if (!normalized) return;
+
+            setNotifications((prev) => [normalized, ...prev]);
 
             if (base.message) {
                 toast.success(base.message, {
@@ -339,8 +351,9 @@ export default function NotificationsPage() {
             setNotifications((prev) =>
                 prev.map((n) => ({ ...n, read: true }))
             );
-            toast.success("All notifications marked as read");
-
+            toast.success(
+                "All notifications marked as read"
+            );
         }
     };
 
@@ -371,7 +384,10 @@ export default function NotificationsPage() {
 
         if (type === "live" && notification.streamId) {
             navigate(`/live/${notification.streamId}`);
-        } else if (type === "follow" && notification.fromUser) {
+        } else if (
+            type === "follow" &&
+            notification.fromUser
+        ) {
             navigate(`/profile/${notification.fromUser}`);
         } else if (
             (type === "like" || type === "comment") &&

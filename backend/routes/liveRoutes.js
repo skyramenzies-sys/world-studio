@@ -145,10 +145,7 @@ router.get("/cleanup", async (req, res) => {
                 results.userStatusReset =
                     userResetResult.modifiedCount || 0;
             } catch (err) {
-                console.log(
-                    "User cleanup skipped:",
-                    err.message
-                );
+                console.log("User cleanup skipped:", err.message);
             }
         }
 
@@ -180,110 +177,98 @@ router.get("/cleanup", async (req, res) => {
  * GET /api/live/cleanup/all
  * Force cleanup ALL live streams (nuclear option - admin only)
  */
-router.get(
-    "/cleanup/all",
-    auth,
-    requireAdmin,
-    async (req, res) => {
-        try {
-            const StreamModel = getStreamModel();
-            const now = new Date();
+router.get("/cleanup/all", auth, requireAdmin, async (req, res) => {
+    try {
+        const StreamModel = getStreamModel();
+        const now = new Date();
 
-            // End all live streams
-            const streamResult = await StreamModel.updateMany(
+        // End all live streams
+        const streamResult = await StreamModel.updateMany(
+            { isLive: true },
+            {
+                $set: {
+                    isLive: false,
+                    endedAt: now,
+                    status: "ended",
+                },
+            }
+        );
+
+        // Reset all user live statuses
+        let userResult = { modifiedCount: 0 };
+        if (User) {
+            userResult = await User.updateMany(
                 { isLive: true },
                 {
                     $set: {
                         isLive: false,
-                        endedAt: now,
-                        status: "ended",
+                        currentStreamId: null,
                     },
                 }
             );
+        }
 
-            // Reset all user live statuses
-            let userResult = { modifiedCount: 0 };
-            if (User) {
-                userResult = await User.updateMany(
-                    { isLive: true },
-                    {
-                        $set: {
-                            isLive: false,
-                            currentStreamId: null,
-                        },
-                    }
-                );
-            }
+        console.log(
+            `🧹 FORCE CLEANED: ${streamResult.modifiedCount || 0} streams, ${userResult.modifiedCount || 0
+            } users`
+        );
 
-            console.log(
-                `🧹 FORCE CLEANED: ${streamResult.modifiedCount || 0} streams, ${userResult.modifiedCount || 0
-                } users`
-            );
-
-            // Emit socket event to notify all clients
-            const io = req.app.get("io");
-            if (io) {
-                io.emit("all_streams_ended", {
-                    reason: "System maintenance",
-                    timestamp: now,
-                });
-            }
-
-            res.json({
-                success: true,
-                cleaned: streamResult.modifiedCount || 0,
-                usersReset: userResult.modifiedCount || 0,
-                message: `Force ended ALL ${streamResult.modifiedCount || 0
-                    } streams`,
-            });
-        } catch (error) {
-            console.error("❌ Force cleanup error:", error);
-            res.status(500).json({
-                success: false,
-                error: "Failed to force cleanup streams",
+        // Emit socket event to notify all clients
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("all_streams_ended", {
+                reason: "System maintenance",
+                timestamp: now,
             });
         }
+
+        res.json({
+            success: true,
+            cleaned: streamResult.modifiedCount || 0,
+            usersReset: userResult.modifiedCount || 0,
+            message: `Force ended ALL ${streamResult.modifiedCount || 0} streams`,
+        });
+    } catch (error) {
+        console.error("❌ Force cleanup error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to force cleanup streams",
+        });
     }
-);
+});
 
 /**
  * GET /api/live/cleanup/old
  * Delete old ended streams
  */
-router.get(
-    "/cleanup/old",
-    auth,
-    requireAdmin,
-    async (req, res) => {
-        try {
-            const { daysOld = 30 } = req.query;
-            const StreamModel = getStreamModel();
-            const cutoffDate = daysAgo(parseInt(daysOld));
+router.get("/cleanup/old", auth, requireAdmin, async (req, res) => {
+    try {
+        const { daysOld = 30 } = req.query;
+        const StreamModel = getStreamModel();
+        const cutoffDate = daysAgo(parseInt(daysOld, 10));
 
-            const result = await StreamModel.deleteMany({
-                isLive: false,
-                endedAt: { $lt: cutoffDate },
-            });
+        const result = await StreamModel.deleteMany({
+            isLive: false,
+            endedAt: { $lt: cutoffDate },
+        });
 
-            console.log(
-                `🗑️ Deleted ${result.deletedCount} old streams (${daysOld}+ days)`
-            );
+        console.log(
+            `🗑️ Deleted ${result.deletedCount} old streams (${daysOld}+ days)`
+        );
 
-            res.json({
-                success: true,
-                deleted: result.deletedCount || 0,
-                message: `Deleted ${result.deletedCount || 0
-                    } streams older than ${daysOld} days`,
-            });
-        } catch (error) {
-            console.error("❌ Delete old streams error:", error);
-            res.status(500).json({
-                success: false,
-                error: "Failed to delete old streams",
-            });
-        }
+        res.json({
+            success: true,
+            deleted: result.deletedCount || 0,
+            message: `Deleted ${result.deletedCount || 0} streams older than ${daysOld} days`,
+        });
+    } catch (error) {
+        console.error("❌ Delete old streams error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to delete old streams",
+        });
     }
-);
+});
 
 // ===========================================
 // END SPECIFIC STREAM
@@ -321,9 +306,8 @@ router.post("/:id/end", auth, async (req, res) => {
         // Check if user owns stream or is admin
         const user = await User.findById(rawUserId);
 
+        // 🔥 Gebruik streamerId (host is geen echte kolom in het nieuwe model)
         const isOwner =
-            (stream.host &&
-                String(stream.host) === userIdStr) ||
             (stream.streamerId &&
                 String(stream.streamerId) === userIdStr);
 
@@ -354,7 +338,7 @@ router.post("/:id/end", auth, async (req, res) => {
         await stream.save();
 
         // Update user status
-        const streamerId = stream.host || stream.streamerId;
+        const streamerId = stream.streamerId;
         if (streamerId) {
             await User.findByIdAndUpdate(streamerId, {
                 isLive: false,
@@ -385,8 +369,7 @@ router.post("/:id/end", auth, async (req, res) => {
         }
 
         console.log(
-            `⏹️ Stream ${id} ended by ${user?.username || "system"
-            }`
+            `⏹️ Stream ${id} ended by ${user?.username || "system"}`
         );
 
         res.json({
@@ -445,13 +428,10 @@ router.get("/streams", async (req, res) => {
 
         const streams = await StreamModel.find(query)
             .sort(sortOptions[sortBy] || sortOptions.viewers)
-            .skip(parseInt(skip))
-            .limit(parseInt(limit))
+            .skip(parseInt(skip, 10))
+            .limit(parseInt(limit, 10))
             .populate("host", "username avatar isVerified")
-            .populate(
-                "streamerId",
-                "username avatar isVerified"
-            )
+            .populate("streamerId", "username avatar isVerified")
             .select("-streamKey -viewerList -bannedUsers")
             .lean();
 
@@ -462,10 +442,10 @@ router.get("/streams", async (req, res) => {
             streams: streams || [],
             pagination: {
                 total,
-                limit: parseInt(limit),
-                skip: parseInt(skip),
+                limit: parseInt(limit, 10),
+                skip: parseInt(skip, 10),
                 hasMore:
-                    parseInt(skip) +
+                    parseInt(skip, 10) +
                     (streams ? streams.length : 0) <
                     total,
             },
@@ -505,16 +485,14 @@ router.get("/streams/all", auth, async (req, res) => {
         }
 
         if (userId) {
-            query.$or = [
-                { host: userId },
-                { streamerId: userId },
-            ];
+            // 🔥 Gebruik alleen streamerId – host is geen echte kolom
+            query.streamerId = userId;
         }
 
         const streams = await StreamModel.find(query)
             .sort({ startedAt: -1, createdAt: -1 })
-            .skip(parseInt(skip))
-            .limit(parseInt(limit))
+            .skip(parseInt(skip, 10))
+            .limit(parseInt(limit, 10))
             .populate("host", "username avatar")
             .populate("streamerId", "username avatar")
             .select("-streamKey -viewerList")
@@ -527,8 +505,8 @@ router.get("/streams/all", auth, async (req, res) => {
             streams: streams || [],
             pagination: {
                 total,
-                limit: parseInt(limit),
-                skip: parseInt(skip),
+                limit: parseInt(limit, 10),
+                skip: parseInt(skip, 10),
             },
         });
     } catch (error) {
@@ -556,14 +534,13 @@ router.get("/stats", async (req, res) => {
         todayStart.setHours(0, 0, 0, 0);
 
         // Count active streams (exclude stale)
-        const activeStreams =
-            await StreamModel.countDocuments({
-                isLive: true,
-                $or: [
-                    { startedAt: { $gte: twelveHoursAgo } },
-                    { createdAt: { $gte: twelveHoursAgo } },
-                ],
-            });
+        const activeStreams = await StreamModel.countDocuments({
+            isLive: true,
+            $or: [
+                { startedAt: { $gte: twelveHoursAgo } },
+                { createdAt: { $gte: twelveHoursAgo } },
+            ],
+        });
 
         // Total viewers
         const viewerStats = await StreamModel.aggregate([
@@ -586,13 +563,12 @@ router.get("/stats", async (req, res) => {
         ]);
 
         // Streams today
-        const streamsToday =
-            await StreamModel.countDocuments({
-                $or: [
-                    { startedAt: { $gte: todayStart } },
-                    { createdAt: { $gte: todayStart } },
-                ],
-            });
+        const streamsToday = await StreamModel.countDocuments({
+            $or: [
+                { startedAt: { $gte: todayStart } },
+                { createdAt: { $gte: todayStart } },
+            ],
+        });
 
         // Categories
         const categories = await StreamModel.aggregate([
@@ -620,10 +596,8 @@ router.get("/stats", async (req, res) => {
             success: true,
             stats: {
                 activeStreams,
-                totalViewers:
-                    viewerStats[0]?.totalViewers || 0,
-                peakViewers:
-                    viewerStats[0]?.peakViewers || 0,
+                totalViewers: viewerStats[0]?.totalViewers || 0,
+                peakViewers: viewerStats[0]?.peakViewers || 0,
                 streamsToday,
             },
             categories,
@@ -655,15 +629,9 @@ router.get("/featured", async (req, res) => {
             isFeatured: true,
         })
             .sort({ viewers: -1 })
-            .limit(parseInt(limit))
-            .populate(
-                "host",
-                "username avatar isVerified"
-            )
-            .populate(
-                "streamerId",
-                "username avatar isVerified"
-            )
+            .limit(parseInt(limit, 10))
+            .populate("host", "username avatar isVerified")
+            .populate("streamerId", "username avatar isVerified")
             .select("-streamKey -viewerList -bannedUsers")
             .lean();
 

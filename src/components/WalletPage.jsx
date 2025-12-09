@@ -5,34 +5,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import axios from "axios";
-
-// ===========================================
-// API CONFIGURATION - ACTIVE SERVER
-// ===========================================
-const API_BASE_URL =
-    (typeof import.meta !== "undefined" &&
-        import.meta.env &&
-        import.meta.env.VITE_API_URL?.replace(/\/$/, "")) ||
-    "https://world-studio-production.up.railway.app";
-
-// Axios instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: {
-        "Content-Type": "application/json",
-    },
-});
-
-// Attach token to every request
-api.interceptors.request.use((config) => {
-    const token =
-        localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
+import api from "../api/api"; // ✅ centrale API instance
 
 // ===========================================
 // ICONS (Inline SVG)
@@ -212,7 +185,10 @@ export default function WalletPage() {
     // LOAD CURRENT USER
     // ===========================================
     useEffect(() => {
-        const storedUser = localStorage.getItem("ws_currentUser");
+        const storedUser =
+            localStorage.getItem("ws_currentUser") ||
+            localStorage.getItem("user");
+
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
@@ -231,20 +207,29 @@ export default function WalletPage() {
     const fetchWallet = useCallback(async () => {
         try {
             const [walletRes, transactionsRes] = await Promise.all([
-                api.get("/api/wallet"),
-                api.get("/api/wallet/transactions").catch(() => ({
-                    data: [],
-                })),
+                api.get("/wallet"),
+                api.get("/wallet/transactions").catch(() => ({ data: [] })),
             ]);
 
-            const walletData = walletRes.data || {
+            // Wallet kan komen als {wallet} of direct object
+            const wd = walletRes.data || {};
+            const walletData = wd.wallet || wd || {
                 balance: 0,
                 totalReceived: 0,
                 totalSpent: 0,
             };
 
+            // Transactions kunnen komen als array of {transactions:[]}
+            const td = transactionsRes.data;
+            let txList = [];
+            if (Array.isArray(td)) {
+                txList = td;
+            } else if (td && Array.isArray(td.transactions)) {
+                txList = td.transactions;
+            }
+
             setWallet(walletData);
-            setTransactions(Array.isArray(transactionsRes.data) ? transactionsRes.data : []);
+            setTransactions(txList);
 
             // Update localStorage balance
             const storedUser = localStorage.getItem("ws_currentUser");
@@ -295,14 +280,29 @@ export default function WalletPage() {
 
                 try {
                     console.log("🔍 Verifying payment session:", sessionId);
-                    const response = await api.post("/api/wallet/verify-payment", {
+                    const response = await api.post("/wallet/verify-payment", {
                         sessionId,
                     });
 
                     toast.dismiss(toastId);
 
-                    if (response.data.success) {
-                        if (response.data.alreadyProcessed) {
+                    const data = response.data || {};
+                    if (data.success) {
+                        const alreadyProcessed =
+                            data.alreadyProcessed ||
+                            data.status === "already_processed";
+
+                        const coinsAdded =
+                            data.coinsAdded ??
+                            data.coins ??
+                            0;
+
+                        const newBalance =
+                            data.balance ??
+                            data.wallet?.balance ??
+                            wallet.balance;
+
+                        if (alreadyProcessed) {
                             toast.success("✅ Payment was already processed!", {
                                 duration: 4000,
                             });
@@ -313,10 +313,10 @@ export default function WalletPage() {
                                         🎉 Payment Successful!
                                     </span>
                                     <span className="text-green-300">
-                                        +{response.data.coinsAdded} coins added
+                                        +{coinsAdded} coins added
                                     </span>
                                     <span className="text-sm opacity-80">
-                                        New balance: {response.data.balance} coins
+                                        New balance: {newBalance} coins
                                     </span>
                                 </div>,
                                 { duration: 6000 }
@@ -333,7 +333,7 @@ export default function WalletPage() {
                     const errorMessage =
                         err.response?.data?.error || "Failed to verify payment";
 
-                    if (errorMessage.includes("already processed")) {
+                    if (errorMessage.toLowerCase().includes("already processed")) {
                         toast.success("✅ Payment was already processed!");
                         await fetchWallet();
                     } else {
@@ -365,7 +365,7 @@ export default function WalletPage() {
         if (currentUser) {
             verifyPayment();
         }
-    }, [searchParams, setSearchParams, currentUser, fetchWallet]);
+    }, [searchParams, setSearchParams, currentUser, fetchWallet, wallet.balance]);
 
     // ===========================================
     // HANDLE PACKAGE PURCHASE
@@ -374,7 +374,7 @@ export default function WalletPage() {
         setCheckoutLoading(packageId);
 
         try {
-            const response = await api.post("/api/wallet/checkout", {
+            const response = await api.post("/wallet/checkout", {
                 packageId,
             });
 
@@ -418,16 +418,23 @@ export default function WalletPage() {
         setWithdrawLoading(true);
 
         try {
-            const response = await api.post("/api/wallet/withdraw", {
+            const response = await api.post("/wallet/withdraw", {
                 amount,
                 method: withdrawMethod,
                 accountDetails: accountDetails.trim(),
             });
 
-            toast.success(response.data.message || "Withdrawal requested");
+            const data = response.data || {};
+            toast.success(data.message || "Withdrawal requested");
+
+            const newBalance =
+                data.newBalance ??
+                data.wallet?.balance ??
+                wallet.balance;
+
             setWallet((prev) => ({
                 ...prev,
-                balance: response.data.newBalance ?? prev.balance,
+                balance: newBalance,
             }));
             setWithdrawAmount("");
             setAccountDetails("");
@@ -512,8 +519,7 @@ export default function WalletPage() {
                         title="Refresh wallet"
                     >
                         <Icons.Refresh
-                            className={`w-5 h-5 ${loading ? "animate-spin" : ""
-                                }`}
+                            className={`w-5 h-5 ${loading ? "animate-spin" : ""}`}
                         />
                     </button>
                 </div>
@@ -556,21 +562,9 @@ export default function WalletPage() {
                 {/* Tabs */}
                 <div className="flex border-b border-white/10 mb-6 overflow-x-auto">
                     {[
-                        {
-                            id: "buy",
-                            label: "Buy Coins",
-                            emoji: "🪙",
-                        },
-                        {
-                            id: "withdraw",
-                            label: "Withdraw",
-                            emoji: "💸",
-                        },
-                        {
-                            id: "history",
-                            label: "History",
-                            emoji: "📜",
-                        },
+                        { id: "buy", label: "Buy Coins", emoji: "🪙" },
+                        { id: "withdraw", label: "Withdraw", emoji: "💸" },
+                        { id: "history", label: "History", emoji: "📜" },
                     ].map((tab) => (
                         <button
                             key={tab.id}
@@ -644,9 +638,7 @@ export default function WalletPage() {
 
                                     <button
                                         onClick={() => handlePurchase(pkg.id)}
-                                        disabled={
-                                            checkoutLoading === pkg.id
-                                        }
+                                        disabled={checkoutLoading === pkg.id}
                                         className={`w-full py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${pkg.popular
                                                 ? "bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400"
                                                 : "bg-white/10 hover:bg-white/20"
@@ -714,10 +706,7 @@ export default function WalletPage() {
                             </p>
                         </div>
 
-                        <form
-                            onSubmit={handleWithdraw}
-                            className="space-y-4"
-                        >
+                        <form onSubmit={handleWithdraw} className="space-y-4">
                             {/* Amount */}
                             <div>
                                 <label className="block text-white/70 text-sm mb-2">
@@ -754,16 +743,8 @@ export default function WalletPage() {
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
                                     {[
-                                        {
-                                            id: "paypal",
-                                            label: "PayPal",
-                                            icon: "💳",
-                                        },
-                                        {
-                                            id: "bank",
-                                            label: "Bank Transfer",
-                                            icon: "🏦",
-                                        },
+                                        { id: "paypal", label: "PayPal", icon: "💳" },
+                                        { id: "bank", label: "Bank Transfer", icon: "🏦" },
                                     ].map((method) => (
                                         <button
                                             key={method.id}
@@ -912,7 +893,9 @@ export default function WalletPage() {
                                                 }`}
                                         >
                                             {tx.amount > 0 ? "+" : ""}
-                                            {Number(tx.amount || 0).toLocaleString()}
+                                            {Number(
+                                                tx.amount || 0
+                                            ).toLocaleString()}
                                         </div>
                                     </div>
                                 ))}

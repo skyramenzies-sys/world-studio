@@ -64,7 +64,7 @@ function computeBanStatus(user) {
         };
     }
 
-    // Ban afgelopen? optioneel: hier auto opschonen
+    // Ban verlopen? In logica behandelen we hem als niet-banned.
     return { banned: false };
 }
 
@@ -72,7 +72,7 @@ function computeBanStatus(user) {
  * Pas een violation toe op een user
  *
  * @param {ObjectId|User} userOrId - user document of id
- * @param {String} reason - bv. "hate_speech", "nudity", "spam"
+ * @param {String} reason - bv. "hate_speech", "nudity", "spam", "pk_violation"
  *
  * @returns {Promise<{user:User, action:string, strikeCount:number, durationSeconds:number, permanent:boolean}>}
  */
@@ -158,9 +158,50 @@ async function unbanUser(userId, reason = "manual_unban") {
     return user;
 }
 
+/**
+ * Centrale helper: check of user mag handelen.
+ *
+ * - Gooit een error met .code = "USER_BANNED" als geband
+ * - Gooit een error met .code = "USER_NOT_FOUND" als user niet bestaat
+ *
+ * Gebruik in sockets/routes:
+ *
+ *   const { ensureUserNotBanned } = require("../utils/moderation");
+ *   try {
+ *     const user = await ensureUserNotBanned(userId, "pk_gift");
+ *   } catch (err) {
+ *     if (err.code === "USER_BANNED") { ... }
+ *   }
+ */
+async function ensureUserNotBanned(userOrId, actionLabel = "action") {
+    let user =
+        userOrId instanceof mongoose.Model
+            ? userOrId
+            : await User.findById(userOrId);
+
+    if (!user) {
+        const err = new Error("USER_NOT_FOUND");
+        err.code = "USER_NOT_FOUND";
+        throw err;
+    }
+
+    const ban = computeBanStatus(user);
+    if (ban.banned) {
+        const err = new Error("USER_BANNED");
+        err.code = "USER_BANNED";
+        err.ban = ban;
+        err.user = user;
+        err.action = actionLabel;
+        throw err;
+    }
+
+    return user;
+}
+
 module.exports = {
     getBanForStrike,
     computeBanStatus,
     applyViolation,
     unbanUser,
+    ensureUserNotBanned,
 };

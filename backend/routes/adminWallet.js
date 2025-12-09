@@ -42,7 +42,7 @@ const getDateRanges = () => {
         monthStart,
         lastMonthStart,
         lastMonthEnd,
-        yearStart
+        yearStart,
     };
 };
 
@@ -59,7 +59,7 @@ router.get("/", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -68,7 +68,7 @@ router.get("/", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -87,14 +87,14 @@ router.get("/", auth, requireAdmin, async (req, res) => {
                 feeConfig: wallet.feeConfig,
                 payoutSettings: wallet.payoutSettings,
                 lastAuditDate: wallet.lastAuditDate,
-                updatedAt: wallet.updatedAt
-            }
+                updatedAt: wallet.updatedAt,
+            },
         });
     } catch (err) {
         console.error("❌ Admin wallet error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to load wallet"
+            error: "Failed to load wallet",
         });
     }
 });
@@ -108,7 +108,7 @@ router.get("/dashboard", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -116,13 +116,13 @@ router.get("/dashboard", auth, requireAdmin, async (req, res) => {
 
         res.json({
             success: true,
-            ...stats
+            ...stats,
         });
     } catch (err) {
         console.error("❌ Dashboard stats error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to load dashboard stats"
+            error: "Failed to load dashboard stats",
         });
     }
 });
@@ -143,13 +143,13 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
             type,
             startDate,
             endDate,
-            status
+            status,
         } = req.query;
 
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -158,7 +158,7 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -191,7 +191,10 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
         // Pagination
         const total = history.length;
         const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-        const paginatedHistory = history.slice(skip, skip + parseInt(limit, 10));
+        const paginatedHistory = history.slice(
+            skip,
+            skip + parseInt(limit, 10)
+        );
 
         res.json({
             success: true,
@@ -200,14 +203,14 @@ router.get("/history", auth, requireAdmin, async (req, res) => {
                 page: parseInt(page, 10),
                 limit: parseInt(limit, 10),
                 total,
-                pages: Math.ceil(total / parseInt(limit, 10))
-            }
+                pages: Math.ceil(total / parseInt(limit, 10)),
+            },
         });
     } catch (err) {
         console.error("❌ Admin wallet history error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to load history"
+            error: "Failed to load history",
         });
     }
 });
@@ -223,7 +226,7 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -231,7 +234,7 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -242,7 +245,9 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
             history = history.filter((tx) => tx.type === type);
         }
         if (startDate) {
-            history = history.filter((tx) => new Date(tx.date) >= new Date(startDate));
+            history = history.filter(
+                (tx) => new Date(tx.date) >= new Date(startDate)
+            );
         }
         if (endDate) {
             const end = new Date(endDate);
@@ -262,7 +267,7 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
             "To User",
             "Description",
             "Status",
-            "Balance After"
+            "Balance After",
         ];
 
         const rows = history.map((tx) => [
@@ -273,25 +278,26 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
             tx.toUsername || "",
             tx.reason || tx.description || "",
             tx.status,
-            tx.balanceAfter || ""
+            tx.balanceAfter || "",
         ]);
 
         const csv = [
             headers.join(","),
-            ...rows.map((row) => row.map((cell) => `"${cell}"`).join(","))
+            ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
         ].join("\n");
 
         res.setHeader("Content-Type", "text/csv");
         res.setHeader(
             "Content-Disposition",
-            `attachment; filename=platform-wallet-${new Date().toISOString().split("T")[0]}.csv`
+            `attachment; filename=platform-wallet-${new Date().toISOString().split("T")[0]
+            }.csv`
         );
         res.send(csv);
     } catch (err) {
         console.error("❌ Export error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to export history"
+            error: "Failed to export history",
         });
     }
 });
@@ -307,12 +313,13 @@ router.get("/history/export", auth, requireAdmin, async (req, res) => {
 router.get("/revenue", auth, requireAdmin, async (req, res) => {
     try {
         const { startDate, endDate, period = "month" } = req.query;
-        const { todayStart, weekStart, monthStart, yearStart } = getDateRanges();
+        const { todayStart, weekStart, monthStart, yearStart } =
+            getDateRanges();
 
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -350,13 +357,13 @@ router.get("/revenue", auth, requireAdmin, async (req, res) => {
 
         res.json({
             success: true,
-            report
+            report,
         });
     } catch (err) {
         console.error("❌ Revenue report error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to generate revenue report"
+            error: "Failed to generate revenue report",
         });
     }
 });
@@ -372,7 +379,7 @@ router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -380,7 +387,7 @@ router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -422,24 +429,24 @@ router.get("/revenue/chart", auth, requireAdmin, async (req, res) => {
             chartData.push({
                 date: date.toLocaleDateString("en-US", {
                     month: "short",
-                    day: "numeric"
+                    day: "numeric",
                 }),
                 fullDate: date.toISOString().split("T")[0],
                 revenue,
                 expenses,
-                profit: revenue - expenses
+                profit: revenue - expenses,
             });
         }
 
         res.json({
             success: true,
-            chart: chartData
+            chart: chartData,
         });
     } catch (err) {
         console.error("❌ Revenue chart error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to generate chart data"
+            error: "Failed to generate chart data",
         });
     }
 });
@@ -460,7 +467,7 @@ router.get("/transactions/:type", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -468,33 +475,31 @@ router.get("/transactions/:type", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
         if (typeof wallet.getTransactionsByType !== "function") {
             return res.status(500).json({
                 success: false,
-                error: "getTransactionsByType is not implemented on wallet"
+                error: "getTransactionsByType is not implemented on wallet",
             });
         }
 
-        const transactions = wallet.getTransactionsByType(
-            type,
-            parseInt(limit, 10)
-        ) || [];
+        const transactions =
+            wallet.getTransactionsByType(type, parseInt(limit, 10)) || [];
 
         res.json({
             success: true,
             type,
             transactions,
-            total: transactions.length
+            total: transactions.length,
         });
     } catch (err) {
         console.error("❌ Transactions by type error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to load transactions"
+            error: "Failed to load transactions",
         });
     }
 });
@@ -512,7 +517,7 @@ router.get("/fees", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -520,19 +525,19 @@ router.get("/fees", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
         res.json({
             success: true,
-            feeConfig: wallet.feeConfig
+            feeConfig: wallet.feeConfig,
         });
     } catch (err) {
         console.error("❌ Get fees error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to load fee configuration"
+            error: "Failed to load fee configuration",
         });
     }
 });
@@ -550,13 +555,13 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
             withdrawalFeePercent,
             withdrawalFeeFixed,
             minWithdrawal,
-            coinExchangeRate
+            coinExchangeRate,
         } = req.body;
 
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -564,7 +569,7 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -574,7 +579,7 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
             if (giftFeePercent < 0 || giftFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Gift fee must be between 0% and 50%"
+                    error: "Gift fee must be between 0% and 50%",
                 });
             }
             newConfig.giftFeePercent = giftFeePercent;
@@ -584,7 +589,7 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
             if (contentFeePercent < 0 || contentFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Content fee must be between 0% and 50%"
+                    error: "Content fee must be between 0% and 50%",
                 });
             }
             newConfig.contentFeePercent = contentFeePercent;
@@ -594,7 +599,7 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
             if (subscriptionFeePercent < 0 || subscriptionFeePercent > 50) {
                 return res.status(400).json({
                     success: false,
-                    error: "Subscription fee must be between 0% en 50%"
+                    error: "Subscription fee must be between 0% en 50%",
                 });
             }
             newConfig.subscriptionFeePercent = subscriptionFeePercent;
@@ -616,21 +621,20 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
         await wallet.updateFeeConfig(newConfig);
 
         console.log(
-            `💰 Fee config updated by admin ${req.user?.username || "unknown"}: ${JSON.stringify(
-                newConfig
-            )}`
+            `💰 Fee config updated by admin ${req.user?.username || "unknown"
+            }: ${JSON.stringify(newConfig)}`
         );
 
         res.json({
             success: true,
             message: "Fee configuration updated",
-            feeConfig: wallet.feeConfig
+            feeConfig: wallet.feeConfig,
         });
     } catch (err) {
         console.error("❌ Update fees error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to update fee configuration"
+            error: "Failed to update fee configuration",
         });
     }
 });
@@ -645,14 +649,14 @@ router.put("/fees", auth, requireAdmin, async (req, res) => {
  */
 router.get("/payouts", auth, requireAdmin, async (req, res) => {
     try {
-        // Get users with pending withdrawals
+        // Get users with pending withdrawals (type = "withdrawal", status = "pending")
         const usersWithPendingWithdrawals = await User.find({
             "wallet.transactions": {
                 $elemMatch: {
-                    type: "withdraw",
-                    status: "pending"
-                }
-            }
+                    type: "withdrawal",
+                    status: "pending",
+                },
+            },
         })
             .select("username email avatar wallet")
             .lean();
@@ -662,7 +666,8 @@ router.get("/payouts", auth, requireAdmin, async (req, res) => {
         usersWithPendingWithdrawals.forEach((user) => {
             const pendingTx =
                 user.wallet?.transactions?.filter(
-                    (tx) => tx.type === "withdraw" && tx.status === "pending"
+                    (tx) =>
+                        tx.type === "withdrawal" && tx.status === "pending"
                 ) || [];
 
             pendingTx.forEach((tx) => {
@@ -673,7 +678,7 @@ router.get("/payouts", auth, requireAdmin, async (req, res) => {
                     avatar: user.avatar,
                     amount: tx.amount,
                     requestedAt: tx.createdAt,
-                    transactionId: tx._id
+                    transactionId: tx._id,
                 });
             });
         });
@@ -686,13 +691,13 @@ router.get("/payouts", auth, requireAdmin, async (req, res) => {
         res.json({
             success: true,
             payouts: pendingPayouts,
-            total: pendingPayouts.length
+            total: pendingPayouts.length,
         });
     } catch (err) {
         console.error("❌ Get payouts error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to load pending payouts"
+            error: "Failed to load pending payouts",
         });
     }
 });
@@ -701,155 +706,175 @@ router.get("/payouts", auth, requireAdmin, async (req, res) => {
  * POST /api/admin/wallet/payouts/:userId/process
  * Process a payout
  */
-router.post("/payouts/:userId/process", auth, requireAdmin, async (req, res) => {
-    try {
-        const { amount, paymentMethod = "paypal", transactionRef } = req.body;
+router.post(
+    "/payouts/:userId/process",
+    auth,
+    requireAdmin,
+    async (req, res) => {
+        try {
+            const { amount, paymentMethod = "paypal", transactionRef } =
+                req.body;
 
-        const user = await User.findById(req.params.userId);
-        if (!user) {
-            return res.status(404).json({
+            const user = await User.findById(req.params.userId);
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
+
+            if (!PlatformWallet) {
+                return res.status(503).json({
+                    success: false,
+                    error: "Platform wallet model not available",
+                });
+            }
+
+            const wallet = await PlatformWallet.getWallet();
+            if (!wallet) {
+                return res.status(404).json({
+                    success: false,
+                    error: "Platform wallet not found",
+                });
+            }
+
+            // Record payout in platform wallet
+            if (typeof wallet.recordPayout === "function") {
+                await wallet.recordPayout(
+                    amount,
+                    user._id,
+                    user.username,
+                    paymentMethod
+                );
+            } else {
+                console.warn("recordPayout not implemented on PlatformWallet");
+            }
+
+            // Update user's pending withdrawal to completed
+            const txList = user.wallet?.transactions || [];
+            const withdrawalIndex = txList.findIndex(
+                (tx) =>
+                    tx.type === "withdrawal" && tx.status === "pending"
+            );
+
+            if (withdrawalIndex !== -1) {
+                user.wallet.transactions[withdrawalIndex].status = "completed";
+                user.wallet.transactions[withdrawalIndex].meta = {
+                    ...(user.wallet.transactions[withdrawalIndex].meta || {}),
+                    processedAt: new Date(),
+                    processedBy: req.user?._id,
+                    paymentMethod,
+                    transactionRef,
+                };
+                await user.save();
+            }
+
+            // Notify user
+            if (typeof user.addNotification === "function") {
+                await user.addNotification({
+                    message: `💸 Your withdrawal of €${(
+                        amount / 100
+                    ).toFixed(2)} has been processed!`,
+                    type: "payout",
+                    amount,
+                });
+            }
+
+            console.log(
+                `💸 Payout of ${amount} processed for ${user.username
+                } by admin ${req.user?.username || "unknown"}`
+            );
+
+            res.json({
+                success: true,
+                message: "Payout processed successfully",
+            });
+        } catch (err) {
+            console.error("❌ Process payout error:", err);
+            res.status(500).json({
                 success: false,
-                error: "User not found"
+                error: "Failed to process payout",
             });
         }
-
-        if (!PlatformWallet) {
-            return res.status(503).json({
-                success: false,
-                error: "Platform wallet model not available"
-            });
-        }
-
-        const wallet = await PlatformWallet.getWallet();
-        if (!wallet) {
-            return res.status(404).json({
-                success: false,
-                error: "Platform wallet not found"
-            });
-        }
-
-        // Record payout in platform wallet
-        if (typeof wallet.recordPayout === "function") {
-            await wallet.recordPayout(amount, user._id, user.username, paymentMethod);
-        } else {
-            console.warn("recordPayout not implemented on PlatformWallet");
-        }
-
-        // Update user's pending withdrawal to completed
-        const txList = user.wallet?.transactions || [];
-        const withdrawalIndex = txList.findIndex(
-            (tx) => tx.type === "withdraw" && tx.status === "pending"
-        );
-
-        if (withdrawalIndex !== -1) {
-            user.wallet.transactions[withdrawalIndex].status = "completed";
-            user.wallet.transactions[withdrawalIndex].meta = {
-                ...(user.wallet.transactions[withdrawalIndex].meta || {}),
-                processedAt: new Date(),
-                processedBy: req.user?._id,
-                paymentMethod,
-                transactionRef
-            };
-            await user.save();
-        }
-
-        // Notify user
-        if (typeof user.addNotification === "function") {
-            await user.addNotification({
-                message: `💸 Your withdrawal of €${(amount / 100).toFixed(
-                    2
-                )} has been processed!`,
-                type: "payout",
-                amount
-            });
-        }
-
-        console.log(
-            `💸 Payout of ${amount} processed for ${user.username} by admin ${req.user?.username ||
-            "unknown"}`
-        );
-
-        res.json({
-            success: true,
-            message: "Payout processed successfully"
-        });
-    } catch (err) {
-        console.error("❌ Process payout error:", err);
-        res.status(500).json({
-            success: false,
-            error: "Failed to process payout"
-        });
     }
-});
+);
 
 /**
  * POST /api/admin/wallet/payouts/:userId/reject
  * Reject a payout request
  */
-router.post("/payouts/:userId/reject", auth, requireAdmin, async (req, res) => {
-    try {
-        const { reason } = req.body;
+router.post(
+    "/payouts/:userId/reject",
+    auth,
+    requireAdmin,
+    async (req, res) => {
+        try {
+            const { reason } = req.body;
 
-        const user = await User.findById(req.params.userId);
-        if (!user) {
-            return res.status(404).json({
+            const user = await User.findById(req.params.userId);
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found",
+                });
+            }
+
+            const txList = user.wallet?.transactions || [];
+            const withdrawalIndex = txList.findIndex(
+                (tx) =>
+                    tx.type === "withdrawal" && tx.status === "pending"
+            );
+
+            if (withdrawalIndex === -1) {
+                return res.status(404).json({
+                    success: false,
+                    error: "No pending withdrawal found",
+                });
+            }
+
+            const amount =
+                user.wallet.transactions[withdrawalIndex].amount || 0;
+
+            // Refund the amount back to user's balance
+            user.wallet.balance =
+                (user.wallet.balance || 0) + Math.abs(amount);
+            user.wallet.transactions[withdrawalIndex].status = "cancelled";
+            user.wallet.transactions[withdrawalIndex].meta = {
+                ...(user.wallet.transactions[withdrawalIndex].meta || {}),
+                rejectedAt: new Date(),
+                rejectedBy: req.user?._id,
+                rejectionReason: reason,
+            };
+
+            await user.save();
+
+            // Notify user
+            if (typeof user.addNotification === "function") {
+                await user.addNotification({
+                    message: `❌ Your withdrawal request was declined. Reason: ${reason || "Not specified"
+                        }. The amount has been returned to your wallet.`,
+                    type: "system",
+                });
+            }
+
+            console.log(
+                `❌ Payout rejected for ${user.username} by ${req.user?.username || "unknown"
+                }. Reason: ${reason}`
+            );
+
+            res.json({
+                success: true,
+                message: "Payout rejected, funds returned to user",
+            });
+        } catch (err) {
+            console.error("❌ Reject payout error:", err);
+            res.status(500).json({
                 success: false,
-                error: "User not found"
+                error: "Failed to reject payout",
             });
         }
-
-        const txList = user.wallet?.transactions || [];
-        const withdrawalIndex = txList.findIndex(
-            (tx) => tx.type === "withdraw" && tx.status === "pending"
-        );
-
-        if (withdrawalIndex === -1) {
-            return res.status(404).json({
-                success: false,
-                error: "No pending withdrawal found"
-            });
-        }
-
-        const amount = user.wallet.transactions[withdrawalIndex].amount || 0;
-
-        // Refund the amount back to user's balance
-        user.wallet.balance = (user.wallet.balance || 0) + Math.abs(amount);
-        user.wallet.transactions[withdrawalIndex].status = "cancelled";
-        user.wallet.transactions[withdrawalIndex].meta = {
-            ...(user.wallet.transactions[withdrawalIndex].meta || {}),
-            rejectedAt: new Date(),
-            rejectedBy: req.user?._id,
-            rejectionReason: reason
-        };
-
-        await user.save();
-
-        // Notify user
-        if (typeof user.addNotification === "function") {
-            await user.addNotification({
-                message: `❌ Your withdrawal request was declined. Reason: ${reason || "Not specified"
-                    }. The amount has been returned to your wallet.`,
-                type: "system"
-            });
-        }
-
-        console.log(
-            `❌ Payout rejected for ${user.username} by ${req.user?.username ||
-            "unknown"}. Reason: ${reason}`
-        );
-
-        res.json({
-            success: true,
-            message: "Payout rejected, funds returned to user"
-        });
-    } catch (err) {
-        console.error("❌ Reject payout error:", err);
-        res.status(500).json({
-            success: false,
-            error: "Failed to reject payout"
-        });
     }
-});
+);
 
 // ===========================================
 // MANUAL ADJUSTMENTS
@@ -866,21 +891,21 @@ router.post("/adjustment", auth, requireAdmin, async (req, res) => {
         if (!amount || amount === 0) {
             return res.status(400).json({
                 success: false,
-                error: "Amount is required"
+                error: "Amount is required",
             });
         }
 
         if (!reason) {
             return res.status(400).json({
                 success: false,
-                error: "Reason is required for adjustments"
+                error: "Reason is required for adjustments",
             });
         }
 
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -888,7 +913,7 @@ router.post("/adjustment", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -900,25 +925,25 @@ router.post("/adjustment", auth, requireAdmin, async (req, res) => {
             isRevenue,
             metadata: {
                 adjustedBy: req.user?._id,
-                adjustedByUsername: req.user?.username
-            }
+                adjustedByUsername: req.user?.username,
+            },
         });
 
         console.log(
-            `📝 Manual adjustment of ${amount} by ${req.user?.username ||
-            "unknown"}. Reason: ${reason}`
+            `📝 Manual adjustment of ${amount} by ${req.user?.username || "unknown"
+            }. Reason: ${reason}`
         );
 
         res.json({
             success: true,
             message: "Adjustment recorded",
-            newBalance: wallet.balance
+            newBalance: wallet.balance,
         });
     } catch (err) {
         console.error("❌ Adjustment error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to make adjustment"
+            error: "Failed to make adjustment",
         });
     }
 });
@@ -938,7 +963,7 @@ router.post("/audit", auth, requireAdmin, async (req, res) => {
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -946,7 +971,7 @@ router.post("/audit", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -965,14 +990,14 @@ router.post("/audit", auth, requireAdmin, async (req, res) => {
             audit: {
                 date: wallet.lastAuditDate,
                 balance: wallet.lastAuditBalance,
-                notes: wallet.auditNotes
-            }
+                notes: wallet.auditNotes,
+            },
         });
     } catch (err) {
         console.error("❌ Audit error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to record audit"
+            error: "Failed to record audit",
         });
     }
 });
@@ -988,17 +1013,16 @@ router.post("/audit", auth, requireAdmin, async (req, res) => {
 router.get("/summary", auth, requireAdmin, async (req, res) => {
     try {
         const {
-            todayStart,
-            weekStart,
+
             monthStart,
             lastMonthStart,
-            lastMonthEnd
+            lastMonthEnd,
         } = getDateRanges();
 
         if (!PlatformWallet) {
             return res.status(503).json({
                 success: false,
-                error: "Platform wallet model not available"
+                error: "Platform wallet model not available",
             });
         }
 
@@ -1006,7 +1030,7 @@ router.get("/summary", auth, requireAdmin, async (req, res) => {
         if (!wallet) {
             return res.status(404).json({
                 success: false,
-                error: "Platform wallet not found"
+                error: "Platform wallet not found",
             });
         }
 
@@ -1026,7 +1050,9 @@ router.get("/summary", auth, requireAdmin, async (req, res) => {
 
         const revenueGrowth =
             lastRevenue > 0
-                ? Math.round(((currentRevenue - lastRevenue) / lastRevenue) * 100)
+                ? Math.round(
+                    ((currentRevenue - lastRevenue) / lastRevenue) * 100
+                )
                 : 0;
 
         res.json({
@@ -1040,13 +1066,14 @@ router.get("/summary", auth, requireAdmin, async (req, res) => {
                     revenue: currentRevenue,
                     expenses: currentMonthReport?.expenses?.total || 0,
                     profit: currentMonthReport?.netProfit || 0,
-                    transactions: currentMonthReport?.transactionCount || 0
+                    transactions:
+                        currentMonthReport?.transactionCount || 0,
                 },
 
                 lastMonth: {
                     revenue: lastRevenue,
                     expenses: lastMonthReport?.expenses?.total || 0,
-                    profit: lastMonthReport?.netProfit || 0
+                    profit: lastMonthReport?.netProfit || 0,
                 },
 
                 growth: {
@@ -1056,19 +1083,19 @@ router.get("/summary", auth, requireAdmin, async (req, res) => {
                             ? "up"
                             : revenueGrowth < 0
                                 ? "down"
-                                : "stable"
+                                : "stable",
                 },
 
                 lifetime: wallet.lifetimeStats,
 
-                feeConfig: wallet.feeConfig
-            }
+                feeConfig: wallet.feeConfig,
+            },
         });
     } catch (err) {
         console.error("❌ Summary error:", err);
         res.status(500).json({
             success: false,
-            error: "Failed to generate summary"
+            error: "Failed to generate summary",
         });
     }
 });

@@ -77,21 +77,31 @@ export default function PostDetail() {
         setSharing(true);
 
         try {
-            const url =
-                (typeof window !== "undefined" && window.location.href) ||
-                `${window?.location?.origin || ""}/posts/${id}`;
+            let url = `/posts/${id}`;
+
+            if (typeof window !== "undefined") {
+                const origin = window.location.origin || "";
+                url = window.location.href || `${origin}/posts/${id}`;
+            }
 
             const shareData = {
                 title: post.title || "World-Studio Post",
-                text: post.caption || "Check out this post on World-Studio Live",
+                text:
+                    post.caption ||
+                    post.description ||
+                    "Check out this post on World-Studio Live",
                 url,
             };
 
-            // Web Share API (mobile / modern browsers)
-            if (navigator.share) {
+            if (typeof navigator !== "undefined" && navigator.share) {
+                // Web Share API (mobile / modern browsers)
                 await navigator.share(shareData);
                 toast.success("Shared!");
-            } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            } else if (
+                typeof navigator !== "undefined" &&
+                navigator.clipboard &&
+                navigator.clipboard.writeText
+            ) {
                 await navigator.clipboard.writeText(url);
                 toast.success("Link copied to clipboard");
             } else {
@@ -164,6 +174,11 @@ export default function PostDetail() {
     const comments = post?.commentsCount ?? post?.comments?.length ?? 0;
     const views = post?.views ?? post?.viewsCount ?? 0;
 
+    const authorUsername =
+        post?.author?.username || post?.username || post?.user?.username;
+    const authorId =
+        post?.author?._id || post?.userId || post?.authorId || post?.user?._id;
+
     return (
         <div className="min-h-screen text-white bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950">
             <div className="max-w-2xl mx-auto py-6 px-4">
@@ -177,12 +192,21 @@ export default function PostDetail() {
                     </button>
                     <div>
                         <h1 className="text-xl font-bold">Post</h1>
-                        {post?.author?.username && (
+                        {authorUsername && (
                             <p className="text-xs text-white/50">
                                 by{" "}
-                                <span className="font-semibold text-white">
-                                    {post.author.username}
-                                </span>
+                                {authorId ? (
+                                    <Link
+                                        to={`/profile/${authorId}`}
+                                        className="font-semibold text-cyan-400 hover:underline"
+                                    >
+                                        {authorUsername}
+                                    </Link>
+                                ) : (
+                                    <span className="font-semibold text-white">
+                                        {authorUsername}
+                                    </span>
+                                )}
                             </p>
                         )}
                     </div>

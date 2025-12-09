@@ -164,10 +164,7 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
     const [topStreamers, setTopStreamers] = useState([]);
     const [topSenders, setTopSenders] = useState([]);
 
-    const api = axios.create({
-        baseURL: API_BASE_URL,
-        headers: { Authorization: `Bearer ${token}` },
-    });
+
 
     // ============================================
     // HELPERS
@@ -179,34 +176,49 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
         return num.toLocaleString();
     };
 
-    const rangeLabel = {
-        today: "Today",
-        "7d": "Last 7 days",
-        "30d": "Last 30 days",
-        "90d": "Last 90 days",
-        all: "All time",
-    }[timeRange];
+    const rangeLabel =
+        {
+            today: "Today",
+            "7d": "Last 7 days",
+            "30d": "Last 30 days",
+            "90d": "Last 90 days",
+            all: "All time",
+        }[timeRange] || "Last 7 days";
 
-    const groupLabel = {
-        day: "Daily",
-        week: "Weekly",
-        month: "Monthly",
-    }[groupBy];
+    const groupLabel =
+        {
+            day: "Daily",
+            week: "Weekly",
+            month: "Monthly",
+        }[groupBy] || "Daily";
 
     // ============================================
     // FETCH DATA
     // ============================================
     const fetchData = useCallback(async () => {
+        if (!token) {
+            setError("Missing admin token");
+            setLoading(false);
+            setRefreshing(false);
+            return;
+        }
+
         setError("");
         try {
             setLoading(true);
 
-            const res = await api.get("/api/admin/coins/history", {
-                params: {
-                    range: timeRange,
-                    groupBy,
-                },
-            });
+            const res = await axios.get(
+                `${API_BASE_URL}/api/admin/coins/history`,
+                {
+                    params: {
+                        range: timeRange,
+                        groupBy,
+                    },
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
 
             const data = res.data || {};
 
@@ -221,11 +233,13 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
             // Fallback / mock data (veilig, zodat UI altijd werkt)
             const now = new Date();
             const mockTimeline = Array.from({ length: 7 }).map((_, i) => {
-                const d = new Date(now.getTime() - (6 - i) * 24 * 60 * 60 * 1000);
+                const d = new Date(
+                    now.getTime() - (6 - i) * 24 * 60 * 60 * 1000
+                );
                 return {
                     date: d.toISOString().slice(0, 10),
                     label: `${d.getDate()}/${d.getMonth() + 1}`,
-                    coins: 500 + (i * 120),
+                    coins: 500 + i * 120,
                     gifts: 10 + i * 2,
                     streams: 2 + (i % 3),
                 };
@@ -242,9 +256,24 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
             setTimeline(mockTimeline);
 
             setTopStreamers([
-                { username: "CommanderS", coins: 4200, streams: 8, followers: 2500 },
-                { username: "ArtistLive", coins: 2100, streams: 5, followers: 1300 },
-                { username: "DJNight", coins: 1800, streams: 4, followers: 900 },
+                {
+                    username: "CommanderS",
+                    coins: 4200,
+                    streams: 8,
+                    followers: 2500,
+                },
+                {
+                    username: "ArtistLive",
+                    coins: 2100,
+                    streams: 5,
+                    followers: 1300,
+                },
+                {
+                    username: "DJNight",
+                    coins: 1800,
+                    streams: 4,
+                    followers: 900,
+                },
             ]);
 
             setTopSenders([
@@ -256,7 +285,7 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [api, timeRange, groupBy]);
+    }, [token, timeRange, groupBy]);
 
     useEffect(() => {
         fetchData();
@@ -271,7 +300,9 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
         const data = {
             exportedAt: new Date().toISOString(),
             timeRange,
+            timeRangeLabel: rangeLabel,
             groupBy,
+            groupLabel,
             summary,
             timeline,
             topStreamers,
@@ -732,9 +763,7 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
                                     coins: t.coins,
                                     label:
                                         t.label ||
-                                        (t.date
-                                            ? t.date.slice(5)
-                                            : ""),
+                                        (t.date ? t.date.slice(5) : ""),
                                 }))}
                                 height={90}
                                 color="#22d3ee"

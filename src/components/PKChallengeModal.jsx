@@ -1,9 +1,14 @@
 // src/components/PKChallengeModal.jsx - WORLD STUDIO LIVE ULTIMATE EDITION ⚔️
-import React, { useState, useEffect, useMemo } from "react";
+import React, {
+    useState,
+    useEffect,
+    useMemo,
+    useCallback,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 
-import api from "../api/api"; // gebruik centrale API instance
+import api from "../api/api"; // centrale API instance
 
 /* ============================================================
    CONFIG + HELPERS
@@ -13,7 +18,10 @@ const RAW_BASE_URL =
     import.meta.env.VITE_API_URL ||
     "https://world-studio-production.up.railway.app";
 
-const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "");
+const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(
+    /\/$/,
+    ""
+);
 
 const resolveAvatar = (url) => {
     if (!url) return `${API_BASE_URL}/defaults/default-avatar.png`;
@@ -48,29 +56,27 @@ export default function PKChallengeModal({
     const [searchQuery, setSearchQuery] = useState("");
 
     /* ------------------------------------------------------------
-       LOAD STREAMERS WHEN OPEN
+       FETCH LIVE STREAMERS (met useCallback)
        ------------------------------------------------------------ */
-    useEffect(() => {
-        if (!isOpen) return;
-
-        setSearchQuery("");
-        fetchLiveStreamers();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, currentUserId]);
-
-    const fetchLiveStreamers = async () => {
+    const fetchLiveStreamers = useCallback(async () => {
         try {
             setLoading(true);
             setNoStreamers(false);
 
-            const res = await api.get("/api/pk/live-streamers");
-            const list = res?.data?.streamers || res?.data || [];
+            // BELANGRIJK: gebruik hier GEEN /api prefix, api-instance doet dat al
+            const res = await api.get("/pk/live-streamers");
+            const list =
+                res?.data?.streamers ||
+                res?.data?.data ||
+                res?.data ||
+                [];
 
-            // Filter out yourself
+            // Filter jezelf eruit
             const filtered = currentUserId
                 ? list.filter(
                     (s) =>
-                        String(s._id || s.id) !== String(currentUserId)
+                        String(s._id || s.id) !==
+                        String(currentUserId)
                 )
                 : list;
 
@@ -90,7 +96,16 @@ export default function PKChallengeModal({
         } finally {
             setLoading(false);
         }
-    };
+    }, [currentUserId]);
+
+    /* ------------------------------------------------------------
+       LOAD STREAMERS WHEN OPEN
+       ------------------------------------------------------------ */
+    useEffect(() => {
+        if (!isOpen) return;
+        setSearchQuery("");
+        fetchLiveStreamers();
+    }, [isOpen, fetchLiveStreamers]);
 
     /* ------------------------------------------------------------
        SEND PK CHALLENGE
@@ -101,7 +116,8 @@ export default function PKChallengeModal({
         try {
             setSending(opponentId);
 
-            const res = await api.post("/api/pk/challenge", {
+            // Geen /api prefix hier; api-instance regelt dat
+            const res = await api.post("/pk/challenge", {
                 opponentId,
                 duration,
             });
@@ -189,7 +205,9 @@ export default function PKChallengeModal({
                             {DURATION_OPTIONS.map((opt) => (
                                 <button
                                     key={opt.value}
-                                    onClick={() => setDuration(opt.value)}
+                                    onClick={() =>
+                                        setDuration(opt.value)
+                                    }
                                     className={`flex-1 py-2 rounded-lg font-semibold text-sm transition-all ${duration === opt.value
                                             ? "bg-gradient-to-r from-pink-500 to-orange-500 text-white"
                                             : "bg-white/10 text-white/60 hover:bg-white/20"
@@ -317,6 +335,9 @@ export default function PKChallengeModal({
                                                 {sending === id ? (
                                                     <span className="flex items-center gap-2">
                                                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                        <span>
+                                                            Sending...
+                                                        </span>
                                                     </span>
                                                 ) : (
                                                     "⚔️ Challenge"

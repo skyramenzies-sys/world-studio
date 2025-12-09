@@ -9,6 +9,69 @@ const {
     applyViolation,
 } = require("../utils/moderation");
 
+let PlatformWallet = null;
+try {
+    PlatformWallet = require("../models/PlatformWallet");
+} catch (e) {
+    console.log("⚠️ PlatformWallet model not available for PK fees");
+}
+
+// ===========================================
+// CONFIG
+// ===========================================
+
+// Percentage van gift die naar platform gaat (rest naar streamer)
+const PK_PLATFORM_FEE_PERCENT = 20; // 20% fee → 80% naar streamer
+
+// Wallet helpers (kopie light versie van wallet.js)
+const ensureWallet = (user) => {
+    if (!user.wallet) {
+        user.wallet = {
+            balance: 0,
+            totalReceived: 0,
+            totalSpent: 0,
+            totalEarned: 0,
+            totalWithdrawn: 0,
+            transactions: [],
+        };
+    }
+    if (!user.wallet.transactions) user.wallet.transactions = [];
+    return user;
+};
+
+const addTransaction = (user, tx) => {
+    ensureWallet(user);
+    user.wallet.transactions.unshift({
+        ...tx,
+        createdAt: new Date(),
+    });
+    if (user.wallet.transactions.length > 500) {
+        user.wallet.transactions = user.wallet.transactions.slice(0, 500);
+    }
+};
+
+const creditPlatformWallet = async (feeAmount) => {
+    if (!PlatformWallet || !feeAmount || feeAmount <= 0) return;
+    try {
+        await PlatformWallet.findOneAndUpdate(
+            { key: "platform" },
+            {
+                $inc: {
+                    balance: feeAmount,
+                    totalPkFees: feeAmount,
+                },
+            },
+            {
+                upsert: true,
+                new: true,
+                setDefaultsOnInsert: true,
+            }
+        );
+    } catch (e) {
+        console.log("⚠️ PlatformWallet PK fee error:", e.message);
+    }
+};
+
 module.exports = (io, socket) => {
     // ===========================================
     // HELPERS
@@ -41,6 +104,13 @@ module.exports = (io, socket) => {
         return user;
     };
 
+    const emitToUserRooms = (userId, event, payload) => {
+        if (!userId) return;
+        // Ondersteun beide room-naming styles: user:ID én user_ID
+        io.to(`user:${userId}`).emit(event, payload);
+        io.to(`user_${userId}`).emit(event, payload);
+    };
+
     // ===========================================
     // ROOM MANAGEMENT
     // ===========================================
@@ -51,8 +121,9 @@ module.exports = (io, socket) => {
     socket.on("pk:joinUserRoom", (userId) => {
         if (!userId) return;
         socket.join(`user:${userId}`);
+        socket.join(`user_${userId}`); // Universe Edition compat
         socket.userId = userId;
-        console.log(`👤 User ${userId} joined PK notification room`);
+        console.log(`👤 User ${userId} joined PK notification rooms`);
     });
 
     /**
@@ -147,9 +218,9 @@ module.exports = (io, socket) => {
                 io.to(`stream:${pk.opponent.streamId}`).emit("pk:ended", resultData);
                 io.to(`pk:${pkId}`).emit("pk:ended", resultData);
 
-                // Notify both users
-                io.to(`user:${pk.challenger.user._id}`).emit("pk:result", resultData);
-                io.to(`user:${pk.opponent.user._id}`).emit("pk:result", resultData);
+                // Notify both users (beide room name styles)
+                emitToUserRooms(pk.challenger.user._id, "pk:result", resultData);
+                emitToUserRooms(pk.opponent.user._id, "pk:result", resultData);
 
                 console.log(
                     `⚔️ PK ${pkId} ended - Winner: ${pk.isDraw ? "DRAW" : pk.winner?.username
@@ -164,6 +235,7 @@ module.exports = (io, socket) => {
 
     /**
      * Send gift to PK participant
+     * Nu gekoppeld aan Wallet (coins) + PlatformWallet
      */
     socket.on("pk:gift", async (data = {}) => {
         try {
@@ -172,6 +244,12 @@ module.exports = (io, socket) => {
 
             if (!pkId || !recipientId || !giftType || !giftValue || !senderId) {
                 emitPkError(socket, "Invalid gift data", "PK_GIFT_INVALID");
+                return;
+            }
+
+            // Simpele anti-cheat: socket.userId moet overeenkomen met senderId (als bekend)
+            if (socket.userId && socket.userId.toString() !== senderId.toString()) {
+                emitPkError(socket, "Sender mismatch", "PK_SENDER_MISMATCH");
                 return;
             }
 
@@ -205,17 +283,113 @@ module.exports = (io, socket) => {
                 return;
             }
 
+            // ===== WALLET LOGICA =====
+
+            const [sender, recipientUser] = await Promise.all([
+                User.findById(senderId),
+                User.findById(recipientId),
+            ]);
+
+            if (!sender) {
+                emitPkError(socket, "Sender not found", "PK_SENDER_NOT_FOUND");
+                return;
+            }
+            if (!recipientUser) {
+                emitPkError(socket, "Recipient user not found", "PK_RECIPIENT_NOT_FOUND");
+                return;
+            }
+
+            ensureWallet(sender);
+            ensureWallet(recipientUser);
+
+            const giftCoins = parseInt(giftValue, 10) || 0;
+            if (giftCoins <= 0) {
+                emitPkError(socket, "Invalid gift value", "PK_GIFT_INVALID_VALUE");
+                return;
+            }
+
+            if (sender.wallet.balance < giftCoins) {
+                emitPkError(socket, "Insufficient balance", "PK_INSUFFICIENT_BALANCE");
+                socket.emit("pk:wallet", {
+                    success: false,
+                    error: "INSUFFICIENT_BALANCE",
+                    balance: sender.wallet.balance,
+                    required: giftCoins,
+                });
+                return;
+            }
+
+            const fee = Math.floor(
+                (giftCoins * PK_PLATFORM_FEE_PERCENT) / 100
+            );
+            const netToRecipient = Math.max(0, giftCoins - fee);
+
+            // Deduct van sender
+            sender.wallet.balance -= giftCoins;
+            sender.wallet.totalSpent =
+                (sender.wallet.totalSpent || 0) + giftCoins;
+            addTransaction(sender, {
+                type: "pk_gift_sent",
+                amount: -giftCoins,
+                description: `PK gift to @${recipientUser.username} (${giftType})`,
+                relatedUserId: recipientUser._id,
+                pkId: pk._id,
+                fee,
+                net: netToRecipient,
+                status: "completed",
+            });
+
+            // Credit naar recipient
+            recipientUser.wallet.balance += netToRecipient;
+            recipientUser.wallet.totalReceived =
+                (recipientUser.wallet.totalReceived || 0) + netToRecipient;
+            recipientUser.wallet.totalEarned =
+                (recipientUser.wallet.totalEarned || 0) + netToRecipient;
+
+            addTransaction(recipientUser, {
+                type: "pk_gift_received",
+                amount: netToRecipient,
+                description: `PK gift from @${sender.username} (${giftType})`,
+                relatedUserId: sender._id,
+                pkId: pk._id,
+                fee,
+                gross: giftCoins,
+                status: "completed",
+            });
+
+            // Platform wallet (als model beschikbaar)
+            if (fee > 0) {
+                await creditPlatformWallet(fee);
+            }
+
+            await Promise.all([sender.save(), recipientUser.save()]);
+
+            // Wallet updates pushen naar beide users
+            emitToUserRooms(sender._id, "wallet_update", {
+                balance: sender.wallet.balance,
+                change: -giftCoins,
+                context: "pk_gift_sent",
+            });
+            emitToUserRooms(recipientUser._id, "wallet_update", {
+                balance: recipientUser.wallet.balance,
+                change: netToRecipient,
+                context: "pk_gift_received",
+            });
+
+            // ===== PK SCORE / VISUALS =====
 
             const giftData = {
                 from: senderId,
-                fromUsername: senderName,
-                fromAvatar: null,
+                fromUsername: senderName || sender.username,
+                fromAvatar: sender.avatar || null,
                 to: isChallenger ? "challenger" : "opponent",
                 giftType,
                 giftName: giftType,
                 icon: "💰",
                 amount: 1,
-                coins: giftValue,
+                coins: giftCoins,
+                fee,
+                netToRecipient,
                 message: null,
                 animation: "float",
                 timestamp: new Date(),
@@ -224,13 +398,13 @@ module.exports = (io, socket) => {
             if (isChallenger) {
                 pk.challenger.giftsReceived = pk.challenger.giftsReceived || [];
                 pk.challenger.giftsReceived.push(giftData);
-                pk.challenger.score += giftValue;
+                pk.challenger.score += giftCoins; // scoreboard blijft volledige waarde
                 pk.challenger.giftsCount =
                     (pk.challenger.giftsCount || 0) + 1;
             } else {
                 pk.opponent.giftsReceived = pk.opponent.giftsReceived || [];
                 pk.opponent.giftsReceived.push(giftData);
-                pk.opponent.score += giftValue;
+                pk.opponent.score += giftCoins;
                 pk.opponent.giftsCount =
                     (pk.opponent.giftsCount || 0) + 1;
             }
@@ -269,8 +443,8 @@ module.exports = (io, socket) => {
             );
 
             console.log(
-                `🎁 PK gift: ${giftType} (${giftValue}) to ${isChallenger ? "challenger" : "opponent"
-                }`
+                `🎁 PK gift: ${giftType} (${giftCoins}) to ${isChallenger ? "challenger" : "opponent"
+                } | sender=${sender.username} net=${netToRecipient} fee=${fee}`
             );
         } catch (err) {
             console.error("❌ PK gift error:", err);
@@ -504,8 +678,8 @@ module.exports = (io, socket) => {
 
             io.to(`stream:${pk.challenger.streamId}`).emit("pk:started", startData);
             io.to(`stream:${pk.opponent.streamId}`).emit("pk:started", startData);
-            io.to(`user:${pk.challenger.user._id}`).emit("pk:started", startData);
-            io.to(`user:${pk.opponent.user._id}`).emit("pk:started", startData);
+            emitToUserRooms(pk.challenger.user._id, "pk:started", startData);
+            emitToUserRooms(pk.opponent.user._id, "pk:started", startData);
 
             console.log(`⚔️ PK ${pkId} started!`);
 
@@ -552,8 +726,7 @@ module.exports = (io, socket) => {
             pk.finishedAt = new Date();
             await pk.save();
 
-
-            io.to(`user:${pk.challenger.user}`).emit("pk:declined", {
+            emitToUserRooms(pk.challenger.user, "pk:declined", {
                 pkId: pk._id,
                 declinedBy: userId,
             });
@@ -603,8 +776,7 @@ module.exports = (io, socket) => {
             pk.finishedAt = new Date();
             await pk.save();
 
-
-            io.to(`user:${pk.opponent.user}`).emit("pk:cancelled", {
+            emitToUserRooms(pk.opponent.user, "pk:cancelled", {
                 pkId: pk._id,
                 cancelledBy: userId,
             });
@@ -636,14 +808,13 @@ module.exports = (io, socket) => {
                 return;
             }
 
-            // optioneel: hier kun je checken of socket.userId admin/mod is
-            // Voor nu: gewoon toepassen
+            // optioneel: check hier of socket.userId admin/mod is
             const result = await applyViolation(
                 targetUserId,
                 reason || "pk_violation"
             );
 
-            io.to(`user:${targetUserId}`).emit("pk:moderation", {
+            emitToUserRooms(targetUserId, "pk:moderation", {
                 type: "strike",
                 action: result.action,
                 strikeCount: result.strikeCount,

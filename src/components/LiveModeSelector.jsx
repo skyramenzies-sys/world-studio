@@ -2,50 +2,12 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import axios from "axios";
-import { io } from "socket.io-client";
 
 /* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION (U.E.)
+   WORLD STUDIO LIVE CONFIGURATION (CENTRAL API + SOCKET)
    ============================================================ */
-const RAW_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    "https://world-studio-production.up.railway.app";
-
-const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-const SOCKET_URL = API_BASE_URL;
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-/* ============================================================
-   SOCKET (singleton)
-   ============================================================ */
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 /* ============================================================
    CONSTANTS
@@ -107,10 +69,12 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
     const [isStarting, setIsStarting] = useState(false);
     const [cameraReady, setCameraReady] = useState(false);
 
-    // Initialize socket
+    // Initialize socket (singleton via central getSocket)
     useEffect(() => {
         socketRef.current = getSocket();
-        return () => { };
+        return () => {
+            // singleton: niet disconnecten
+        };
     }, []);
 
     // Setup camera preview
@@ -151,7 +115,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
         }
     };
 
-    // Generate room ID
+    // Generate room ID (aligned with GoLiveForm)
     const generateRoomId = () => {
         return `${currentUser?.username || "room"}_${Date.now()}_${Math.random()
             .toString(36)
@@ -190,7 +154,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
 
             const streamData = res.data || {};
 
-            // Emit to socket
+            // Emit to socket (so Discover/Home direct updates krijgen)
             socketRef.current?.emit("stream_started", {
                 streamId: streamData._id || roomId,
                 roomId,
@@ -204,7 +168,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
 
             toast.success("You're live! 🔴");
 
-            // Callback
+            // Callback naar parent of navigate naar live-room
             if (onStartLive) {
                 onStartLive({
                     ...streamData,
@@ -219,7 +183,9 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
             }
         } catch (err) {
             console.error("Failed to start live:", err);
-            toast.error(err.response?.data?.message || "Failed to start stream");
+            toast.error(
+                err.response?.data?.message || "Failed to start stream"
+            );
         } finally {
             setIsStarting(false);
         }
@@ -228,7 +194,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
     return (
         <div className="min-h-screen bg-gradient-to-b from-purple-900 via-blue-900 to-black text-white">
             {/* Header */}
-            <div className="p-4 flex items-center gap-4 border-b border-white/10">
+            <div className="p-4 flex.items-center gap-4 border-b border-white/10">
                 <button
                     onClick={() => (step === 1 ? navigate(-1) : setStep(1))}
                     className="p-2 hover:bg-white/10 rounded-full transition"
@@ -236,13 +202,17 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                     ←
                 </button>
                 <h1 className="text-xl font-bold">Go Live</h1>
-                <div className="ml-auto text-sm text-white/60">Step {step}/2</div>
+                <div className="ml-auto text-sm text-white/60">
+                    Step {step}/2
+                </div>
             </div>
 
             {step === 1 ? (
                 /* Step 1: Select Mode */
                 <div className="p-6">
-                    <h2 className="text-lg font-semibold mb-4">Choose Live Mode</h2>
+                    <h2 className="text-lg font-semibold mb-4">
+                        Choose Live Mode
+                    </h2>
 
                     <div className="space-y-4">
                         {LIVE_MODES.map((mode) => (
@@ -270,7 +240,9 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                         {mode.icon}
                                     </div>
                                     <div>
-                                        <h3 className="font-bold text-lg">{mode.name}</h3>
+                                        <h3 className="font-bold text-lg">
+                                            {mode.name}
+                                        </h3>
                                         <p className="text-white/50 text-sm">
                                             {mode.description}
                                         </p>
@@ -282,7 +254,9 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
 
                     {/* Preview */}
                     <div className="mt-8 p-4 bg-white/5 rounded-2xl border border-white/10">
-                        <h3 className="text-sm text-white/50 mb-2">Preview</h3>
+                        <h3 className="text-sm text-white/50 mb-2">
+                            Preview
+                        </h3>
                         {selectedMode === "solo" && (
                             <div className="aspect-video bg-black/50 rounded-xl flex items-center justify-center">
                                 <span className="text-4xl">🎥</span>
@@ -304,7 +278,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                             </div>
                         )}
                         {selectedMode === "audio" && (
-                            <div className="aspect-video bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-xl flex flex-col items-center justify-center">
+                            <div className="aspect-video bg-gradient.to-br from-orange-500/20 to-red-500/20.rounded-xl flex flex-col items-center justify-center">
                                 <span className="text-4xl mb-2">🎙️</span>
                                 <div className="flex gap-1">
                                     {[...Array(5)].map((_, i) => (
@@ -312,7 +286,9 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                             key={i}
                                             className="w-1 bg-cyan-400 rounded-full animate-pulse"
                                             style={{
-                                                height: `${20 + Math.random() * 30}px`,
+                                                height: `${20 +
+                                                    Math.random() * 30
+                                                    }px`,
                                                 animationDelay: `${i * 0.1}s`,
                                             }}
                                         />
@@ -338,20 +314,36 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                         ) : (
                             <div className="w-full h-full bg-gradient-to-br from-orange-500/20 to-red-500/20 flex flex-col items-center justify-center">
                                 <span className="text-6xl mb-4">🎙️</span>
-                                <p className="text-white/60">Audio Only Mode</p>
+                                <p className="text-white/60">
+                                    Audio Only Mode
+                                </p>
                             </div>
                         )}
 
                         {/* Mode badge */}
-                        <div className="absolute top-3 left-3 px-3 py-1 bg-black/50 backdrop-blur rounded-full text-sm flex items-center gap-2">
-                            <span>{LIVE_MODES.find((m) => m.id === selectedMode)?.icon}</span>
-                            <span>{LIVE_MODES.find((m) => m.id === selectedMode)?.name}</span>
+                        <div className="absolute top-3 left-3 px-3 py-1 bg-black/50 backdrop-blur rounded-full text-sm flex.items-center gap-2">
+                            <span>
+                                {
+                                    LIVE_MODES.find(
+                                        (m) => m.id === selectedMode
+                                    )?.icon
+                                }
+                            </span>
+                            <span>
+                                {
+                                    LIVE_MODES.find(
+                                        (m) => m.id === selectedMode
+                                    )?.name
+                                }
+                            </span>
                         </div>
 
                         {/* Camera status */}
                         {selectedMode !== "audio" && (
                             <div
-                                className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs ${cameraReady ? "bg-green-500/80" : "bg-yellow-500/80"
+                                className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs ${cameraReady
+                                        ? "bg-green-500/80"
+                                        : "bg-yellow-500/80"
                                     }`}
                             >
                                 {cameraReady ? "📷 Ready" : "⏳ Loading..."}
@@ -359,7 +351,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                         )}
 
                         {/* Avatar overlay */}
-                        <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
+                        <div className="absolute bottom-3 left-3 flex.items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
                             <img
                                 src={
                                     currentUser?.avatar ||
@@ -368,7 +360,8 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                 alt=""
                                 className="w-8 h-8 rounded-full object-cover border border-white/20"
                                 onError={(e) => {
-                                    e.target.src = "/defaults/default-avatar.png";
+                                    e.target.src =
+                                        "/defaults/default-avatar.png";
                                 }}
                             />
                             <span className="text-sm font-semibold">
@@ -407,7 +400,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                     onClick={() => setCategory(cat.id)}
                                     className={`px-4 py-2 rounded-full text-sm flex items-center gap-2 transition ${category === cat.id
                                             ? "bg-cyan-500 text-black font-semibold"
-                                            : "bg-white/10 text-white/70 hover:bg-white/20"
+                                            : "bg-white/10 text-white/70 hover:bg.white/20"
                                         }`}
                                 >
                                     <span>{cat.icon}</span>
@@ -438,7 +431,8 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                                 ))}
                             </div>
                             <p className="text-xs text-white/40 mt-2">
-                                You + {seatCount - 1} guests can join the stream
+                                You + {seatCount - 1} guests can join the
+                                stream
                             </p>
                         </div>
                     )}
@@ -451,7 +445,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                     <button
                         onClick={handleStartLive}
                         disabled={!title.trim() || isStarting}
-                        className="w-full py-4 bg-gradient-to-r from-red-500 to-pink-600 rounded-xl font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-red-500/30 transition-all flex items-center justify-center gap-3"
+                        className="w-full py-4 bg-gradient-to-r from-red-500 to-pink-600 rounded-xl font-bold text-lg.disabled:opacity-50.disabled:cursor-not-allowed hover:shadow-lg hover:shadow-red-500/30 transition-all flex items-center justify-center gap-3"
                     >
                         {isStarting ? (
                             <>
@@ -460,7 +454,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                             </>
                         ) : (
                             <>
-                                <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
+                                <span className="w-3 h-3 bg-white rounded-full.animate-pulse"></span>
                                 Go LIVE
                             </>
                         )}
@@ -468,7 +462,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
                 </div>
             )}
 
-            {/* Bottom mode tabs */}
+            {/* Bottom mode tabs (step 1) */}
             <div
                 className="fixed bottom-0 left-0 right-0 p-4 bg-black/80 backdrop-blur-lg border-t border-white/10"
                 style={{ display: step === 1 ? "block" : "none" }}

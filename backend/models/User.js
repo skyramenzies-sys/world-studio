@@ -1041,20 +1041,35 @@ UserSchema.statics.findByLogin = async function (login) {
  * Search users
  */
 UserSchema.statics.searchUsers = async function (query, options = {}) {
-    const { limit = 20, skip = 0 } = options;
+    const { limit = 20 } = options;
 
-    return this.find({
-        $text: { $search: query },
-        isBanned: false,
-        isDeactivated: false,
-    })
-        .sort({ score: { $meta: "textScore" }, followersCount: -1 })
-        .skip(skip)
-        .limit(limit)
+    if (!query || typeof query !== "string") {
+        return [];
+    }
+
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(escaped, "i");
+
+    const filter = {
+        isBanned: { $ne: true },
+        $or: [
+            { username: regex },
+            { email: regex },
+            { displayName: regex },
+        ],
+    };
+
+    const users = await this.find(filter)
         .select(
-            "username displayName avatar bio isVerified followersCount isLive"
+            "username avatar displayName isVerified followersCount stats.pkWins stats.pkWinRate"
         )
+        .sort({
+            followersCount: -1,
+        })
+        .limit(limit)
         .lean();
+
+    return users;
 };
 
 /**

@@ -1,4 +1,4 @@
-// src/components/AudioLive.jsx - WORLD STUDIO LIVE EDITION 🎙️
+// src/components/AudioLive.jsx - WORLD STUDIO LIVE EDITION 🎙️🚀
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "react-hot-toast";
 import { io } from "socket.io-client";
@@ -19,7 +19,9 @@ const api = axios.create({
 
 // Add auth token to requests
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
+    const token =
+        localStorage.getItem("ws_token") ||
+        localStorage.getItem("token");
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
@@ -60,6 +62,33 @@ const GIFT_MAP = {
 };
 
 // ============================================
+// DEFAULT PLAYLIST (HOST PANEL) 🎧
+// ============================================
+const DEFAULT_PLAYLIST = [
+    {
+        id: "track-1",
+        title: "Skyra Intro Theme",
+        artist: "World Studio",
+        url: "/audio/skyra-intro.mp3", // zorg dat deze files bestaan of vervang met echte URL's
+        emoji: "🚀",
+    },
+    {
+        id: "track-2",
+        title: "AirPath Lounge Vibes",
+        artist: "World Studio",
+        url: "/audio/airpath-lounge.mp3",
+        emoji: "🌌",
+    },
+    {
+        id: "track-3",
+        title: "Commander Focus",
+        artist: "World Studio",
+        url: "/audio/commander-focus.mp3",
+        emoji: "🎧",
+    },
+];
+
+// ============================================
 // AUDIO VISUALIZER COMPONENT
 // ============================================
 const AudioVisualizer = ({ level = 0, isActive = false }) => {
@@ -68,16 +97,24 @@ const AudioVisualizer = ({ level = 0, isActive = false }) => {
     return (
         <div className="flex items-end justify-center gap-0.5 h-8">
             {[...Array(bars)].map((_, i) => {
-                const baseHeight = Math.sin((i / bars) * Math.PI) * 0.7 + 0.3;
-                const animatedHeight = isActive ? baseHeight * (0.3 + level * 0.7) : 0.1;
+                const baseHeight =
+                    Math.sin((i / bars) * Math.PI) * 0.7 + 0.3;
+                const animatedHeight = isActive
+                    ? baseHeight * (0.3 + level * 0.7)
+                    : 0.1;
 
                 return (
                     <div
                         key={i}
                         className="w-1 bg-gradient-to-t from-orange-500 to-yellow-400 rounded-full transition-all duration-75"
                         style={{
-                            height: `${Math.max(4, animatedHeight * 32)}px`,
-                            opacity: isActive ? 0.8 + level * 0.2 : 0.3,
+                            height: `${Math.max(
+                                4,
+                                animatedHeight * 32
+                            )}px`,
+                            opacity: isActive
+                                ? 0.8 + level * 0.2
+                                : 0.3,
                         }}
                     />
                 );
@@ -89,7 +126,12 @@ const AudioVisualizer = ({ level = 0, isActive = false }) => {
 // ============================================
 // SPEAKER CARD COMPONENT
 // ============================================
-const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted }) => {
+const SpeakerCard = ({
+    speaker,
+    audioLevel,
+    currentUserId,
+    isMuted,
+}) => {
     const isSpeaking = audioLevel > 0.1;
     const isCurrentUser = speaker._id === currentUserId;
 
@@ -97,21 +139,28 @@ const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted }) => {
         <div className="flex flex-col items-center">
             {/* Avatar with audio ring */}
             <div
-                className={`relative p-1 rounded-full transition-all duration-150 ${isSpeaking ? "ring-4 ring-cyan-400/70 scale-105" : ""
+                className={`relative p-1 rounded-full transition-all duration-150 ${isSpeaking
+                        ? "ring-4 ring-cyan-400/70 scale-105"
+                        : ""
                     }`}
                 style={{
                     boxShadow: isSpeaking
-                        ? `0 0 ${20 + audioLevel * 40}px rgba(34, 211, 238, ${0.3 + audioLevel * 0.4
+                        ? `0 0 ${20 + audioLevel * 40
+                        }px rgba(34, 211, 238, ${0.3 + audioLevel * 0.4
                         })`
                         : "none",
                 }}
             >
                 <img
-                    src={speaker.avatar || "/defaults/default-avatar.png"}
+                    src={
+                        speaker.avatar ||
+                        "/defaults/default-avatar.png"
+                    }
                     alt={speaker.username}
                     className="w-20 h-20 rounded-full object-cover border-2 border-white/20"
                     onError={(e) => {
-                        e.target.src = "/defaults/default-avatar.png";
+                        e.target.src =
+                            "/defaults/default-avatar.png";
                     }}
                 />
 
@@ -130,7 +179,9 @@ const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted }) => {
                                 <div
                                     key={i}
                                     className="w-1 h-2 bg-cyan-400 rounded-full animate-pulse"
-                                    style={{ animationDelay: `${i * 0.1}s` }}
+                                    style={{
+                                        animationDelay: `${i * 0.1}s`,
+                                    }}
                                 />
                             ))}
                         </div>
@@ -160,7 +211,10 @@ const SpeakerCard = ({ speaker, audioLevel, currentUserId, isMuted }) => {
             {/* Mini visualizer */}
             {isSpeaking && (
                 <div className="mt-2">
-                    <AudioVisualizer level={audioLevel} isActive={isSpeaking} />
+                    <AudioVisualizer
+                        level={audioLevel}
+                        isActive={isSpeaking}
+                    />
                 </div>
             )}
         </div>
@@ -174,14 +228,18 @@ const ChatMessage = ({ message, isSystem = false }) => {
     if (isSystem) {
         return (
             <div className="text-center py-1">
-                <span className="text-xs text-white/40 italic">{message.text}</span>
+                <span className="text-xs text-white/40 italic">
+                    {message.text}
+                </span>
             </div>
         );
     }
 
     return (
         <div className="text-sm py-1 hover:bg-white/5 px-2 -mx-2 rounded transition">
-            <span className="text-orange-400 font-semibold">{message.username}: </span>
+            <span className="text-orange-400 font-semibold">
+                {message.username}:{" "}
+            </span>
             <span className="text-white/80">{message.text}</span>
         </div>
     );
@@ -208,15 +266,25 @@ export default function AudioLive({
     const [chatInput, setChatInput] = useState("");
     const [audioLevels, setAudioLevels] = useState({});
     const [isConnecting, setIsConnecting] = useState(false);
-    const [connectionStatus, setConnectionStatus] = useState("disconnected");
+    const [connectionStatus, setConnectionStatus] =
+        useState("disconnected");
     const [streamDuration, setStreamDuration] = useState(0);
     const [gifts, setGifts] = useState([]);
     const [totalGifts, setTotalGifts] = useState(0);
+
+    // Likes / tap hearts
+    const [likes, setLikes] = useState(0);
+    const [tapHearts, setTapHearts] = useState([]);
 
     // Gift overlay state
     const [overlayGift, setOverlayGift] = useState(null);
     const [overlaySender, setOverlaySender] = useState("");
     const [showGiftPanel, setShowGiftPanel] = useState(false);
+
+    // Playlist state (HOST PANEL)
+    const [playlist] = useState(DEFAULT_PLAYLIST);
+    const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
+    const [isPlaylistPlaying, setIsPlaylistPlaying] = useState(false);
 
     // Refs
     const socketRef = useRef(null);
@@ -226,16 +294,28 @@ export default function AudioLive({
     const chatEndRef = useRef(null);
     const durationIntervalRef = useRef(null);
     const animationFrameRef = useRef(null);
+    const audioPlayerRef = useRef(null);
+
+    // ============================================
+    // CHAT: SYSTEM MESSAGE HELPER (useCallback zodat hij veilig in effects kan)
+    // ============================================
+    const addSystemMessage = useCallback((text) => {
+        setChat((prev) => [
+            ...prev.slice(-100),
+            { text, isSystem: true },
+        ]);
+    }, []);
 
     // ============================================
     // SOCKET CONNECTION
     // ============================================
     useEffect(() => {
-
-        socketRef.current = io(SOCKET_URL, {
+        const socket = io(SOCKET_URL, {
             transports: ["websocket", "polling"],
             auth: {
-                token: localStorage.getItem("ws_token") || localStorage.getItem("token"),
+                token:
+                    localStorage.getItem("ws_token") ||
+                    localStorage.getItem("token"),
             },
             query: {
                 roomId,
@@ -243,12 +323,15 @@ export default function AudioLive({
             },
         });
 
-        const socket = socketRef.current;
+        socketRef.current = socket;
 
         socket.on("connect", () => {
             console.log("✅ Connected to World Studio Live");
             setConnectionStatus("connected");
-            socket.emit("join_audio_live", { roomId, user: currentUser });
+            socket.emit("join_audio_live", {
+                roomId,
+                user: currentUser,
+            });
         });
 
         socket.on("disconnect", () => {
@@ -267,7 +350,9 @@ export default function AudioLive({
                 if (prev.find((s) => s._id === speaker._id)) return prev;
                 return [...prev, speaker];
             });
-            addSystemMessage(`${speaker.username} joined as speaker`);
+            addSystemMessage(
+                `${speaker.username} joined as speaker`
+            );
             toast.success(`${speaker.username} joined as speaker 🎤`);
         });
 
@@ -298,8 +383,7 @@ export default function AudioLive({
 
         // Gifts (support both oude & nieuwe payloads)
         socket.on("gift_received", (giftData) => {
-            // Oude: { from, giftName, value, emoji? }
-            // Nieuwe: { senderUsername, item, amount, icon, tier, ... }
+
             const senderName =
                 giftData.from ||
                 giftData.senderUsername ||
@@ -347,7 +431,9 @@ export default function AudioLive({
             });
             setOverlaySender(senderName);
 
-            toast.success(`🎁 ${senderName} sent ${giftName}!`);
+            toast.success(
+                `🎁 ${senderName} sent ${giftName}!`
+            );
         });
 
         // Stream ended
@@ -365,6 +451,27 @@ export default function AudioLive({
             }));
         });
 
+        // Likes from taps on host screen
+        socket.on("audio_like", ({ userId }) => {
+            setLikes((prev) => prev + 1);
+
+            // kleine like-puls animatie centraal
+            const id = Date.now() + Math.random();
+            setTapHearts((prev) => [
+                ...prev,
+                {
+                    id,
+                    left: 50 + (Math.random() * 20 - 10),
+                    top: 40 + (Math.random() * 20 - 10),
+                },
+            ]);
+            setTimeout(() => {
+                setTapHearts((prev) =>
+                    prev.filter((h) => h.id !== id)
+                );
+            }, 800);
+        });
+
         return () => {
             socket.emit("leave_audio_live", {
                 roomId,
@@ -372,32 +479,102 @@ export default function AudioLive({
             });
             socket.disconnect();
         };
-    }, [roomId, currentUser, onViewerCountChange, onEnd]);
+    }, [roomId, currentUser, onViewerCountChange, onEnd, addSystemMessage]);
 
     // ============================================
-    // AUDIO SETUP
+    // PLAYLIST EFFECT (HOST: ACTUEEL NUMMER AFSPELEN)
     // ============================================
+    useEffect(() => {
+        if (!isHost) return;
+        const audioEl = audioPlayerRef.current;
+        if (!audioEl) return;
+
+        if (!isPlaylistPlaying) {
+            audioEl.pause();
+            return;
+        }
+
+        const track = playlist[currentTrackIndex];
+        if (!track || !track.url) return;
+
+        audioEl.src = track.url;
+        audioEl
+            .play()
+            .catch((err) => {
+                console.error("Playlist play error:", err);
+                toast.error("Cannot autoplay track (browser blocked).");
+                setIsPlaylistPlaying(false);
+            });
+    }, [isHost, isPlaylistPlaying, currentTrackIndex, playlist]);
+
+    // ============================================
+    // AUDIO SETUP (MIC) – voor praten in de room
+    // ============================================
+    const monitorAudioLevel = useCallback(() => {
+        if (!analyserRef.current) return;
+
+        const dataArray = new Uint8Array(
+            analyserRef.current.frequencyBinCount
+        );
+
+        const update = () => {
+            if (!analyserRef.current) return;
+
+            analyserRef.current.getByteFrequencyData(dataArray);
+
+            // Calculate RMS for better level detection
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            const normalizedLevel = Math.min(1, rms / 128);
+
+            setAudioLevels((prev) => ({
+                ...prev,
+                [currentUser?._id]: normalizedLevel,
+            }));
+
+            // Emit naar anderen (alleen als level > threshold)
+            if (socketRef.current && normalizedLevel > 0.05) {
+                socketRef.current.emit("audio_level", {
+                    roomId,
+                    speakerId: currentUser?._id,
+                    level: normalizedLevel,
+                });
+            }
+
+            animationFrameRef.current = requestAnimationFrame(update);
+        };
+
+        update();
+    }, [currentUser, roomId]);
+
     const startAudio = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 48000,
-                },
-                video: false,
-            });
+            const stream =
+                await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 48000,
+                    },
+                    video: false,
+                });
 
             streamRef.current = stream;
 
             // Setup audio analyser
             audioContextRef.current =
-                new (window.AudioContext || window.webkitAudioContext)();
+                new (window.AudioContext ||
+                    window.webkitAudioContext)();
             analyserRef.current =
                 audioContextRef.current.createAnalyser();
             const source =
-                audioContextRef.current.createMediaStreamSource(stream);
+                audioContextRef.current.createMediaStreamSource(
+                    stream
+                );
             source.connect(analyserRef.current);
             analyserRef.current.fftSize = 256;
             analyserRef.current.smoothingTimeConstant = 0.8;
@@ -425,46 +602,7 @@ export default function AudioLive({
         }
     };
 
-    // Monitor audio levels
-    const monitorAudioLevel = useCallback(() => {
-        if (!analyserRef.current) return;
 
-        const dataArray = new Uint8Array(
-            analyserRef.current.frequencyBinCount
-        );
-
-        const update = () => {
-            if (!analyserRef.current) return;
-
-            analyserRef.current.getByteFrequencyData(dataArray);
-
-            // Calculate RMS for better level detection
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i] * dataArray[i];
-            }
-            const rms = Math.sqrt(sum / dataArray.length);
-            const normalizedLevel = Math.min(1, rms / 128);
-
-            setAudioLevels((prev) => ({
-                ...prev,
-                [currentUser?._id]: normalizedLevel,
-            }));
-
-            // Emit to other users
-            if (socketRef.current && normalizedLevel > 0.05) {
-                socketRef.current.emit("audio_level", {
-                    roomId,
-                    speakerId: currentUser?._id,
-                    level: normalizedLevel,
-                });
-            }
-
-            animationFrameRef.current = requestAnimationFrame(update);
-        };
-
-        update();
-    }, [currentUser, roomId]);
 
     // ============================================
     // GO LIVE
@@ -542,7 +680,9 @@ export default function AudioLive({
     const cleanup = () => {
         // Stop audio tracks
         if (streamRef.current) {
-            streamRef.current.getTracks().forEach((t) => t.stop());
+            streamRef.current
+                .getTracks()
+                .forEach((t) => t.stop());
             streamRef.current = null;
         }
 
@@ -564,6 +704,7 @@ export default function AudioLive({
 
         setIsLive(false);
         setStreamDuration(0);
+        setAudioLevels({});
     };
 
     // ============================================
@@ -610,16 +751,13 @@ export default function AudioLive({
         setChatInput("");
     };
 
-    const addSystemMessage = (text) => {
-        setChat((prev) => [
-            ...prev.slice(-100),
-            { text, isSystem: true },
-        ]);
-    };
+
 
     // Auto scroll chat
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        chatEndRef.current?.scrollIntoView({
+            behavior: "smooth",
+        });
     }, [chat]);
 
     // ============================================
@@ -644,10 +782,77 @@ export default function AudioLive({
         speakers.find((s) => s.isHost) || speakers[0] || null;
 
     // ============================================
+    // TAP-LIKE HANDLER (host screen likes)
+    // ============================================
+    const handleTapLike = (event) => {
+        if (!isLive || !socketRef.current) return;
+
+        const containerRect =
+            event.currentTarget.getBoundingClientRect();
+        const x =
+            ((event.clientX - containerRect.left) /
+                containerRect.width) *
+            100;
+        const y =
+            ((event.clientY - containerRect.top) /
+                containerRect.height) *
+            100;
+
+        const id = Date.now() + Math.random();
+        setTapHearts((prev) => [
+            ...prev,
+            { id, left: x, top: y },
+        ]);
+        setTimeout(() => {
+            setTapHearts((prev) =>
+                prev.filter((h) => h.id !== id)
+            );
+        }, 800);
+
+        socketRef.current.emit("audio_like", {
+            roomId,
+            userId: currentUser?._id,
+        });
+    };
+
+    // ============================================
+    // PLAYLIST CONTROLS (HOST)
+    // ============================================
+    const currentTrack = playlist[currentTrackIndex] || null;
+
+    const handleTogglePlaylist = () => {
+        if (!isHost) return;
+        if (!currentTrack) return;
+        setIsPlaylistPlaying((prev) => !prev);
+    };
+
+    const handleNextTrack = () => {
+        if (!isHost) return;
+        setCurrentTrackIndex((prev) => {
+            const next = (prev + 1) % playlist.length;
+            return next;
+        });
+        setIsPlaylistPlaying(true);
+    };
+
+    const handlePrevTrack = () => {
+        if (!isHost) return;
+        setCurrentTrackIndex((prev) => {
+            const next =
+                (prev - 1 + playlist.length) % playlist.length;
+            return next;
+        });
+        setIsPlaylistPlaying(true);
+    };
+
+    // ============================================
     // RENDER
     // ============================================
     return (
         <div className="min-h-screen bg-gradient-to-b from-orange-900 via-red-900 to-black text-white flex flex-col">
+            {/* Hidden audio element (HOST PLAYLIST) */}
+            <audio ref={audioPlayerRef} className="hidden" />
+
             {/* Gift overlay (grote animatie bovenaan) */}
             {overlayGift && (
                 <GiftReceivedAlert
@@ -674,7 +879,7 @@ export default function AudioLive({
                     <h1 className="font-bold truncate">
                         {streamTitle}
                     </h1>
-                    <div className="flex items-center gap-2 text-xs text-white/50">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
                         <span>🎙️ Audio Live</span>
                         {isLive && (
                             <>
@@ -691,6 +896,14 @@ export default function AudioLive({
                         <span className="px-2 py-0.5 bg-white/10 rounded">
                             {streamCategory}
                         </span>
+                        {likes > 0 && (
+                            <>
+                                <span>•</span>
+                                <span>
+                                    ❤️ {likes.toLocaleString()}
+                                </span>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -739,15 +952,21 @@ export default function AudioLive({
                 {/* Speakers area */}
                 <div className="flex-1 p-4 lg:p-6 flex flex-col">
                     {/* Audio visualization background */}
-                    <div className="relative flex-1 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-3xl p-6 lg:p-8 border border-white/10 overflow-hidden">
+                    <div
+                        className="relative flex-1 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-3xl p-6 lg:p-8 border border-white/10 overflow-hidden cursor-pointer"
+                        onClick={handleTapLike}
+                    >
                         {/* Animated background waves */}
                         <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
                             <div className="flex gap-1">
                                 {[...Array(30)].map((_, i) => {
-                                    const maxSpeakerLevel = Math.max(
-                                        ...Object.values(audioLevels),
-                                        0
-                                    );
+                                    const maxSpeakerLevel =
+                                        Math.max(
+                                            ...Object.values(
+                                                audioLevels
+                                            ),
+                                            0
+                                        );
                                     const height =
                                         20 +
                                         Math.sin(
@@ -773,6 +992,21 @@ export default function AudioLive({
                             </div>
                         </div>
 
+                        {/* Tap hearts (likes) animatie */}
+                        {tapHearts.map((heart) => (
+                            <div
+                                key={heart.id}
+                                className="absolute text-3xl animate-bounce pointer-events-none"
+                                style={{
+                                    left: `${heart.left}%`,
+                                    top: `${heart.top}%`,
+                                    transform: "translate(-50%, -50%)",
+                                }}
+                            >
+                                ❤️
+                            </div>
+                        ))}
+
                         {/* Gift emojis floating in de room */}
                         {gifts.slice(-5).map((gift, i) => (
                             <div
@@ -786,7 +1020,9 @@ export default function AudioLive({
                                     animationDuration: "2s",
                                 }}
                             >
-                                {gift.emoji || gift.icon || "🎁"}
+                                {gift.emoji ||
+                                    gift.icon ||
+                                    "🎁"}
                             </div>
                         ))}
 
@@ -797,9 +1033,12 @@ export default function AudioLive({
                                     key={speaker._id}
                                     speaker={speaker}
                                     audioLevel={
-                                        audioLevels[speaker._id] || 0
+                                        audioLevels[speaker._id] ||
+                                        0
                                     }
-                                    currentUserId={currentUser?._id}
+                                    currentUserId={
+                                        currentUser?._id
+                                    }
                                     isMuted={isMuted}
 
                                 />
@@ -876,7 +1115,9 @@ export default function AudioLive({
                                             ? "bg-red-500 hover:bg-red-600 ring-4 ring-red-500/30"
                                             : "bg-white/20 hover:bg-white/30"
                                         }`}
-                                    title={isMuted ? "Unmute" : "Mute"}
+                                    title={
+                                        isMuted ? "Unmute" : "Mute"
+                                    }
                                 >
                                     <span className="text-2xl">
                                         {isMuted ? "🔇" : "🎤"}
@@ -891,7 +1132,9 @@ export default function AudioLive({
                                             currentUser?._id
                                             ] || 0
                                         }
-                                        isActive={!isMuted && isLive}
+                                        isActive={
+                                            !isMuted && isLive
+                                        }
                                     />
                                 </div>
 
@@ -899,12 +1142,16 @@ export default function AudioLive({
                                 {hostUser && (
                                     <button
                                         onClick={() =>
-                                            setShowGiftPanel(true)
+                                            setShowGiftPanel(
+                                                true
+                                            )
                                         }
                                         className="px-4 py-2 rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 font-semibold text-sm hover:shadow-lg hover:scale-105 transition flex items-center gap-2"
                                     >
                                         <span>🎁</span>
-                                        <span>Send Gift</span>
+                                        <span>
+                                            Send Gift
+                                        </span>
                                     </button>
                                 )}
                             </>
@@ -921,9 +1168,78 @@ export default function AudioLive({
                                     setShowGiftPanel(false)
                                 }
                                 onGiftSent={() => {
-                                    // niks speciaals, overlay komt via socket
+                                    // overlay komt via socket
                                 }}
                             />
+                        </div>
+                    )}
+
+                    {/* HOST PLAYLIST PANEL */}
+                    {isHost && (
+                        <div className="mt-6 bg-black/40 border border-white/10 rounded-2xl p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <span>🎧</span>
+                                    <h3 className="font-semibold text-sm">
+                                        Host Playlist
+                                    </h3>
+                                </div>
+                                {currentTrack && (
+                                    <span className="text-xs text-white/50">
+                                        {currentTrackIndex + 1}/
+                                        {playlist.length}
+                                    </span>
+                                )}
+                            </div>
+
+                            {currentTrack ? (
+                                <>
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-xl">
+                                            {currentTrack.emoji ||
+                                                "🎵"}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold truncate">
+                                                {currentTrack.title}
+                                            </p>
+                                            <p className="text-xs text-white/50 truncate">
+                                                {currentTrack.artist}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={handlePrevTrack}
+                                            className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-sm"
+                                        >
+                                            ⏮
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleTogglePlaylist}
+                                            className="px-4 py-1.5 rounded-full bg-orange-500 hover:bg-orange-600 text-sm font-semibold"
+                                        >
+                                            {isPlaylistPlaying
+                                                ? "⏸ Pause"
+                                                : "▶ Play"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleNextTrack}
+                                            className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-sm"
+                                        >
+                                            ⏭
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <p className="text-xs text-white/50">
+                                    No tracks in playlist.
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>
@@ -932,7 +1248,7 @@ export default function AudioLive({
                 <div className="w-full lg:w-80 bg-black/30 border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col max-h-[400px] lg:max-h-none">
                     {/* Chat header */}
                     <div className="p-3 border-b border-white/10 flex items-center justify-between">
-                        <h3 className="font-semibold flex items-center gap-2">
+                        <h3 className="classic-gradient-text font-semibold flex items-center gap-2">
                             💬 Live Chat
                             <span className="text-xs text-white/40">
                                 ({chat.length})
@@ -998,33 +1314,25 @@ export default function AudioLive({
             <div className="lg:hidden p-3 bg-black/40 border-t border-white/10 flex justify-around text-center">
                 <div>
                     <p className="text-lg font-bold">{viewers}</p>
-                    <p className="text-xs text-white/50">
-                        Viewers
-                    </p>
+                    <p className="text-xs text-white/50">Viewers</p>
                 </div>
                 <div>
                     <p className="text-lg font-bold">
                         {speakers.length}
                     </p>
-                    <p className="text-xs text-white/50">
-                        Speakers
-                    </p>
+                    <p className="text-xs text-white/50">Speakers</p>
                 </div>
                 <div>
                     <p className="text-lg font-bold text-yellow-400">
                         💰 {totalGifts.toLocaleString()}
                     </p>
-                    <p className="text-xs text-white/50">
-                        Gifts
-                    </p>
+                    <p className="text-xs text-white/50">Gifts</p>
                 </div>
                 <div>
                     <p className="text-lg font-bold">
                         {formatDuration(streamDuration)}
                     </p>
-                    <p className="text-xs text-white/50">
-                        Duration
-                    </p>
+                    <p className="text-xs text-white/50">Duration</p>
                 </div>
             </div>
         </div>

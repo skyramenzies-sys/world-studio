@@ -5,7 +5,7 @@ const express = require("express");
 const router = express.Router();
 
 const User = require("../models/User");
-const auth = require("../middleware/authMiddleware"); // of "../middleware/auth"
+const auth = require("../middleware/authMiddleware"); // Zorg dat deze bestaat en req.user zet
 const requireAdmin = require("../middleware/requireAdmin");
 const {
     applyViolation,
@@ -20,12 +20,15 @@ const {
 router.get("/user/:userId", auth, requireAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
+
         const user = await User.findById(userId).select(
             "username avatar isBanned banUntil isPermanentBan moderationStrikes moderationHistory"
         );
 
         if (!user) {
-            return res.status(404).json({ success: false, error: "User not found" });
+            return res
+                .status(404)
+                .json({ success: false, error: "User not found" });
         }
 
         const ban = computeBanStatus(user);
@@ -46,7 +49,10 @@ router.get("/user/:userId", auth, requireAdmin, async (req, res) => {
         });
     } catch (err) {
         console.error("Moderation user error:", err);
-        res.status(500).json({ success: false, error: "Failed to fetch user moderation" });
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch user moderation",
+        });
     }
 });
 
@@ -62,6 +68,13 @@ router.post("/strike/:userId", auth, requireAdmin, async (req, res) => {
 
         const result = await applyViolation(userId, reason || "admin_strike");
 
+        if (!result) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found or strike failed",
+            });
+        }
+
         res.json({
             success: true,
             message: "Strike applied",
@@ -75,7 +88,10 @@ router.post("/strike/:userId", auth, requireAdmin, async (req, res) => {
         });
     } catch (err) {
         console.error("Moderation strike error:", err);
-        res.status(500).json({ success: false, error: "Failed to apply strike" });
+        res.status(500).json({
+            success: false,
+            error: "Failed to apply strike",
+        });
     }
 });
 
@@ -89,6 +105,13 @@ router.post("/unban/:userId", auth, requireAdmin, async (req, res) => {
         const { reason } = req.body;
 
         const user = await unbanUser(userId, reason || "admin_unban");
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found or already unbanned",
+            });
+        }
 
         res.json({
             success: true,
@@ -104,7 +127,10 @@ router.post("/unban/:userId", auth, requireAdmin, async (req, res) => {
         });
     } catch (err) {
         console.error("Moderation unban error:", err);
-        res.status(500).json({ success: false, error: "Failed to unban user" });
+        res.status(500).json({
+            success: false,
+            error: "Failed to unban user",
+        });
     }
 });
 

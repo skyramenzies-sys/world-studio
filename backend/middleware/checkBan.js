@@ -5,7 +5,7 @@ const User = require("../models/User");
 
 module.exports = async function checkBan(req, res, next) {
     try {
-        // Geen auth → gewoon door
+        // Geen auth → gewoon door (gast of public route)
         if (!req.user || !req.user._id) {
             return next();
         }
@@ -21,20 +21,24 @@ module.exports = async function checkBan(req, res, next) {
             });
         }
 
-        // Niet geband → door
-        if (!user.isBanned) {
+        const now = new Date();
+
+        // Niet geband in flags of status → gewoon door
+        const isBannedFlag = user.isBanned === true || user.status === "banned";
+
+        if (!isBannedFlag) {
             return next();
         }
 
-        const now = new Date();
-
-        // Tijdelijke ban en ban is afgelopen → auto-unban door robot
+        // Tijdelijke ban: is er een einddatum én is die voorbij → auto-unban door AIRPATH-robot 🤖
         if (!user.isPermanentBan && user.bannedUntil && user.bannedUntil <= now) {
             user.isBanned = false;
+            user.status = "active";
             user.bannedAt = null;
             user.bannedUntil = null;
             user.banReason = null;
             user.isPermanentBan = false;
+
             await user.save();
             return next();
         }
@@ -52,8 +56,9 @@ module.exports = async function checkBan(req, res, next) {
             success: false,
             error: "Account is banned",
             code: "ACCOUNT_BANNED",
-            isPermanent: user.isPermanentBan,
-            bannedUntil: user.bannedUntil,
+            status: user.status || "banned",
+            isPermanent: user.isPermanentBan === true,
+            bannedUntil: user.bannedUntil || null,
             banReason: user.banReason || "Community guidelines violation",
             remainingSeconds,
         });

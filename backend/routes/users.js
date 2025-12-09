@@ -4,30 +4,40 @@
 const express = require("express");
 const router = express.Router();
 
-const auth = require("../middleware/auth");
+const authMiddleware = require("../middleware/authMiddleware");
+const auth = authMiddleware; // alias voor oude code
 const checkBan = require("../middleware/checkBan");
 const User = require("../models/User");
 
 // ---------------------------------------------
 // Helpers
 // ---------------------------------------------
+const getCurrentUserId = (req) => {
+    if (req.user && (req.user.id || req.user._id)) {
+        return req.user.id || req.user._id;
+    }
+    return req.userId;
+};
+
 const toPublicProfile = (user) =>
-    user.toPublicProfile ? user.toPublicProfile() : {
-        _id: user._id,
-        username: user.username,
-        displayName: user.displayName,
-        avatar: user.avatar,
-        coverImage: user.coverImage,
-        bio: user.bio,
-        isVerified: user.isVerified,
-        verificationBadge: user.verificationBadge,
-        isLive: user.isLive,
-        currentStreamId: user.currentStreamId,
-        followersCount: user.followersCount || 0,
-        followingCount: user.followingCount || 0,
-        socialLinks: user.socialLinks || {},
-        createdAt: user.createdAt,
-    };
+    user.toPublicProfile
+        ? user.toPublicProfile()
+        : {
+            _id: user._id,
+            username: user.username,
+            displayName: user.displayName,
+            avatar: user.avatar,
+            coverImage: user.coverImage,
+            bio: user.bio,
+            isVerified: user.isVerified,
+            verificationBadge: user.verificationBadge,
+            isLive: user.isLive,
+            currentStreamId: user.currentStreamId,
+            followersCount: user.followersCount || 0,
+            followingCount: user.followingCount || 0,
+            socialLinks: user.socialLinks || {},
+            createdAt: user.createdAt,
+        };
 
 // ---------------------------------------------
 // CURRENT USER
@@ -36,7 +46,12 @@ const toPublicProfile = (user) =>
 // GET /api/users/me  -> eigen profiel
 router.get("/me", auth, checkBan, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id);
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+
+        const user = await User.findById(currentUserId);
         if (!user) return res.status(404).json({ error: "User not found" });
 
         res.json({
@@ -52,7 +67,12 @@ router.get("/me", auth, checkBan, async (req, res) => {
 // shared handler voor profile update (meerdere routes kunnen deze gebruiken)
 const handleProfileUpdate = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id);
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+
+        const user = await User.findById(currentUserId);
         if (!user) return res.status(404).json({ error: "User not found" });
 
         const {
@@ -111,6 +131,12 @@ router.patch("/profile", auth, checkBan, handleProfileUpdate);
 
 // core follow-logica
 const followUser = async (currentUserId, targetId) => {
+    if (!currentUserId) {
+        const err = new Error("Not authenticated");
+        err.statusCode = 401;
+        throw err;
+    }
+
     if (currentUserId.toString() === targetId.toString()) {
         throw new Error("You cannot follow yourself");
     }
@@ -159,6 +185,12 @@ const followUser = async (currentUserId, targetId) => {
 };
 
 const unfollowUser = async (currentUserId, targetId) => {
+    if (!currentUserId) {
+        const err = new Error("Not authenticated");
+        err.statusCode = 401;
+        throw err;
+    }
+
     const [me, target] = await Promise.all([
         User.findById(currentUserId),
         User.findById(targetId),
@@ -188,8 +220,9 @@ const unfollowUser = async (currentUserId, targetId) => {
 // POST /api/users/:id/follow
 router.post("/:id/follow", auth, checkBan, async (req, res) => {
     try {
+        const currentUserId = getCurrentUserId(req);
         const { me, target, alreadyFollowing } = await followUser(
-            req.user.id,
+            currentUserId,
             req.params.id
         );
 
@@ -219,7 +252,8 @@ router.post("/:id/follow", auth, checkBan, async (req, res) => {
 // POST /api/users/:id/unfollow
 router.post("/:id/unfollow", auth, checkBan, async (req, res) => {
     try {
-        const { me, target } = await unfollowUser(req.user.id, req.params.id);
+        const currentUserId = getCurrentUserId(req);
+        const { me, target } = await unfollowUser(currentUserId, req.params.id);
 
         res.json({
             success: true,
@@ -249,8 +283,9 @@ router.post("/follow", auth, checkBan, async (req, res) => {
         return res.status(400).json({ error: "targetUserId is required" });
     }
     try {
+        const currentUserId = getCurrentUserId(req);
         const { me, target, alreadyFollowing } = await followUser(
-            req.user.id,
+            currentUserId,
             targetId
         );
         res.json({
@@ -283,7 +318,8 @@ router.post("/unfollow", auth, checkBan, async (req, res) => {
         return res.status(400).json({ error: "targetUserId is required" });
     }
     try {
-        const { me, target } = await unfollowUser(req.user.id, targetId);
+        const currentUserId = getCurrentUserId(req);
+        const { me, target } = await unfollowUser(currentUserId, targetId);
         res.json({
             success: true,
             following: false,
@@ -351,12 +387,21 @@ router.get("/:id/following", auth, checkBan, async (req, res) => {
 });
 
 // Handige alias voor frontend: eigen followers/following
-router.get("/me/followers", auth, checkBan, (req, res) =>
-    res.redirect(`/api/users/${req.user.id}/followers`)
-);
-router.get("/me/following", auth, checkBan, (req, res) =>
-    res.redirect(`/api/users/${req.user.id}/following`)
-);
+router.get("/me/followers", auth, checkBan, (req, res) => {
+    const currentUserId = getCurrentUserId(req);
+    if (!currentUserId) {
+        return res.status(401).json({ error: "Not authenticated" });
+    }
+    return res.redirect(`/api/users/${currentUserId}/followers`);
+});
+
+router.get("/me/following", auth, checkBan, (req, res) => {
+    const currentUserId = getCurrentUserId(req);
+    if (!currentUserId) {
+        return res.status(401).json({ error: "Not authenticated" });
+    }
+    return res.redirect(`/api/users/${currentUserId}/following`);
+});
 
 // ---------------------------------------------
 // DISCOVER / SEARCH
@@ -365,8 +410,9 @@ router.get("/me/following", auth, checkBan, (req, res) =>
 // GET /api/users/discover  (suggested creators)
 router.get("/discover", auth, checkBan, async (req, res) => {
     try {
+        const currentUserId = getCurrentUserId(req);
         const limit = parseInt(req.query.limit || "20", 10);
-        const users = await User.getSuggested(req.user.id, limit);
+        const users = await User.getSuggested(currentUserId, limit);
         res.json({ success: true, users });
     } catch (err) {
         console.error("GET /users/discover error:", err);
@@ -397,7 +443,13 @@ router.get("/search", auth, checkBan, async (req, res) => {
 // GET /api/users/:id
 router.get("/:id", auth, checkBan, async (req, res) => {
     try {
-        const userId = req.params.id === "me" ? req.user.id : req.params.id;
+        const currentUserId = getCurrentUserId(req);
+        const userId = req.params.id === "me" ? currentUserId : req.params.id;
+
+        if (!userId) {
+            return res.status(401).json({ error: "Not authenticated" });
+        }
+
         const user = await User.findById(userId);
 
         if (!user) return res.status(404).json({ error: "User not found" });

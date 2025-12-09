@@ -67,8 +67,13 @@ const StreamChat = safeLoad("StreamChat");
 // ===========================================
 // PK BATTLE MODELS (Optional)
 // ===========================================
+
+// Je PK-model zit in PK.js en registreert zichzelf als "PK"
 const PK = safeLoad("PK");
-const PKBattle = safeLoad("PKBattle");
+
+// Alias: PKBattle verwijst gewoon naar hetzelfde model
+const PKBattle = PK;
+
 const PKChallenge = safeLoad("PKChallenge");
 
 // ===========================================

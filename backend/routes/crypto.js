@@ -2,23 +2,23 @@
 // World-Studio.live - Crypto Price Proxy (with caching)
 // Solves CORS and rate-limiting issues with CoinGecko
 
+// Solves CORS and rate-limiting issues with CoinGecko
 const express = require("express");
+const axios = require("axios");
 const router = express.Router();
 
-// Simple in-memory cache
+// Simple in-memory cache structure
 const cache = {
-    prices: { data: null, timestamp: 0 },
-    coins: new Map(), // coinId -> { data, timestamp }
-    charts: new Map() // coinId -> { data, timestamp }
+    markets: { data: null, timestamp: 0 },
+    trending: { data: null, timestamp: 0 },
 };
 
 const CACHE_DURATION = 60 * 1000; // 60 seconds
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3";
 
 // Helper to check if cache is valid
-const isCacheValid = (timestamp) => {
-    return Date.now() - timestamp < CACHE_DURATION;
-};
+const isCacheValid = (timestamp) =>
+    Date.now() - timestamp < CACHE_DURATION;
 
 // Helper to fetch with timeout
 const fetchWithTimeout = async (url, timeout = 10000) => {

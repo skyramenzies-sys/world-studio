@@ -591,8 +591,8 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
             type: "gift_sent",
             amount: -totalCost,
             description: `PK Gift: ${giftType} x${amount} to ${isChallenger
-                    ? pk.challenger.username
-                    : pk.opponent.username
+                ? pk.challenger.username
+                : pk.opponent.username
                 }`,
             relatedUserId: targetUserId,
             pkId: pk._id,
@@ -693,8 +693,8 @@ router.post("/:pkId/gift", authMiddleware, async (req, res) => {
                         amount: platformFee,
                         type: "pk_gift_fee",
                         reason: `PK gift fee: ${sender.username} → ${isChallenger
-                                ? pk.challenger.username
-                                : pk.opponent.username
+                            ? pk.challenger.username
+                            : pk.opponent.username
                             }`,
                         fromUserId: sender._id,
                         fromUsername: sender.username,
@@ -956,9 +956,9 @@ router.post("/:pkId/end", authMiddleware, async (req, res) => {
                 if (winner.addNotification) {
                     await winner.addNotification({
                         message: `🏆 You won the PK battle against ${String(winnerId) ===
-                                String(challengerId)
-                                ? pk.opponent.username
-                                : pk.challenger.username
+                            String(challengerId)
+                            ? pk.opponent.username
+                            : pk.challenger.username
                             }!`,
                         type: "pk_result",
                         pkId: pk._id,
@@ -1235,12 +1235,14 @@ router.get("/live-streamers", authMiddleware, async (req, res) => {
         });
 
         // Find live streamers not in PK and not the requester
+        const excludedIds = [
+            String(authUserId),
+            ...Array.from(usersInPK),
+        ];
+
         const liveStreamers = await User.find({
             isLive: true,
-            _id: {
-                $ne: authUserId,
-                $nin: Array.from(usersInPK),
-            },
+            _id: { $nin: excludedIds },
             isBanned: { $ne: true },
         })
             .select(

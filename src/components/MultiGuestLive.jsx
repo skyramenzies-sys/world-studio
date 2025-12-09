@@ -9,7 +9,7 @@ import LiveGiftPanel from "./LiveGiftPanel";
    WORLD STUDIO LIVE CONFIGURATION
    ============================================================ */
 
-// Gebruik zelfde logica als andere U.E. bestanden
+// Zelfde pattern als de andere U.E. components
 const RAW_BASE_URL =
     import.meta.env.VITE_API_URL ||
     "https://world-studio-production.up.railway.app";
@@ -28,8 +28,7 @@ const api = axios.create({
 // Auth token toevoegen
 api.interceptors.request.use((config) => {
     const token =
-        localStorage.getItem("ws_token") ||
-        localStorage.getItem("token");
+        localStorage.getItem("ws_token") || localStorage.getItem("token");
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }
@@ -37,10 +36,10 @@ api.interceptors.request.use((config) => {
 });
 
 // Socket singleton
-let socket = null;
+let socketSingleton = null;
 const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
+    if (!socketSingleton) {
+        socketSingleton = io(SOCKET_URL, {
             transports: ["websocket", "polling"],
             autoConnect: true,
             reconnection: true,
@@ -48,7 +47,7 @@ const getSocket = () => {
             reconnectionDelay: 1000,
         });
     }
-    return socket;
+    return socketSingleton;
 };
 
 /* ============================================================
@@ -114,7 +113,7 @@ const GiftAnimation = ({ gift, onComplete }) => {
     }, [onComplete]);
 
     return (
-        <div className="absolute top-4 left-4 z-50 animate-bounce-in">
+        <div className="absolute top-4 left-4 z-50 animate-bounce-in pointer-events-none">
             <div className="bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 p-3 rounded-2xl shadow-2xl">
                 <div className="flex items-center gap-3">
                     <span className="text-4xl animate-pulse">
@@ -201,10 +200,7 @@ const OccupiedSeat = ({
             try {
                 await videoEl.play();
             } catch (err) {
-                console.log(
-                    "🔇 Video autoplay blocked:",
-                    err?.message || err
-                );
+                console.log("🔇 Video autoplay blocked:", err?.message || err);
             }
         };
 
@@ -240,43 +236,29 @@ const OccupiedSeat = ({
             ) : (
                 <div className="w-full h-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
                     <img
-                        src={
-                            seat.user?.avatar ||
-                            "/defaults/default-avatar.png"
-                        }
+                        src={seat.user?.avatar || "/defaults/default-avatar.png"}
                         alt={seat.user?.username}
                         className="w-20 h-20 rounded-full object-cover border-4 border-white/30"
                         onError={(e) => {
-                            e.target.src =
-                                "/defaults/default-avatar.png";
+                            e.currentTarget.src = "/defaults/default-avatar.png";
                         }}
                     />
                 </div>
             )}
 
             {/* Gift Animation */}
-            {currentGift &&
-                currentGift.targetSeatId === seat.id && (
-                    <GiftAnimation
-                        gift={currentGift}
-                        onComplete={() => { }}
-                    />
-                )}
+            {currentGift && currentGift.targetSeatId === seat.id && (
+                <GiftAnimation gift={currentGift} onComplete={() => { }} />
+            )}
 
             {/* Bottom Info */}
             <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-3">
                 <div className="flex items-center gap-2">
-                    {seat.isHost && (
-                        <span className="text-yellow-400 text-lg">
-                            👑
-                        </span>
-                    )}
+                    {seat.isHost && <span className="text-yellow-400 text-lg">👑</span>}
                     <span className="text-white font-bold truncate">
                         {seat.user?.username || "Guest"}
                     </span>
-                    {seat.isMuted && (
-                        <span className="text-red-400">🔇</span>
-                    )}
+                    {seat.isMuted && <span className="text-red-400">🔇</span>}
                     {isSelf && (
                         <span className="text-cyan-400 text-xs bg-cyan-400/20 px-2 py-0.5 rounded-full">
                             (You)
@@ -294,13 +276,11 @@ const OccupiedSeat = ({
             )}
 
             {/* Host Controls */}
-            {isHostUser && !seat.isHost && showControls && (
+            {isHostUser && !seat.isHost && showControls && seat.user && (
                 <div className="absolute top-2 right-2 flex gap-2">
                     {onMute && (
                         <button
-                            onClick={() =>
-                                onMute(seat.user._id)
-                            }
+                            onClick={() => onMute(seat.user._id)}
                             className="w-9 h-9 bg-orange-500/90 rounded-full text-lg hover:bg-orange-500 transition flex items-center justify-center backdrop-blur-sm"
                             title="Mute user"
                         >
@@ -309,9 +289,7 @@ const OccupiedSeat = ({
                     )}
                     {onKick && (
                         <button
-                            onClick={() =>
-                                onKick(seat.user._id)
-                            }
+                            onClick={() => onKick(seat.user._id)}
                             className="w-9 h-9 bg-red-500/90 rounded-full text-lg hover:bg-red-500 transition flex items-center justify-center backdrop-blur-sm"
                             title="Kick user"
                         >
@@ -337,7 +315,7 @@ export default function MultiGuestLive({
     streamId,
     isHost = false,
     onEnd,
-    audioOnly = false, // optie: audio-only live, video optioneel
+    audioOnly = false,
 }) {
     const socketRef = useRef(null);
     const localStreamRef = useRef(null);
@@ -360,13 +338,10 @@ export default function MultiGuestLive({
     const [totalGifts, setTotalGifts] = useState(0);
     const [hostInfo, setHostInfo] = useState(null);
     const [mySeatId, setMySeatId] = useState(null);
-    const [currentGiftAnimation, setCurrentGiftAnimation] =
-        useState(null);
+    const [currentGiftAnimation, setCurrentGiftAnimation] = useState(null);
 
-    const [selectedBackground, setSelectedBackground] =
-        useState(BACKGROUNDS[0]);
-    const [showBackgroundPicker, setShowBackgroundPicker] =
-        useState(false);
+    const [selectedBackground, setSelectedBackground] = useState(BACKGROUNDS[0]);
+    const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
 
     const chatEndRef = useRef(null);
 
@@ -375,29 +350,23 @@ export default function MultiGuestLive({
        ------------------------------------------------------------ */
     useEffect(() => {
         socketRef.current = getSocket();
-        return () => {
-            // socket blijft global; hier geen disconnect
-        };
+
     }, []);
 
     /* ------------------------------------------------------------
        INIT SEATS
        ------------------------------------------------------------ */
     useEffect(() => {
-        const layout =
-            SEAT_LAYOUTS[maxSeats] || SEAT_LAYOUTS[12];
+        const layout = SEAT_LAYOUTS[maxSeats] || SEAT_LAYOUTS[12];
         const seatCount = maxSeats || layout.cols * layout.rows;
 
-        const initialSeats = Array.from(
-            { length: seatCount },
-            (_, idx) => ({
-                id: idx,
-                isHost: idx === 0,
-                user: null,
-                stream: null,
-                isMuted: false,
-            })
-        );
+        const initialSeats = Array.from({ length: seatCount }, (_, idx) => ({
+            id: idx,
+            isHost: idx === 0,
+            user: null,
+            stream: null,
+            isMuted: false,
+        }));
 
         if (isHost && currentUser) {
             initialSeats[0].user = currentUser;
@@ -412,9 +381,7 @@ export default function MultiGuestLive({
        AUTO SCROLL CHAT
        ------------------------------------------------------------ */
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({
-            behavior: "smooth",
-        });
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [chat]);
 
     /* ------------------------------------------------------------
@@ -448,21 +415,13 @@ export default function MultiGuestLive({
                     },
                 };
 
-            const stream =
-                await navigator.mediaDevices.getUserMedia(
-                    constraints
-                );
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             localStreamRef.current = stream;
-            console.log(
-                "✅ Media started:",
-                stream.getTracks()
-            );
+            console.log("✅ Media started:", stream.getTracks());
             return stream;
         } catch (err) {
             console.error("❌ Media error:", err);
-            toast.error(
-                "Could not access camera/microphone"
-            );
+            toast.error("Could not access camera/microphone");
             return null;
         }
     }, [audioOnly]);
@@ -471,45 +430,35 @@ export default function MultiGuestLive({
        PEER CONNECTION
        ------------------------------------------------------------ */
     const createPeerConnection = useCallback(
-        (odId) => {
-            if (!window.RTCPeerConnection) {
-                toast.error(
-                    "WebRTC not supported in this browser"
-                );
+        (peerId) => {
+            if (typeof window === "undefined" || !window.RTCPeerConnection) {
+                toast.error("WebRTC not supported in this browser");
                 return null;
             }
 
-            if (peersRef.current.has(odId)) {
-                return peersRef.current.get(odId);
+            const selfId = currentUser?._id || currentUser?.id;
+            if (!selfId) return null;
+
+            if (peersRef.current.has(peerId)) {
+                return peersRef.current.get(peerId);
             }
 
             const pc = new RTCPeerConnection(RTC_CONFIG);
 
             if (localStreamRef.current) {
-                localStreamRef.current
-                    .getTracks()
-                    .forEach((track) => {
-                        pc.addTrack(
-                            track,
-                            localStreamRef.current
-                        );
-                        console.log(
-                            `📤 Added ${track.kind} track for user ${odId}`
-                        );
-                    });
+                localStreamRef.current.getTracks().forEach((track) => {
+                    pc.addTrack(track, localStreamRef.current);
+                    console.log(`📤 Added ${track.kind} track for user ${peerId}`);
+                });
             }
 
             pc.ontrack = (event) => {
-                console.log(
-                    `📹 Received ${event.track.kind} from ${odId}`
-                );
+                console.log(`📹 Received ${event.track.kind} from ${peerId}`);
                 const [remoteStream] = event.streams;
 
                 setSeats((prev) =>
                     prev.map((seat) =>
-                        seat.user?._id === odId
-                            ? { ...seat, stream: remoteStream }
-                            : seat
+                        seat.user?._id === peerId ? { ...seat, stream: remoteStream } : seat
                     )
                 );
             };
@@ -519,21 +468,18 @@ export default function MultiGuestLive({
                     const socket = socketRef.current;
                     socket.emit("multi_ice_candidate", {
                         roomId,
-                        targetId: odId,
+                        targetId: peerId,
                         candidate: event.candidate,
-                        fromId: currentUser._id,
+                        fromId: selfId,
                     });
                 }
             };
 
             pc.onconnectionstatechange = () => {
-                console.log(
-                    `Connection ${odId}:`,
-                    pc.connectionState
-                );
+                console.log(`Connection ${peerId}:`, pc.connectionState);
             };
 
-            peersRef.current.set(odId, pc);
+            peersRef.current.set(peerId, pc);
             return pc;
         },
         [roomId, currentUser]
@@ -543,10 +489,12 @@ export default function MultiGuestLive({
        SOCKET EVENTS
        ------------------------------------------------------------ */
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser || !roomId) return;
 
         const socket = socketRef.current;
         if (!socket) return;
+
+        const selfId = currentUser._id || currentUser.id;
 
         // Join room als viewer/host
         socket.emit("join_multi_live", {
@@ -556,346 +504,236 @@ export default function MultiGuestLive({
         });
 
         // Viewer count
-        socket.on("viewer_count", (payload) => {
-            const c =
-                payload?.count ?? payload?.viewers ?? 0;
+        const handleViewerCount = (payload) => {
+            const c = payload?.count ?? payload?.viewers ?? 0;
             setViewers(c);
-        });
+        };
 
-        socket.on("viewers_list", ({ viewers }) => {
-            setViewersList(viewers || []);
-        });
+        const handleViewersList = ({ viewers: list }) => {
+            setViewersList(list || []);
+        };
 
-        // Chat
-        socket.on("chat_message", (msg) => {
-            if (msg.roomId === roomId || !msg.roomId) {
-                setChat((prev) => [
-                    ...prev.slice(-100),
-                    msg,
-                ]);
-            }
-        });
+        const handleChatMessage = (msg) => {
+            if (msg.roomId && msg.roomId !== roomId) return;
+            setChat((prev) => [...prev.slice(-100), msg]);
+        };
 
-        // Seat requests (host)
-        socket.on("seat_request", (req) => {
-            if (isHost && req.roomId === roomId) {
-                setSeatRequests((prev) => {
-                    if (
-                        prev.some(
-                            (r) => r.odId === req.odId
-                        )
-                    )
-                        return prev;
-                    return [...prev, req];
-                });
-                toast(
-                    `🙋 ${req.user?.username} wants to join!`,
-                    { duration: 5000, icon: "👋" }
-                );
-            }
-        });
+        const handleSeatRequest = (req) => {
+            if (!isHost || req.roomId !== roomId) return;
+            setSeatRequests((prev) => {
+                if (prev.some((r) => r.odId === req.odId)) return prev;
+                return [...prev, req];
+            });
+            toast(`🙋 ${req.user?.username} wants to join!`, {
+                duration: 5000,
+                icon: "👋",
+            });
+        };
 
-        // Seat approved
-        socket.on(
-            "seat_approved",
-            async ({ seatId, user, roomId: rid }) => {
-                if (rid !== roomId) return;
+        const handleSeatApproved = async ({ seatId, user, roomId: rid }) => {
+            if (rid !== roomId) return;
 
-                setSeats((prev) =>
-                    prev.map((s, idx) =>
-                        idx === seatId
-                            ? { ...s, user }
-                            : s
-                    )
-                );
+            setSeats((prev) =>
+                prev.map((s, idx) => (idx === seatId ? { ...s, user } : s))
+            );
 
-                if (user._id === currentUser._id) {
-                    setPendingRequest(null);
-                    setMySeatId(seatId);
-                    toast.success(
-                        `✅ You joined seat ${seatId + 1}!`
-                    );
+            if (user._id === selfId) {
+                setPendingRequest(null);
+                setMySeatId(seatId);
+                toast.success(`✅ You joined seat ${seatId + 1}!`);
 
-                    const stream = await startMedia();
-                    if (stream) {
-                        socket.emit("guest_ready", {
-                            roomId,
-                            odId: currentUser._id,
-                            seatId,
-                        });
-                    }
+                const stream = await startMedia();
+                if (stream) {
+                    socket.emit("guest_ready", {
+                        roomId,
+                        odId: selfId,
+                        seatId,
+                    });
                 }
             }
-        );
+        };
 
-        // Seat rejected
-        socket.on(
-            "seat_rejected",
-            ({ odId, roomId: rid }) => {
-                if (
-                    rid === roomId &&
-                    odId === currentUser._id
-                ) {
-                    setPendingRequest(null);
-                    toast.error(
-                        "❌ Your request was declined"
-                    );
-                }
+        const handleSeatRejected = ({ odId, roomId: rid }) => {
+            if (rid === roomId && odId === selfId) {
+                setPendingRequest(null);
+                toast.error("❌ Your request was declined");
             }
-        );
+        };
 
-        // Guest ready → maak offer (host / andere guests)
-        socket.on(
-            "guest_ready",
-            async ({ odId, seatId, roomId: rid }) => {
-                if (
-                    rid !== roomId ||
-                    odId === currentUser._id
-                )
-                    return;
+        const handleGuestReady = async ({ odId, roomId: rid }) => {
+            if (rid !== roomId || odId === selfId) return;
 
-                console.log(
-                    `🎥 Guest ${odId} ready, creating offer...`
-                );
+            console.log(`🎥 Guest ${odId} ready, creating offer...`);
 
-                if (
-                    localStreamRef.current &&
-                    mySeatId !== null
-                ) {
-                    const pc =
-                        createPeerConnection(odId);
-                    if (!pc) return;
-
-                    try {
-                        const offer =
-                            await pc.createOffer({
-                                offerToReceiveAudio: true,
-                                offerToReceiveVideo:
-                                    !audioOnly,
-                            });
-                        await pc.setLocalDescription(
-                            offer
-                        );
-
-                        socket.emit("multi_offer", {
-                            roomId,
-                            targetId: odId,
-                            sdp: offer,
-                            fromId: currentUser._id,
-                        });
-
-                        console.log(
-                            `📤 Offer sent to ${odId}`
-                        );
-                    } catch (err) {
-                        console.error(
-                            "Offer error:",
-                            err
-                        );
-                    }
-                }
-            }
-        );
-
-        // Offer ontvangen
-        socket.on(
-            "multi_offer",
-            async ({ fromId, sdp, roomId: rid }) => {
-                if (
-                    rid !== roomId ||
-                    fromId === currentUser._id
-                )
-                    return;
-
-                console.log(`📥 Offer from ${fromId}`);
-
-                const pc = createPeerConnection(fromId);
+            if (localStreamRef.current && mySeatId !== null) {
+                const pc = createPeerConnection(odId);
                 if (!pc) return;
 
                 try {
-                    await pc.setRemoteDescription(
-                        new RTCSessionDescription(sdp)
-                    );
-                    const answer =
-                        await pc.createAnswer();
-                    await pc.setLocalDescription(
-                        answer
-                    );
+                    const offer = await pc.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: !audioOnly,
+                    });
+                    await pc.setLocalDescription(offer);
 
-                    socket.emit("multi_answer", {
+                    socket.emit("multi_offer", {
                         roomId,
-                        targetId: fromId,
-                        sdp: answer,
-                        fromId: currentUser._id,
+                        targetId: odId,
+                        sdp: offer,
+                        fromId: selfId,
                     });
 
-                    console.log(
-                        `📤 Answer sent to ${fromId}`
-                    );
+                    console.log(`📤 Offer sent to ${odId}`);
                 } catch (err) {
-                    console.error(
-                        "Answer error:",
-                        err
-                    );
+                    console.error("Offer error:", err);
                 }
             }
-        );
+        };
 
-        // Answer ontvangen
-        socket.on(
-            "multi_answer",
-            async ({ fromId, sdp, roomId: rid }) => {
-                if (rid !== roomId) return;
+        const handleMultiOffer = async ({ fromId, sdp, roomId: rid }) => {
+            if (rid !== roomId || fromId === selfId) return;
 
-                console.log(`📥 Answer from ${fromId}`);
+            console.log(`📥 Offer from ${fromId}`);
 
-                const pc =
-                    peersRef.current.get(fromId);
-                if (pc) {
-                    try {
-                        await pc.setRemoteDescription(
-                            new RTCSessionDescription(sdp)
-                        );
-                    } catch (err) {
-                        console.error(
-                            "Set answer error:",
-                            err
-                        );
-                    }
+            const pc = createPeerConnection(fromId);
+            if (!pc) return;
+
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                socket.emit("multi_answer", {
+                    roomId,
+                    targetId: fromId,
+                    sdp: answer,
+                    fromId: selfId,
+                });
+
+                console.log(`📤 Answer sent to ${fromId}`);
+            } catch (err) {
+                console.error("Answer error:", err);
+            }
+        };
+
+        const handleMultiAnswer = async ({ fromId, sdp, roomId: rid }) => {
+            if (rid !== roomId) return;
+
+            console.log(`📥 Answer from ${fromId}`);
+
+            const pc = peersRef.current.get(fromId);
+            if (pc) {
+                try {
+                    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                } catch (err) {
+                    console.error("Set answer error:", err);
                 }
             }
-        );
+        };
 
-        // ICE
-        socket.on(
-            "multi_ice_candidate",
-            async ({ fromId, candidate, roomId: rid }) => {
-                if (rid !== roomId) return;
-
-                const pc =
-                    peersRef.current.get(fromId);
-                if (pc && candidate) {
-                    try {
-                        await pc.addIceCandidate(
-                            new RTCIceCandidate(candidate)
-                        );
-                    } catch (err) {
-                        console.error(
-                            "ICE error:",
-                            err
-                        );
-                    }
+        const handleIceCandidate = async ({ fromId, candidate, roomId: rid }) => {
+            if (rid !== roomId) return;
+            const pc = peersRef.current.get(fromId);
+            if (pc && candidate) {
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (err) {
+                    console.error("ICE error:", err);
                 }
             }
-        );
+        };
 
-        // User left seat
-        socket.on(
-            "user_left_seat",
-            ({ odId, roomId: rid }) => {
-                if (rid !== roomId) return;
-                setSeats((prev) =>
-                    prev.map((s) =>
-                        s.user?._id === odId
-                            ? {
-                                ...s,
-                                user: null,
-                                stream: null,
-                                isMuted: false,
-                            }
-                            : s
-                    )
-                );
-                const pc =
-                    peersRef.current.get(odId);
-                if (pc) {
-                    pc.close();
-                    peersRef.current.delete(odId);
-                }
+        const handleUserLeftSeat = ({ odId, roomId: rid }) => {
+            if (rid !== roomId) return;
+            setSeats((prev) =>
+                prev.map((s) =>
+                    s.user?._id === odId
+                        ? { ...s, user: null, stream: null, isMuted: false }
+                        : s
+                )
+            );
+            const pc = peersRef.current.get(odId);
+            if (pc) {
+                pc.close();
+                peersRef.current.delete(odId);
             }
-        );
+        };
 
-        // Kicked
-        socket.on("kicked_from_seat", ({ roomId: rid }) => {
+        const handleKickedFromSeat = ({ roomId: rid }) => {
             if (rid !== roomId) return;
             toast.error("You were removed from the stream");
             setMySeatId(null);
             if (localStreamRef.current) {
-                localStreamRef.current
-                    .getTracks()
-                    .forEach((t) => t.stop());
+                localStreamRef.current.getTracks().forEach((t) => t.stop());
                 localStreamRef.current = null;
             }
-        });
+        };
 
-        // Muted
-        socket.on(
-            "user_muted",
-            ({ odId, roomId: rid }) => {
-                if (rid !== roomId) return;
+        const handleUserMuted = ({ odId, roomId: rid }) => {
+            if (rid !== roomId) return;
 
-                setSeats((prev) =>
-                    prev.map((s) =>
-                        s.user?._id === odId
-                            ? { ...s, isMuted: true }
-                            : s
-                    )
-                );
+            setSeats((prev) =>
+                prev.map((s) =>
+                    s.user?._id === odId ? { ...s, isMuted: true } : s
+                )
+            );
 
-                if (odId === currentUser._id) {
-                    toast("🔇 You were muted by the host");
-                    if (localStreamRef.current) {
-                        localStreamRef.current
-                            .getAudioTracks()
-                            .forEach((track) => {
-                                track.enabled = false;
-                            });
-                    }
+            if (odId === selfId) {
+                toast("🔇 You were muted by the host");
+                if (localStreamRef.current) {
+                    localStreamRef.current.getAudioTracks().forEach((track) => {
+                        track.enabled = false;
+                    });
                 }
             }
-        );
+        };
 
-        // Gifts
-        socket.on("gift_received", (gift) => {
+        const handleGiftReceived = (gift) => {
             setGifts((prev) => [
                 ...prev.slice(-20),
                 {
                     icon: gift.icon,
                     name: gift.item || gift.name,
                     from: gift.senderUsername,
-                    targetSeatId:
-                        gift.targetSeatId || 0,
+                    targetSeatId: gift.targetSeatId || 0,
                 },
             ]);
             setTotalGifts((prev) => prev + 1);
 
-            setCurrentGiftAnimation({
+            const animGift = {
                 icon: gift.icon,
                 name: gift.item || gift.name,
                 from: gift.senderUsername,
-                targetSeatId:
-                    gift.targetSeatId || 0,
-            });
+                targetSeatId: gift.targetSeatId || 0,
+            };
 
-            setTimeout(
-                () => setCurrentGiftAnimation(null),
-                3000
-            );
+            setCurrentGiftAnimation(animGift);
+            setTimeout(() => setCurrentGiftAnimation(null), 3000);
 
-            toast.success(
-                `🎁 ${gift.senderUsername} sent ${gift.icon}!`
-            );
-        });
+            toast.success(`🎁 ${gift.senderUsername} sent ${gift.icon || "🎁"}!`);
+        };
 
-        // Stream ended
-        socket.on(
-            "multi_live_ended",
-            ({ roomId: rid }) => {
-                if (rid !== roomId) return;
-                toast("Stream ended");
-                onEnd?.();
-            }
-        );
+        const handleMultiLiveEnded = ({ roomId: rid }) => {
+            if (rid !== roomId) return;
+            toast("Stream ended");
+            onEnd?.();
+        };
+
+        socket.on("viewer_count", handleViewerCount);
+        socket.on("viewers_list", handleViewersList);
+        socket.on("chat_message", handleChatMessage);
+        socket.on("seat_request", handleSeatRequest);
+        socket.on("seat_approved", handleSeatApproved);
+        socket.on("seat_rejected", handleSeatRejected);
+        socket.on("guest_ready", handleGuestReady);
+        socket.on("multi_offer", handleMultiOffer);
+        socket.on("multi_answer", handleMultiAnswer);
+        socket.on("multi_ice_candidate", handleIceCandidate);
+        socket.on("user_left_seat", handleUserLeftSeat);
+        socket.on("kicked_from_seat", handleKickedFromSeat);
+        socket.on("user_muted", handleUserMuted);
+        socket.on("gift_received", handleGiftReceived);
+        socket.on("multi_live_ended", handleMultiLiveEnded);
 
         // Host info voor viewers
         if (!isHost && (streamId || roomId)) {
@@ -906,10 +744,7 @@ export default function MultiGuestLive({
                         setSeats((prev) =>
                             prev.map((s, idx) =>
                                 idx === 0
-                                    ? {
-                                        ...s,
-                                        user: res.data.host,
-                                    }
+                                    ? { ...s, user: res.data.host, isHost: true }
                                     : s
                             )
                         );
@@ -921,8 +756,9 @@ export default function MultiGuestLive({
         return () => {
             socket.emit("leave_multi_live", {
                 roomId,
-                odId: currentUser._id,
+                odId: selfId,
             });
+
             [
                 "viewer_count",
                 "viewers_list",
@@ -976,9 +812,7 @@ export default function MultiGuestLive({
 
     const endLive = async () => {
         if (localStreamRef.current) {
-            localStreamRef.current
-                .getTracks()
-                .forEach((t) => t.stop());
+            localStreamRef.current.getTracks().forEach((t) => t.stop());
         }
         peersRef.current.forEach((pc) => pc.close());
         peersRef.current.clear();
@@ -988,9 +822,7 @@ export default function MultiGuestLive({
 
         if (streamId) {
             try {
-                await api.post(
-                    `/api/live/${streamId}/end`
-                );
+                await api.post(`/api/live/${streamId}/end`);
             } catch {
                 // ignore
             }
@@ -1003,16 +835,21 @@ export default function MultiGuestLive({
        SEAT REQUESTS
        ------------------------------------------------------------ */
     const requestSeat = (seatId) => {
-        if (pendingRequest !== null || mySeatId !== null)
+        if (pendingRequest !== null || mySeatId !== null) return;
+        if (!currentUser) {
+            toast.error("Log in to join the panel");
             return;
-        if (!currentUser) return;
+        }
+        const selfId = currentUser._id || currentUser.id;
+        if (!selfId) return;
+
         setPendingRequest(seatId);
         const socket = socketRef.current;
         socket.emit("request_seat", {
             roomId,
             seatId,
             user: currentUser,
-            odId: currentUser._id,
+            odId: selfId,
         });
         toast("⏳ Request sent!");
     };
@@ -1020,9 +857,7 @@ export default function MultiGuestLive({
     const approveSeatRequest = (req) => {
         setSeats((prev) =>
             prev.map((s, idx) =>
-                idx === req.seatId
-                    ? { ...s, user: req.user }
-                    : s
+                idx === req.seatId ? { ...s, user: req.user } : s
             )
         );
 
@@ -1034,12 +869,8 @@ export default function MultiGuestLive({
             odId: req.odId,
         });
 
-        setSeatRequests((prev) =>
-            prev.filter((r) => r.odId !== req.odId)
-        );
-        toast.success(
-            `✅ ${req.user?.username} approved!`
-        );
+        setSeatRequests((prev) => prev.filter((r) => r.odId !== req.odId));
+        toast.success(`✅ ${req.user?.username} approved!`);
     };
 
     const rejectSeatRequest = (req) => {
@@ -1048,9 +879,7 @@ export default function MultiGuestLive({
             roomId,
             odId: req.odId,
         });
-        setSeatRequests((prev) =>
-            prev.filter((r) => r.odId !== req.odId)
-        );
+        setSeatRequests((prev) => prev.filter((r) => r.odId !== req.odId));
     };
 
     const kickFromSeat = (userId) => {
@@ -1069,16 +898,16 @@ export default function MultiGuestLive({
     };
 
     const leaveSeat = () => {
+        if (!currentUser) return;
+        const selfId = currentUser._id || currentUser.id;
         const socket = socketRef.current;
         socket.emit("leave_seat", {
             roomId,
-            odId: currentUser._id,
+            odId: selfId,
         });
         setMySeatId(null);
         if (localStreamRef.current) {
-            localStreamRef.current
-                .getTracks()
-                .forEach((t) => t.stop());
+            localStreamRef.current.getTracks().forEach((t) => t.stop());
             localStreamRef.current = null;
         }
     };
@@ -1088,12 +917,19 @@ export default function MultiGuestLive({
        ------------------------------------------------------------ */
     const sendMessage = (e) => {
         e.preventDefault();
-        if (!chatInput.trim()) return;
+        const text = chatInput.trim();
+        if (!text) return;
+
+        if (!currentUser) {
+            toast.error("Log in to chat");
+            return;
+        }
+
         const socket = socketRef.current;
         socket.emit("chat_message", {
             roomId,
             username: currentUser.username,
-            text: chatInput.trim(),
+            text,
             avatar: currentUser.avatar,
         });
         setChatInput("");
@@ -1103,8 +939,7 @@ export default function MultiGuestLive({
        LAYOUT
        ------------------------------------------------------------ */
     const getGridClass = () => {
-        const layout =
-            SEAT_LAYOUTS[maxSeats] || SEAT_LAYOUTS[12];
+        const layout = SEAT_LAYOUTS[maxSeats] || SEAT_LAYOUTS[12];
         if (layout.cols === 1) return "grid-cols-1";
         if (layout.cols === 2) return "grid-cols-2";
         if (layout.cols === 3) return "grid-cols-3";
@@ -1115,7 +950,7 @@ export default function MultiGuestLive({
        RENDER
        ------------------------------------------------------------ */
     return (
-        <div className="h-screen flex flex-col bg-gradient-to-br from-gray-900 via-purple-900/30 to-gray-900 text-white">
+        <div className="h-screen flex flex-col bg-gradient-to-br from-gray-900 via-purple-900/30 to-gray-900 text-white relative">
             {/* Header */}
             <div className="flex items-center justify-between p-3 bg-black/50 border-b border-white/10">
                 <div className="flex items-center gap-3">
@@ -1126,12 +961,8 @@ export default function MultiGuestLive({
                         </span>
                     </div>
                     <div>
-                        <h2 className="font-bold">
-                            {streamTitle}
-                        </h2>
-                        <p className="text-white/50 text-xs">
-                            {streamCategory}
-                        </p>
+                        <h2 className="font-bold">{streamTitle}</h2>
+                        <p className="text-white/50 text-xs">{streamCategory}</p>
                     </div>
                 </div>
 
@@ -1139,30 +970,22 @@ export default function MultiGuestLive({
                     {totalGifts > 0 && (
                         <div className="flex items-center gap-1 text-yellow-400">
                             <span>🎁</span>
-                            <span className="font-bold">
-                                {totalGifts}
-                            </span>
+                            <span className="font-bold">{totalGifts}</span>
                         </div>
                     )}
 
                     <div
                         className="flex items-center gap-1 text-white/70 cursor-pointer hover:text-cyan-400 transition"
-                        onClick={() =>
-                            setShowViewers(!showViewers)
-                        }
+                        onClick={() => setShowViewers(!showViewers)}
                     >
                         <span>👁</span>
-                        <span className="font-bold">
-                            {viewers}
-                        </span>
+                        <span className="font-bold">{viewers}</span>
                     </div>
 
                     {isHost && mySeatId === 0 && (
                         <button
                             onClick={() =>
-                                setShowBackgroundPicker(
-                                    !showBackgroundPicker
-                                )
+                                setShowBackgroundPicker(!showBackgroundPicker)
                             }
                             className="px-3 py-1.5 bg-purple-500 hover:bg-purple-600 rounded-full font-bold text-sm transition"
                         >
@@ -1197,9 +1020,7 @@ export default function MultiGuestLive({
                         👥 Viewers ({viewersList.length})
                     </h3>
                     {viewersList.length === 0 ? (
-                        <p className="text-white/40 text-sm">
-                            No viewers yet
-                        </p>
+                        <p className="text-white/40 text-sm">No viewers yet</p>
                     ) : (
                         <div className="space-y-2">
                             {viewersList.map((viewer, idx) => (
@@ -1214,6 +1035,10 @@ export default function MultiGuestLive({
                                         }
                                         className="w-8 h-8 rounded-full"
                                         alt=""
+                                        onError={(e) => {
+                                            e.currentTarget.src =
+                                                "/defaults/default-avatar.png";
+                                        }}
                                     />
                                     <span className="text-sm">
                                         {viewer.username}
@@ -1238,12 +1063,9 @@ export default function MultiGuestLive({
                                 onClick={() => {
                                     setSelectedBackground(bg);
                                     setShowBackgroundPicker(false);
-                                    toast.success(
-                                        `Background: ${bg.name}`
-                                    );
+                                    toast.success(`Background: ${bg.name}`);
                                 }}
-                                className={`p-3 rounded-lg border-2 transition hover:scale-105 ${selectedBackground.id ===
-                                        bg.id
+                                className={`p-3 rounded-lg border-2 transition hover:scale-105 ${selectedBackground.id === bg.id
                                         ? "border-purple-400 bg-purple-500/20"
                                         : "border-white/20 bg-white/5"
                                     }`}
@@ -1255,11 +1077,9 @@ export default function MultiGuestLive({
                                         alt=""
                                     />
                                 ) : (
-                                    <div className="w-full h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded mb-1"></div>
+                                    <div className="w-full h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded mb-1" />
                                 )}
-                                <p className="text-xs font-semibold">
-                                    {bg.name}
-                                </p>
+                                <p className="text-xs font-semibold">{bg.name}</p>
                             </button>
                         ))}
                     </div>
@@ -1270,44 +1090,24 @@ export default function MultiGuestLive({
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
                 {/* Seats Grid */}
                 <div className="flex-1 p-4 overflow-y-auto flex items-center justify-center relative">
-                    <div
-                        className={`grid ${getGridClass()} gap-3 w-full max-w-3xl`}
-                    >
+                    <div className={`grid ${getGridClass()} gap-3 w-full max-w-3xl`}>
                         {seats.map((seat, idx) =>
                             seat.user ? (
                                 <OccupiedSeat
                                     key={idx}
                                     seat={seat}
-                                    isSelf={
-                                        seat.user?._id ===
-                                        currentUser?._id
-                                    }
+                                    isSelf={seat.user?._id === currentUser?._id}
                                     localStream={
-                                        seat.user?._id ===
-                                            currentUser?._id
+                                        seat.user?._id === currentUser?._id
                                             ? localStreamRef.current
                                             : null
                                     }
-                                    onKick={
-                                        isHost &&
-                                            !seat.isHost
-                                            ? kickFromSeat
-                                            : null
-                                    }
-                                    onMute={
-                                        isHost &&
-                                            !seat.isHost
-                                            ? muteUser
-                                            : null
-                                    }
+                                    onKick={isHost && !seat.isHost ? kickFromSeat : null}
+                                    onMute={isHost && !seat.isHost ? muteUser : null}
                                     isHostUser={isHost}
-                                    currentGift={
-                                        currentGiftAnimation
-                                    }
+                                    currentGift={currentGiftAnimation}
                                     background={
-                                        seat.user?._id ===
-                                            currentUser?._id &&
-                                            isHost
+                                        seat.user?._id === currentUser?._id && isHost
                                             ? selectedBackground
                                             : null
                                     }
@@ -1317,15 +1117,13 @@ export default function MultiGuestLive({
                                     key={idx}
                                     seatId={idx}
                                     onRequestSeat={requestSeat}
-                                    isPending={
-                                        pendingRequest === idx
-                                    }
+                                    isPending={pendingRequest === idx}
                                 />
                             )
                         )}
                     </div>
 
-                    {/* Go Live Overlay (host, solo/multi) */}
+                    {/* Go Live Overlay (host) */}
                     {isHost && !isLive && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
                             <button
@@ -1335,6 +1133,14 @@ export default function MultiGuestLive({
                                 {audioOnly ? "🎙 Go LIVE (Audio)" : "🎥 Go LIVE"}
                             </button>
                         </div>
+                    )}
+
+                    {/* Global Gift Animation */}
+                    {currentGiftAnimation && (
+                        <GiftAnimation
+                            gift={currentGiftAnimation}
+                            onComplete={() => setCurrentGiftAnimation(null)}
+                        />
                     )}
                 </div>
 
@@ -1353,9 +1159,7 @@ export default function MultiGuestLive({
                         </button>
                         {isHost && (
                             <button
-                                onClick={() =>
-                                    setActiveTab("requests")
-                                }
+                                onClick={() => setActiveTab("requests")}
                                 className={`flex-1 py-3 text-sm font-semibold relative transition ${activeTab === "requests"
                                         ? "text-cyan-400 border-b-2 border-cyan-400"
                                         : "text-white/50"
@@ -1402,6 +1206,10 @@ export default function MultiGuestLive({
                                                 }
                                                 className="w-8 h-8 rounded-full"
                                                 alt=""
+                                                onError={(e) => {
+                                                    e.currentTarget.src =
+                                                        "/defaults/default-avatar.png";
+                                                }}
                                             />
                                             <div className="flex-1 min-w-0">
                                                 <span className="text-cyan-400 text-sm font-semibold">
@@ -1433,41 +1241,32 @@ export default function MultiGuestLive({
                                         >
                                             <img
                                                 src={
-                                                    req.user
-                                                        ?.avatar ||
+                                                    req.user?.avatar ||
                                                     "/defaults/default-avatar.png"
                                                 }
                                                 className="w-12 h-12 rounded-full"
                                                 alt=""
+                                                onError={(e) => {
+                                                    e.currentTarget.src =
+                                                        "/defaults/default-avatar.png";
+                                                }}
                                             />
                                             <div className="flex-1">
                                                 <p className="font-semibold">
-                                                    {
-                                                        req.user
-                                                            ?.username
-                                                    }
+                                                    {req.user?.username}
                                                 </p>
                                                 <p className="text-xs text-white/50">
-                                                    Seat{" "}
-                                                    {req.seatId + 1}
+                                                    Seat {req.seatId + 1}
                                                 </p>
                                             </div>
                                             <button
-                                                onClick={() =>
-                                                    approveSeatRequest(
-                                                        req
-                                                    )
-                                                }
+                                                onClick={() => approveSeatRequest(req)}
                                                 className="px-4 py-2 bg-green-500 rounded-lg text-sm font-semibold"
                                             >
                                                 ✓
                                             </button>
                                             <button
-                                                onClick={() =>
-                                                    rejectSeatRequest(
-                                                        req
-                                                    )
-                                                }
+                                                onClick={() => rejectSeatRequest(req)}
                                                 className="px-4 py-2 bg-red-500/50 rounded-lg text-sm"
                                             >
                                                 ✕
@@ -1483,16 +1282,9 @@ export default function MultiGuestLive({
                             <div>
                                 {!isHost && hostInfo && (
                                     <LiveGiftPanel
-                                        streamId={
-                                            streamId || roomId
-                                        }
-                                        hostId={
-                                            hostInfo._id ||
-                                            hostInfo.id
-                                        }
-                                        hostUsername={
-                                            hostInfo.username
-                                        }
+                                        streamId={streamId || roomId}
+                                        hostId={hostInfo._id || hostInfo.id}
+                                        hostUsername={hostInfo.username}
                                     />
                                 )}
                                 <div className="p-3 border-t border-white/10">
@@ -1513,24 +1305,18 @@ export default function MultiGuestLive({
                                                     className="flex items-center gap-2 text-sm bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg p-3 mb-2"
                                                 >
                                                     <span className="text-2xl">
-                                                        {
-                                                            gift.icon
-                                                        }
+                                                        {gift.icon}
                                                     </span>
                                                     <div className="flex-1">
                                                         <span className="text-yellow-400 font-semibold">
-                                                            {
-                                                                gift.from
-                                                            }
+                                                            {gift.from}
                                                         </span>
                                                         <span className="text-white/50">
                                                             {" "}
                                                             sent{" "}
                                                         </span>
                                                         <span className="text-white font-semibold">
-                                                            {
-                                                                gift.name
-                                                            }
+                                                            {gift.name}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -1551,12 +1337,12 @@ export default function MultiGuestLive({
                                 <input
                                     type="text"
                                     value={chatInput}
-                                    onChange={(e) =>
-                                        setChatInput(
-                                            e.target.value
-                                        )
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    placeholder={
+                                        currentUser
+                                            ? "Say something..."
+                                            : "Log in to chat"
                                     }
-                                    placeholder="Say something..."
                                     maxLength={200}
                                     className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-full text-sm placeholder-white/40 outline-none focus:border-cyan-400"
                                 />

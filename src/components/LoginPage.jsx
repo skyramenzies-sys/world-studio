@@ -2,24 +2,9 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import axios from "axios";
 
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION (U.E.)
-   ============================================================ */
-
-const RAW_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    "https://world-studio-production.up.railway.app";
-
-// Zorg dat we GEEN dubbele /api of trailing slash krijgen
-const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
+// Universe Edition: gebruik centrale API-client
+import api from "../api/api";
 
 /* ============================================================
    MAIN COMPONENT
@@ -79,7 +64,9 @@ export default function LoginPage() {
 
             if (mode === "forgot") {
                 // Forgot password
-                await api.post("/api/auth/forgot-password", { email: trimmedEmail });
+                await api.post("/api/auth/forgot-password", {
+                    email: trimmedEmail,
+                });
                 toast.success(
                     "If an account exists, you'll receive a reset link via email"
                 );
@@ -155,8 +142,7 @@ export default function LoginPage() {
 
             const rawUser =
                 data.user ||
-                data.profile ||
-                {
+                data.profile || {
                     _id: data.userId || data._id,
                     username: data.username,
                     email: data.email,
@@ -268,7 +254,9 @@ export default function LoginPage() {
                 {mode === "forgot" ? (
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
-                            <label className="block text-white/80 text-sm mb-2">Email</label>
+                            <label className="block text-white/80 text-sm mb-2">
+                                Email
+                            </label>
                             <input
                                 type="email"
                                 name="email"
@@ -324,7 +312,9 @@ export default function LoginPage() {
 
                         {/* Email */}
                         <div>
-                            <label className="block text-white/80 text-sm mb-2">Email</label>
+                            <label className="block text-white/80 text-sm mb-2">
+                                Email
+                            </label>
                             <input
                                 type="email"
                                 name="email"
@@ -340,8 +330,11 @@ export default function LoginPage() {
                         {mode === "register" && (
                             <div>
                                 <label className="block text-white/80 text-sm mb-2">
-                                    Birth Date <span className="text-red-400">*</span>
-                                    <span className="text-white/40 ml-2">(Must be 18+)</span>
+                                    Birth Date{" "}
+                                    <span className="text-red-400">*</span>
+                                    <span className="text-white/40 ml-2">
+                                        (Must be 18+)
+                                    </span>
                                 </label>
                                 <input
                                     type="date"
@@ -355,7 +348,8 @@ export default function LoginPage() {
                                 {formData.birthDate &&
                                     calculateAge(formData.birthDate) < 18 && (
                                         <p className="text-red-400 text-sm mt-1">
-                                            ⚠️ You must be 18 or older to register
+                                            ⚠️ You must be 18 or older to
+                                            register
                                         </p>
                                     )}
                             </div>
@@ -363,7 +357,9 @@ export default function LoginPage() {
 
                         {/* Password */}
                         <div>
-                            <label className="block text-white/80 text-sm mb-2">Password</label>
+                            <label className="block text-white/80 text-sm mb-2">
+                                Password
+                            </label>
                             <div className="relative">
                                 <input
                                     type={showPassword ? "text" : "password"}
@@ -377,7 +373,9 @@ export default function LoginPage() {
                                 />
                                 <button
                                     type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
+                                    onClick={() =>
+                                        setShowPassword(!showPassword)
+                                    }
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition"
                                 >
                                     {showPassword ? "🙈" : "👁"}
@@ -400,7 +398,8 @@ export default function LoginPage() {
                                     htmlFor="agreeTerms"
                                     className="text-white/70 text-sm"
                                 >
-                                    I confirm that I am at least 18 years old and agree to the{" "}
+                                    I confirm that I am at least 18 years old
+                                    and agree to the{" "}
                                     <a
                                         href="/terms"
                                         className="text-cyan-400 hover:underline"
@@ -487,7 +486,9 @@ export default function LoginPage() {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setMode(mode === "login" ? "register" : "login");
+                                    setMode(
+                                        mode === "login" ? "register" : "login"
+                                    );
                                     resetForm();
                                 }}
                                 className="ml-2 text-cyan-400 hover:text-cyan-300 font-semibold transition"
@@ -548,7 +549,8 @@ export default function LoginPage() {
                 {mode === "register" && (
                     <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                         <p className="text-yellow-400 text-xs text-center">
-                            ⚠️ World-Studio is only available for users 18 years and older
+                            ⚠️ World-Studio is only available for users 18 years
+                            and older
                         </p>
                     </div>
                 )}

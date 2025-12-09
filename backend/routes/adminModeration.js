@@ -4,6 +4,8 @@
 const express = require("express");
 const router = express.Router();
 
+const { auth } = require("../middleware/auth");
+const requireAdmin = require("../middleware/requireAdmin");
 const User = require("../models/User");
 
 // Helper: user object schoonmaken
@@ -34,9 +36,11 @@ function computeAutoBanDurationSeconds(strikesBefore) {
     return -1; // permanent vanaf 6e keer
 }
 
-// GET /api/admin/moderation/user?query=xxx   of  ?userId=...
-// query kan username, email of _id zijn
-router.get("/user", async (req, res) => {
+// =====================================================
+// GET /api/admin/moderation/user
+// query: ?query=xxx  (username, email, _id)  of  ?userId=...
+// =====================================================
+router.get("/user", auth, requireAdmin, async (req, res) => {
     try {
         const { query, userId } = req.query;
 
@@ -82,7 +86,7 @@ router.get("/user", async (req, res) => {
             user: sanitizeUser(user),
         });
     } catch (err) {
-        console.error("GET /admin/moderation/user error:", err);
+        console.error("GET /api/admin/moderation/user error:", err);
         return res.status(500).json({
             success: false,
             error: "Failed to fetch user",
@@ -90,10 +94,12 @@ router.get("/user", async (req, res) => {
     }
 });
 
+// =====================================================
 // POST /api/admin/moderation/action
 // body: { userId, action, durationSeconds?, reason? }
 // action: "warning" | "ban" | "unban"
-router.post("/action", async (req, res) => {
+// =====================================================
+router.post("/action", auth, requireAdmin, async (req, res) => {
     try {
         const { userId, action, durationSeconds, reason } = req.body;
 
@@ -161,8 +167,7 @@ router.post("/action", async (req, res) => {
 
             user.isBanned = true;
             user.bannedAt = now;
-            user.banReason =
-                reason || "Violation of community guidelines";
+            user.banReason = reason || "Violation of community guidelines";
             user.lastViolationAt = now;
             user.moderationStrikes = (user.moderationStrikes || 0) + 1;
 
@@ -229,8 +234,7 @@ router.post("/action", async (req, res) => {
             user.moderationHistory.push(event);
 
             if (user.moderationHistory.length > 200) {
-                user.moderationHistory =
-                    user.moderationHistory.slice(-200);
+                user.moderationHistory = user.moderationHistory.slice(-200);
             }
         }
 
@@ -261,27 +265,21 @@ router.post("/action", async (req, res) => {
                 });
             }
         } catch (notifyErr) {
-            console.warn(
-                "Moderation notification failed:",
-                notifyErr.message
-            );
+            console.warn("Moderation notification failed:", notifyErr.message);
         }
 
         // Optioneel: socket update naar client
         try {
             const io = req.app.get("io");
             if (io && (action === "ban" || action === "unban")) {
-                io.to(`user:${user._id.toString()}`).emit(
-                    "moderation:update",
-                    {
-                        action,
-                        isBanned: user.isBanned,
-                        isPermanentBan: user.isPermanentBan,
-                        bannedUntil: user.bannedUntil,
-                        banReason: user.banReason,
-                        moderationStrikes: user.moderationStrikes,
-                    }
-                );
+                io.to(`user:${user._id.toString()}`).emit("moderation:update", {
+                    action,
+                    isBanned: user.isBanned,
+                    isPermanentBan: user.isPermanentBan,
+                    bannedUntil: user.bannedUntil,
+                    banReason: user.banReason,
+                    moderationStrikes: user.moderationStrikes,
+                });
             }
         } catch (ioErr) {
             console.warn("Moderation io emit failed:", ioErr.message);
@@ -293,7 +291,7 @@ router.post("/action", async (req, res) => {
             user: sanitizeUser(user),
         });
     } catch (err) {
-        console.error("POST /admin/moderation/action error:", err);
+        console.error("POST /api/admin/moderation/action error:", err);
         return res.status(500).json({
             success: false,
             error: "Failed to apply moderation action",

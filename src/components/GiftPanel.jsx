@@ -55,7 +55,7 @@ const GIFT_TIERS = {
 };
 
 /* ============================================================
-   FUTURISTIC GIFTS (ALIGNED WITH GiftShop)
+   FUTURISTIC GIFTS (ALIGNED WITH AudioLive GIFT_MAP)
    ============================================================ */
 
 const GIFTS = [
@@ -157,10 +157,7 @@ const playSound = (soundName, volume = 0.5) => {
                     g.connect(ctx.destination);
                     o.frequency.value = freq;
                     g.gain.setValueAtTime(volume * 0.2, ctx.currentTime + i * 0.1);
-                    g.gain.exponentialRampToValueAtTime(
-                        0.01,
-                        ctx.currentTime + i * 0.1 + 0.3
-                    );
+                    g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.1 + 0.3);
                     o.start(ctx.currentTime + i * 0.1);
                     o.stop(ctx.currentTime + i * 0.1 + 0.3);
                 });
@@ -347,7 +344,7 @@ function CosmicBackground({ tier }) {
     const config = GIFT_TIERS[tier] || GIFT_TIERS.common;
 
     return (
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute inset-0 z-0.pointer-events-none overflow-hidden">
             <div
                 className={`absolute inset-0 bg-gradient-to-br ${config.color} opacity-10`}
             />
@@ -389,8 +386,8 @@ export function GiftReceivedAlert({ gift, sender, onComplete }) {
     return (
         <div
             className={`fixed top-24 left-1/2 -translate-x-1/2 z-[100] transition-all duration-500 ${visible
-                ? "opacity-100 scale-100 translate-y-0"
-                : "opacity-0 scale-75 -translate-y-10"
+                    ? "opacity-100 scale-100 translate-y-0"
+                    : "opacity-0 scale-75 -translate-y-10"
                 }`}
         >
             <div
@@ -413,7 +410,7 @@ export function GiftReceivedAlert({ gift, sender, onComplete }) {
                             <p className="text-white/60 text-sm font-medium">
                                 🎁 Gift Received!
                             </p>
-                            <p className="text-white font.bold text-xl">
+                            <p className="text-white font-bold text-xl">
                                 {sender} sent{" "}
                                 <span
                                     className={`bg-gradient-to-r ${tier.color} bg-clip-text text-transparent`}
@@ -485,39 +482,57 @@ export default function GiftPanel({
         }
     }, []);
 
-    // Socket listeners
+    // Socket listeners (zowel gift_received als gift_sent)
     useEffect(() => {
         const s = socketRef.current;
         if (!s) return;
 
         const handleGift = (data) => {
+            // payload kan van server komen in verschillende vormen → normaliseren
+            const itemName = data.giftName || data.item || data.name || "Gift";
+            const amount = data.value ?? data.amount ?? data.coins ?? 0;
+
+            const def = GIFTS.find((g) => g.name === itemName) || {};
+            const gift = {
+                icon: data.icon || def.icon || "🎁",
+                name: itemName,
+                amount,
+                tier: data.tier || def.tier || "common",
+                sound: data.sound || def.sound || "sparkle",
+            };
+
             const isMe =
                 data.recipientId === currentUser?._id ||
                 data.recipientId === currentUser?.id;
 
             if (isMe) {
-                setUserBalance((prev) => prev + (data.amount || 0));
-                const found = GIFTS.find((g) => g.name === data.item) || {};
-                const gift = {
-                    icon: found.icon || "🎁",
-                    name: data.item,
-                    amount: data.amount,
-                    tier: found.tier || "common",
-                    sound: found.sound || "sparkle",
-                };
+                setUserBalance((prev) => prev + amount);
+
                 toast.custom(
                     (t) => (
                         <GiftReceivedAlert
                             gift={gift}
-                            sender={data.senderUsername}
+                            sender={
+                                data.senderUsername ||
+                                data.sender ||
+                                "Someone"
+                            }
                             onComplete={() => toast.dismiss(t.id)}
                         />
                     ),
                     { duration: 5000 }
                 );
             }
+
             setRecentGifts((prev) => [
-                { ...data, timestamp: Date.now() },
+                {
+                    ...data,
+                    icon: gift.icon,
+                    giftName: gift.name,
+                    amount,
+                    tier: gift.tier,
+                    timestamp: Date.now(),
+                },
                 ...prev.slice(0, 9),
             ]);
         };
@@ -544,6 +559,7 @@ export default function GiftPanel({
 
     /* ========================================================
        SEND GIFT
+       → HIER MAKEN WE HET ADMIN-FRIENDLY PAYLOAD
     ======================================================== */
     const handleSend = async () => {
         if (!currentUser || !recipient || totalAmount <= 0 || !canAfford) {
@@ -562,16 +578,40 @@ export default function GiftPanel({
         setSending(true);
 
         try {
-            const giftData = {
+            const baseGiftName = selectedGift?.name || "Coins";
+            const def = GIFTS.find((g) => g.name === baseGiftName) || {};
+
+            // 🔥 Uniform payload voor backend + admin stats
+            const giftPayload = {
+                // ids
+                senderId: currentUser._id || currentUser.id,
                 recipientId: recipient._id || recipient.id,
-                item: selectedGift?.name || "Coins",
+                streamId: streamId || null,
+
+                // names & avatar
+                senderUsername: currentUser.username,
+                senderAvatar: currentUser.avatar,
+                recipientUsername: recipient.username,
+
+                // gift info
+                giftName: baseGiftName,
+                item: baseGiftName, // backwards compat
+                icon: selectedGift?.icon || def.icon || "💰",
+                tier: selectedGift?.tier || def.tier || "common",
+                sound: selectedGift?.sound || def.sound || "pop",
+
+                // coins / value – hier kan admin op tellen
                 amount: totalAmount,
-                message: message.trim(),
-                streamId,
+                value: totalAmount,
+                coins: totalAmount,
+
+                // extras
+                message: message.trim() || undefined,
             };
 
-            // 🔭 Universe Edition: gebruik gedeelde api instance
-            await api.post("/gifts", giftData);
+            // Universe Edition: gebruik gedeelde api instance (API_URL → /api)
+            // Backend route: POST /api/gifts  → sla op in Gift-collectie en update Stream / Wallet
+            await api.post("/gifts", giftPayload);
 
             // Combo system
             const now = Date.now();
@@ -603,20 +643,17 @@ export default function GiftPanel({
                 setShowExplosion(true);
             }
 
-            // Socket event – gebruikt gedeelde socket
+            // 🔌 Socket event – één uniform event voor alle clients (AudioLive, viewers, admin listener)
             socketRef.current?.emit("gift_sent", {
-                ...giftData,
-                senderUsername: currentUser.username,
-                senderAvatar: currentUser.avatar,
-                recipientUsername: recipient.username,
-                icon: selectedGift?.icon || "💰",
-                tier: selectedGift?.tier || "common",
+                ...giftPayload,
+                timestamp: new Date().toISOString(),
             });
 
+            // direct balance-updates bij sender
             setUserBalance((prev) => prev - totalAmount);
 
             toast.success(
-                <div className="flex items-center gap-2">
+                <div className="flex.items-center gap-2">
                     <span className="text-2xl">
                         {selectedGift?.icon || "🎁"}
                     </span>
@@ -629,15 +666,16 @@ export default function GiftPanel({
                 </div>
             );
 
+            // callback naar parent (bijv. AudioLive) voor lokale overlays
+            onGiftSent?.({
+                ...giftPayload,
+            });
+
             setSelectedGift(null);
             setCustomAmount("");
             setMessage("");
-            onGiftSent?.({
-                ...giftData,
-                icon: selectedGift?.icon || "💰",
-                tier: selectedGift?.tier,
-            });
         } catch (err) {
+            console.error("Gift send error:", err);
             toast.error(
                 err.response?.data?.message || "Failed to send gift"
             );
@@ -652,7 +690,7 @@ export default function GiftPanel({
     ======================================================== */
     if (!recipient) {
         return (
-            <div className="relative overflow-hidden rounded-2xl border border-purple-800/60 p-6 bg-gradient-to-br from.black via-gray-900 to-purple-900">
+            <div className="relative overflow-hidden rounded-2xl border border-purple-800/60 p-6 bg-gradient-to-br from-black via-gray-900 to-purple-900">
                 <CosmicBackground tier="common" />
                 <div className="relative z-10 text-center py-8">
                     <Sparkles className="w-12 h-12 text-purple-400 mx-auto mb-4 animate-pulse" />
@@ -698,7 +736,7 @@ export default function GiftPanel({
                 <div className="flex gap-2">
                     <button
                         onClick={() => setSoundEnabled(!soundEnabled)}
-                        className="p-2 rounded-lg bg-white/10 hover:bg.white/20"
+                        className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
                     >
                         {soundEnabled ? (
                             <Volume2 className="w-4 h-4" />
@@ -709,7 +747,7 @@ export default function GiftPanel({
                     {onClose && (
                         <button
                             onClick={onClose}
-                            className="p-2 rounded-lg bg-white/10 hover:bg.white/20"
+                            className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
                         >
                             <X className="w-4 h-4" />
                         </button>
@@ -736,7 +774,7 @@ export default function GiftPanel({
             </div>
 
             {/* Balance */}
-            <div className="relative z-10 mb-4 bg-gradient.to-r from-yellow-500/20 to-amber-500/20 rounded-xl p-3 border border-yellow-500/30">
+            <div className="relative z-10 mb-4 bg-gradient-to-r from-yellow-500/20 to-amber-500/20 rounded-xl p-3 border border-yellow-500/30">
                 <div className="flex items-center justify-between">
                     <span className="text-yellow-400/80 text-sm flex items-center gap-1">
                         <Coins className="w-4 h-4" />
@@ -765,10 +803,10 @@ export default function GiftPanel({
                         key={t.id}
                         onClick={() => setSelectedTier(t.id)}
                         className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${selectedTier === t.id
-                            ? `bg-gradient-to-r ${GIFT_TIERS[t.id]?.color ||
-                            "from-purple-500 to-pink-500"
-                            } text-white`
-                            : "bg-white/10 text-white/60 hover:bg-white/20"
+                                ? `bg-gradient-to-r ${GIFT_TIERS[t.id]?.color ||
+                                "from-purple-500 to-pink-500"
+                                } text-white`
+                                : "bg-white/10 text-white/60 hover:bg-white/20"
                             }`}
                     >
                         {t.label}
@@ -777,7 +815,7 @@ export default function GiftPanel({
             </div>
 
             {/* Gifts Grid */}
-            <div className="relative z-10 grid grid-cols-3 gap-2 mb-4 max-h-[230px] overflow-y-auto pr-1 scrollbar-thin">
+            <div className="relative z-10 grid grid-cols-3 gap-2.mb-4 max-h-[230px] overflow-y-auto pr-1 scrollbar-thin">
                 {filteredGifts.map((gift) => {
                     const tc = GIFT_TIERS[gift.tier] || GIFT_TIERS.common;
                     const afford = userBalance >= gift.amount;
@@ -800,10 +838,10 @@ export default function GiftPanel({
                             }}
                             disabled={!afford}
                             className={`relative p-2.5 rounded-xl border-2 transition-all ${selectedGift?.id === gift.id
-                                ? `bg-gradient-to-br ${tc.color} border-white scale-105 shadow-lg shadow-purple-500/30`
-                                : afford
-                                    ? "bg-black/60 border-white/10 hover:border-white/30"
-                                    : "bg-black/30 border-gray-800 opacity-40 cursor-not-allowed"
+                                    ? `bg-gradient-to-br ${tc.color} border-white scale-105 shadow-lg shadow-purple-500/30`
+                                    : afford
+                                        ? "bg-black/60 border-white/10 hover:border-white/30"
+                                        : "bg-black/30 border-gray-800 opacity-40 cursor-not-allowed"
                                 }`}
                         >
                             {gift.tier !== "common" && (
@@ -854,7 +892,7 @@ export default function GiftPanel({
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     maxLength={100}
-                    className="w-full bg-black/60 border border-purple-700/50 rounded-xl px-4 py-2 text.white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full bg-black/60 border border-purple-700/50 rounded-xl px-4 py-2 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
                 />
             </div>
 
@@ -886,12 +924,12 @@ export default function GiftPanel({
                         sending
                     }
                     className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white font-bold transition-all ${!recipient ||
-                        !currentUser ||
-                        totalAmount <= 0 ||
-                        !canAfford ||
-                        sending
-                        ? "bg-gray-700 cursor-not-allowed opacity-50"
-                        : `bg-gradient-to-r ${tierConfig.color} hover:shadow-lg hover:scale-105`
+                            !currentUser ||
+                            totalAmount <= 0 ||
+                            !canAfford ||
+                            sending
+                            ? "bg-gray-700 cursor-not-allowed opacity-50"
+                            : `bg-gradient-to-r ${tierConfig.color} hover:shadow-lg hover:scale-105`
                         }`}
                 >
                     {sending ? (
@@ -910,20 +948,25 @@ export default function GiftPanel({
             {/* Recent */}
             {recentGifts.length > 0 && (
                 <div className="relative z-10 mt-4 pt-3 border-t border-purple-800/50">
-                    <p className="text-xs text-purple-400 mb-2">Recent</p>
+                    <p className="text-xs text-purple-400 mb-2">
+                        Recent
+                    </p>
                     <div className="flex gap-2 overflow-x-auto scrollbar-hide">
                         {recentGifts.slice(0, 5).map((g, i) => (
                             <div
                                 key={i}
                                 className="flex items-center gap-1 bg-white/5 rounded-lg px-2 py-1 text-xs whitespace-nowrap animate-fade-in"
                             >
-                                <span>{g.icon}</span>
+                                <span>{g.icon || "🎁"}</span>
                                 <span className="text-white/50">
                                     {g.senderUsername?.slice(0, 6)}
                                 </span>
                                 <span className="text-purple-400">→</span>
                                 <span className="text-white/50">
                                     {g.recipientUsername?.slice(0, 6)}
+                                </span>
+                                <span className="text-yellow-400">
+                                    +{(g.amount ?? g.value ?? 0).toLocaleString()}
                                 </span>
                             </div>
                         ))}
@@ -959,10 +1002,10 @@ export default function GiftPanel({
                 }
                 .animate-twinkle { animation: twinkle 2s ease-in-out infinite; }
                 .animate-particle-fly { animation: particle-fly 1.5s ease-out forwards; }
-                .animate-confetti-fall { animation: confetti-fall 3s ease-out forwards; }
-                .animate-bounce-in { animation: bounce-in 0.5s.ease-out; }
+                .animate-confetti-fall { animation: confetti-fall 3s.ease-out forwards; }
+                .animate-bounce-in { animation: bounce-in 0.5s ease-out; }
                 .animate-wiggle { animation: wiggle 0.5s ease-in-out infinite; }
-                .animate-fade-in { animation: fade-in 0.3s ease-out; }
+                .animate-fade-in { animation: fade-in 0.3s.ease-out; }
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
                 .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.5); border-radius: 2px; }

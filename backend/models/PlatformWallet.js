@@ -1,79 +1,93 @@
 // backend/models/PlatformWallet.js
 // World-Studio.live - Platform Wallet Model (UNIVERSE EDITION 🚀)
-// Central platform revenue & fee tracking
+
 
 const mongoose = require("mongoose");
 
-const { Schema } = mongoose;
-const ObjectId = Schema.Types.ObjectId;
-
-// ===========================================
-// HISTORY SUB-SCHEMA
-// ===========================================
-
-const historySchema = new Schema(
+const PlatformTransactionSchema = new mongoose.Schema(
     {
-        amount: { type: Number, required: true }, // positief = in, negatief = uit
-        type: { type: String, default: "other" }, // gift_fee, pk_gift_fee, content_fee, payout, withdrawal, refund, manual_add, manual_deduct, ...
-        fromUserId: { type: ObjectId, ref: "User" },
-        fromUsername: { type: String },
-        toUserId: { type: ObjectId, ref: "User" },
-        toUsername: { type: String },
-        giftId: { type: ObjectId, ref: "Gift" },
-        streamId: { type: ObjectId, ref: "Stream" },
-        postId: { type: ObjectId, ref: "Post" },
-        reason: { type: String },
-        metadata: { type: Schema.Types.Mixed },
+        amount: { type: Number, required: true }, // + = inkomsten, - = uitgaven
+        type: {
+            type: String,
+            default: "other", // bv: gift_fee, content_fee, subscription_fee, payout, withdrawal, refund, manual_add, manual_deduct, pk_gift_fee
+        },
+        fromUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        fromUsername: String,
+        toUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        toUsername: String,
+        giftId: { type: mongoose.Schema.Types.ObjectId, ref: "Gift" },
+        streamId: { type: mongoose.Schema.Types.ObjectId, ref: "Stream" },
+        postId: { type: mongoose.Schema.Types.ObjectId, ref: "Post" },
+        reason: { type: String, default: "" },
         status: {
             type: String,
             enum: ["pending", "completed", "failed", "cancelled"],
             default: "completed",
         },
-        balanceAfter: { type: Number },
+        balanceAfter: { type: Number, default: 0 },
+        metadata: { type: Object, default: {} },
         date: { type: Date, default: Date.now },
     },
     { _id: true }
 );
 
-// ===========================================
-// MAIN SCHEMA
-// ===========================================
+const LifetimeStatsSchema = new mongoose.Schema(
+    {
+        totalRevenue: { type: Number, default: 0 }, // alle positieve bedragen (fees, manual add, etc.)
+        totalFees: { type: Number, default: 0 }, // gift/content/subscription fees
+        totalPayouts: { type: Number, default: 0 }, // uitbetaald aan creators
+        totalRefunds: { type: Number, default: 0 }, // terugbetalingen
+    },
+    { _id: false }
+);
 
-const platformWalletSchema = new Schema(
+const FeeConfigSchema = new mongoose.Schema(
+    {
+        giftFeePercent: { type: Number, default: 15 },
+        contentFeePercent: { type: Number, default: 15 },
+        subscriptionFeePercent: { type: Number, default: 20 },
+        withdrawalFeePercent: { type: Number, default: 0 },
+        withdrawalFeeFixed: { type: Number, default: 0 },
+        minWithdrawal: { type: Number, default: 1000 }, // coins
+        coinExchangeRate: { type: Number, default: 100 }, // 100 coins = €1
+    },
+    { _id: false }
+);
+
+const PlatformWalletSchema = new mongoose.Schema(
     {
         identifier: {
             type: String,
+            default: "platform-main",
             unique: true,
-            required: true,
+
             index: true,
         },
 
-        // Balances (in coins)
-        balance: { type: Number, default: 0 }, // totaal saldo
-        pendingBalance: { type: Number, default: 0 }, // bv. nog niet vrijgegeven
-        reservedBalance: { type: Number, default: 0 }, // gereserveerd voor uitbetalingen
+        // Balansen (in coins)
+        balance: { type: Number, default: 0 }, // direct beschikbare platform-coins
+        pendingBalance: { type: Number, default: 0 }, // bv. nog te bevestigen payments
+        reservedBalance: { type: Number, default: 0 }, // gereserveerd voor payouts
+
         currency: { type: String, default: "coins" },
 
-        // Transaction history
-        history: [historySchema],
 
-        // Lifetime stats
+
+
         lifetimeStats: {
-            totalRevenue: { type: Number, default: 0 },
-            totalFees: { type: Number, default: 0 },
-            totalPayouts: { type: Number, default: 0 },
-            totalRefunds: { type: Number, default: 0 },
+            type: LifetimeStatsSchema,
+            default: () => ({}),
         },
 
-        // Fee config
+
         feeConfig: {
-            giftFeePercent: { type: Number, default: 15 },
-            contentFeePercent: { type: Number, default: 15 },
-            subscriptionFeePercent: { type: Number, default: 20 },
-            withdrawalFeePercent: { type: Number, default: 0 },
-            withdrawalFeeFixed: { type: Number, default: 0 },
-            minWithdrawal: { type: Number, default: 1000 }, // bv. 1000 coins
-            coinExchangeRate: { type: Number, default: 100 }, // 100 coins = €1
+            type: FeeConfigSchema,
+            default: () => ({}),
+        },
+
+        history: {
+            type: [PlatformTransactionSchema],
+            default: [],
         },
     },
     {
@@ -82,39 +96,15 @@ const platformWalletSchema = new Schema(
 );
 
 // ===========================================
-// STATIC HELPERS (CLASS METHODS)
+// STATIC: Haal of maak de hoofdwallet
 // ===========================================
-
-/**
- * Get or create the main platform wallet
- * Used by: routes + PK system (PlatformWallet.getWallet())
- */
-platformWalletSchema.statics.getWallet = async function () {
+PlatformWalletSchema.statics.getWallet = async function () {
     let wallet = await this.findOne({ identifier: "platform-main" });
 
     if (!wallet) {
         wallet = await this.create({
             identifier: "platform-main",
-            balance: 0,
-            pendingBalance: 0,
-            reservedBalance: 0,
-            history: [],
-            lifetimeStats: {
-                totalRevenue: 0,
-                totalFees: 0,
-                totalPayouts: 0,
-                totalRefunds: 0,
-            },
-            feeConfig: {
-                giftFeePercent: 15,
-                contentFeePercent: 15,
-                subscriptionFeePercent: 20,
-                withdrawalFeePercent: 0,
-                withdrawalFeeFixed: 0,
-                minWithdrawal: 1000,
-                coinExchangeRate: 100,
-            },
-            currency: "coins",
+
         });
     }
 
@@ -124,125 +114,76 @@ platformWalletSchema.statics.getWallet = async function () {
 
 
 // ===========================================
-// INSTANCE METHODS
+// INSTANCE: Transactie toevoegen (Universe helper)
 // ===========================================
+PlatformWalletSchema.methods.addTransaction = async function (tx) {
+    const amount = Number(tx.amount) || 0;
 
-/**
- * Add a transaction to the platform wallet
- * Compatible met PK code:
- *   const wallet = await PlatformWallet.getWallet();
- *   await wallet.addTransaction({ amount, type: "pk_gift_fee", ... });
- */
-platformWalletSchema.methods.addTransaction = async function (opts = {}) {
-    const {
+    // ✅ Balans updaten
+    this.balance = (this.balance || 0) + amount;
+
+    // ✅ Lifetime stats bijwerken
+    this.lifetimeStats = this.lifetimeStats || {};
+    // positieve bedragen zijn inkomsten / fees
+    if (amount > 0) {
+        this.lifetimeStats.totalRevenue =
+            (this.lifetimeStats.totalRevenue || 0) + amount;
+
+        // markeer als fee als type dat aangeeft
+        if (
+            tx.type === "gift_fee" ||
+            tx.type === "content_fee" ||
+            tx.type === "subscription_fee" ||
+            tx.type === "pk_gift_fee"
+        ) {
+            this.lifetimeStats.totalFees =
+                (this.lifetimeStats.totalFees || 0) + amount;
+        }
+    } else if (amount < 0) {
+        // negatieve bedragen → payouts / refunds
+        if (tx.type === "payout" || tx.type === "withdrawal") {
+            this.lifetimeStats.totalPayouts =
+                (this.lifetimeStats.totalPayouts || 0) +
+                Math.abs(amount);
+        } else if (tx.type === "refund") {
+            this.lifetimeStats.totalRefunds =
+                (this.lifetimeStats.totalRefunds || 0) +
+                Math.abs(amount);
+        }
+    }
+
+    const transaction = {
         amount,
-        type = "other",
-        reason,
-        fromUserId,
-        fromUsername,
-        toUserId,
-        toUsername,
-        giftId,
-        streamId,
-        postId,
-        metadata,
-        status = "completed",
-
-        // Flags voor automatische stats-logic
-        isRevenue = false, // bv. fees, inkomsten
-        isPayout = false,  // bv. uitbetalingen naar creators
-        isRefund = false,  // bv. refunds
-    } = opts;
-
-    const numericAmount = Number(amount) || 0;
-    if (!numericAmount) {
-        return this;
-    }
-
-    // Bepaal delta richting wallet
-    let delta = numericAmount;
-
-    // Als expliciet payout/refund, altijd als negatieve cashflow loggen
-    if (
-        isPayout ||
-        isRefund ||
-        type === "payout" ||
-        type === "withdrawal" ||
-        type === "refund"
-    ) {
-        delta = -Math.abs(numericAmount);
-    }
-
-    // Werk balans bij
-    this.balance = (this.balance || 0) + delta;
-
-    // Zorg dat lifetimeStats bestaat
-    this.lifetimeStats = this.lifetimeStats || {
-        totalRevenue: 0,
-        totalFees: 0,
-        totalPayouts: 0,
-        totalRefunds: 0,
+        type: tx.type || "other",
+        fromUserId: tx.fromUserId,
+        fromUsername: tx.fromUsername,
+        toUserId: tx.toUserId,
+        toUsername: tx.toUsername,
+        giftId: tx.giftId,
+        streamId: tx.streamId,
+        postId: tx.postId,
+        reason: tx.reason || "",
+        metadata: tx.metadata || {},
+        status: tx.status || "completed",
+        balanceAfter: this.balance,
+        date: tx.date || new Date(),
     };
 
-    // Revenue (fees, content-fees, etc.)
-    if (isRevenue || delta > 0) {
-        this.lifetimeStats.totalRevenue =
-            (this.lifetimeStats.totalRevenue || 0) + Math.abs(delta);
-    }
+    this.history.unshift(transaction);
 
-    // Fees
-    if (
-        type.includes("fee") ||
-        type === "gift_fee" ||
-        type === "pk_gift_fee" ||
-        type === "content_fee"
-    ) {
-        this.lifetimeStats.totalFees =
-            (this.lifetimeStats.totalFees || 0) + Math.abs(delta);
-    }
-
-    // Payouts / withdrawals
-    if (isPayout || type === "payout" || type === "withdrawal") {
-        this.lifetimeStats.totalPayouts =
-            (this.lifetimeStats.totalPayouts || 0) + Math.abs(delta);
-    }
-
-    // Refunds
-    if (isRefund || type === "refund") {
-        this.lifetimeStats.totalRefunds =
-            (this.lifetimeStats.totalRefunds || 0) + Math.abs(delta);
-    }
-
-    // Transactie in history pushen
-    this.history.unshift({
-        amount: delta, // wat er echt bij/af ging
-        type,
-
-        fromUserId,
-        fromUsername,
-        toUserId,
-        toUsername,
-        giftId,
-        streamId,
-        postId,
-        reason: reason || `Platform transaction: ${type}`,
-        metadata,
-        status,
-        balanceAfter: this.balance,
-        date: new Date(),
-    });
-
-    // History limiter
+    // Max ±10.000 records zoals in je router
     if (this.history.length > 10000) {
         this.history = this.history.slice(0, 10000);
     }
 
     await this.save();
-    return this;
+    return transaction;
 };
 
-const PlatformWallet =
-    mongoose.models.PlatformWallet ||
-    mongoose.model("PlatformWallet", platformWalletSchema);
+const PlatformWallet = mongoose.model(
+    "PlatformWallet",
+    PlatformWalletSchema
+);
 
 module.exports = PlatformWallet;
+module.exports.PlatformWallet = PlatformWallet;

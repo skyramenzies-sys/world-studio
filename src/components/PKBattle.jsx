@@ -1,14 +1,13 @@
 // src/components/PKBattle.jsx - WORLD STUDIO LIVE ULTIMATE EDITION ⚔️
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
-import { io } from "socket.io-client";
+import socket from "../api/socket";
 
 /* ============================================================
    WORLD STUDIO LIVE CONFIGURATION
    ============================================================ */
 
-// Basis-URL uit env of fallback
+// Basis-URL uit env of fallback (voor avatars)
 const RAW_BASE_URL =
     import.meta.env.VITE_API_URL ||
     "https://world-studio-production.up.railway.app";
@@ -16,8 +15,7 @@ const RAW_BASE_URL =
 // Strip eventueel /api en trailing slash
 const BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
-// Socket URL = zelfde domein
-const SOCKET_URL = BASE_URL;
+
 
 // Avatar helper
 const resolveAvatar = (url) => {
@@ -26,20 +24,7 @@ const resolveAvatar = (url) => {
     return `${BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
 };
 
-// Socket connection (singleton binnen dit bestand)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
+
 
 /* ============================================================
    GIFT DEFINITIONS
@@ -58,6 +43,21 @@ const GIFTS = [
 /* ============================================================
    MAIN COMPONENT
    ============================================================ */
+/**
+ * Props:
+ * - pk: {
+ *     _id, status: "active" | "finished",
+ *     endTime,
+ *     challenger: { user, score },
+ *     opponent: { user, score },
+ *     winner: { user } | user
+ *   }
+ * - currentUserId: string
+ * - onSendGift?: (payload) => void
+ * - onEndPK?: (pk) => void
+ * - challengerStream?: ReactNode (optioneel video component)
+ * - opponentStream?: ReactNode (optioneel video component)
+ */
 export default function PKBattle({
     pk,
     currentUserId,
@@ -66,7 +66,7 @@ export default function PKBattle({
     challengerStream,
     opponentStream,
 }) {
-    const socketRef = useRef(null);
+
     const [timeRemaining, setTimeRemaining] = useState(0);
     const [showGiftPanel, setShowGiftPanel] = useState(false);
     const [selectedTarget, setSelectedTarget] = useState(null);
@@ -74,13 +74,7 @@ export default function PKBattle({
     const [showResult, setShowResult] = useState(false);
     const timerRef = useRef(null);
 
-    // Initialize socket
-    useEffect(() => {
-        socketRef.current = getSocket();
-        return () => {
-            // we laten socket open als global connection
-        };
-    }, []);
+
 
     if (!pk) return null;
 
@@ -116,6 +110,9 @@ export default function PKBattle({
     const isDraw = challengerScore === opponentScore;
 
     const isActive = pk.status === "active";
+
+    const challengerId = challengerUser._id;
+    const opponentId = opponentUser._id;
 
     /* ------------------------------------------------------------
        TIMER
@@ -188,8 +185,7 @@ export default function PKBattle({
         challengerScore
     );
 
-    const challengerId = challengerUser._id;
-    const opponentId = opponentUser._id;
+
 
     const handleSendGift = (gift) => {
         if (!selectedTarget || !isActive || timeRemaining <= 0)
@@ -202,17 +198,14 @@ export default function PKBattle({
 
         setTimeout(() => setGiftAnimation(null), 1500);
 
-        // Emit via socket
-        const socket = socketRef.current;
-        if (socket) {
-            socket.emit("pk_gift", {
-                pkId: pk._id,
-                targetUserId: selectedTarget,
-                giftType: gift.id,
-                amount: 1,
-                coins: gift.coins,
-            });
-        }
+        // Emit via socket (PK-specific event)
+        socket.emit("pk_gift", {
+            pkId: pk._id,
+            targetUserId: selectedTarget,
+            giftType: gift.id,
+            amount: 1,
+            coins: gift.coins,
+        });
 
         onSendGift?.({
             targetUserId: selectedTarget,
@@ -256,7 +249,9 @@ export default function PKBattle({
 
     // Winner user normaliseren
     const winnerRaw =
-        pk?.winner?.user || pk?.winner || (challengerWinning
+        pk?.winner?.user ||
+        pk?.winner ||
+        (challengerWinning
             ? challengerUser
             : opponentWinning
                 ? opponentUser
@@ -269,6 +264,9 @@ export default function PKBattle({
         }
         : null;
 
+    /* ------------------------------------------------------------
+       RENDER
+       ------------------------------------------------------------ */
     return (
         <div className="relative w-full h-full bg-black overflow-hidden rounded-2xl">
             {/* Split Screen Container */}
@@ -328,8 +326,7 @@ export default function PKBattle({
 
                     {/* Overpower Effect */}
                     <AnimatePresence>
-                        {challengerScore >
-                            opponentScore * 2 &&
+                        {challengerScore > opponentScore * 2 &&
                             challengerScore > 100 && (
                                 <motion.div
                                     initial={{
@@ -477,7 +474,8 @@ export default function PKBattle({
                     <div className="absolute bottom-4 right-4 z-10">
                         <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-full px-3 py-1">
                             <span className="text-white font-semibold text-sm">
-                                {opponentUser.username || "Opponent"}
+                                {opponentUser.username ||
+                                    "Opponent"}
                             </span>
                             {isOpponentYou && (
                                 <span className="text-xs text-cyan-300 font-bold">
@@ -523,8 +521,8 @@ export default function PKBattle({
                             </span>
                             <span
                                 className={`font-mono font-bold text-lg ${timeRemaining <= 30 && isActive
-                                        ? "text-red-400 animate-pulse"
-                                        : "text-white"
+                                    ? "text-red-400 animate-pulse"
+                                    : "text-white"
                                     }`}
                             >
                                 {formatTime(timeRemaining)}

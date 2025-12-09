@@ -2,8 +2,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import axios from "axios";
-import { io } from "socket.io-client";
+
+// Centrale API + SOCKET
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 // Import child components
 import LivePublisher from "./LivePublisher";
@@ -11,45 +13,7 @@ import LiveViewer from "./LiveViewer";
 import MultiGuestLive from "./MultiGuestLive";
 import AudioLive from "./AudioLive";
 
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION (U.E.)
-   ============================================================ */
-const RAW_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    "https://world-studio-production.up.railway.app";
 
-const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-const SOCKET_URL = API_BASE_URL;
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// Socket connection (singleton)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
 
 /* ============================================================
    CONSTANTS
@@ -125,10 +89,12 @@ export default function LivePage() {
     const previewStreamRef = useRef(null);
     const videoRef = useRef(null);
 
-    // Initialize socket
+    // Initialize socket via central getSocket()
     useEffect(() => {
         socketRef.current = getSocket();
-        return () => { };
+        return () => {
+            // singleton: niet disconnecten
+        };
     }, []);
 
     // Load user from localStorage
@@ -201,7 +167,8 @@ export default function LivePage() {
             let errorMsg = `${err.name}: ${err.message}`;
 
             if (err.name === "NotAllowedError") {
-                errorMsg = "Camera access denied. Please allow camera in browser settings.";
+                errorMsg =
+                    "Camera access denied. Please allow camera in browser settings.";
             } else if (err.name === "NotFoundError") {
                 errorMsg = "No camera found on this device.";
             } else if (err.name === "NotReadableError") {
@@ -280,7 +247,7 @@ export default function LivePage() {
         }
     }, [streamId, navigate]);
 
-    // Start streaming
+    // Start streaming (host)
     const startStreaming = async () => {
         if (!currentUser) {
             toast.error("Please log in to go live");
@@ -302,6 +269,7 @@ export default function LivePage() {
         stopCameraPreview();
 
         try {
+            // Let op: gebruikt nog steeds je bestaande /api/live/start endpoint
             const res = await api.post("/api/live/start", {
                 title: streamTitle.trim(),
                 category: streamCategory,
@@ -319,7 +287,7 @@ export default function LivePage() {
             setRoomId(stream.roomId || stream._id);
             setStreamInfo(stream);
 
-            // Emit socket event
+            // Emit socket event (bestaande eventnaam behouden)
             const socket = socketRef.current;
             if (socket) {
                 socket.emit("start_broadcast", {
@@ -344,7 +312,9 @@ export default function LivePage() {
             }
         } catch (err) {
             console.error("Failed to start stream:", err);
-            toast.error(err.response?.data?.error || "Failed to start stream");
+            toast.error(
+                err.response?.data?.error || "Failed to start stream"
+            );
         } finally {
             setLoading(false);
         }
@@ -413,7 +383,7 @@ export default function LivePage() {
         return (
             <div className="flex items-center justify-center py-20 min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black">
                 <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
+                    <div className="inline-block.animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
                     <p className="text-white/70">Connecting to stream...</p>
                 </div>
             </div>
@@ -515,8 +485,12 @@ export default function LivePage() {
                 /* Step 1: Select Live Mode */
                 <div className="max-w-xl mx-auto py-8 px-4 space-y-6">
                     <div className="text-center">
-                        <h1 className="text-3xl font-bold text-cyan-400 mb-2">🎥 Go Live</h1>
-                        <p className="text-white/60">Choose how you want to stream</p>
+                        <h1 className="text-3xl font-bold text-cyan-400 mb-2">
+                            🎥 Go Live
+                        </h1>
+                        <p className="text-white/60">
+                            Choose how you want to stream
+                        </p>
                     </div>
 
                     {!currentUser && (
@@ -545,7 +519,7 @@ export default function LivePage() {
                                 className="w-full p-4 rounded-2xl border-2 border-white/10 hover:border-white/30 hover:bg-white/5 transition-all text-left relative overflow-hidden hover:scale-[1.02] group"
                             >
                                 {liveMode.featured && (
-                                    <span className="absolute top-2 right-2 px-2 py-0.5 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full text-xs font-bold text-black">
+                                    <span className="absolute.top-2 right-2 px-2 py-0.5 bg-gradient-to-r from-yellow-400 to-orange-500.rounded-full text-xs font-bold text-black">
                                         🔥 Popular
                                     </span>
                                 )}
@@ -556,7 +530,9 @@ export default function LivePage() {
                                         {liveMode.icon}
                                     </div>
                                     <div className="flex-1">
-                                        <h3 className="font-bold text-lg">{liveMode.name}</h3>
+                                        <h3 className="font-bold text-lg">
+                                            {liveMode.name}
+                                        </h3>
                                         <p className="text-white/50 text-sm">
                                             {liveMode.description}
                                         </p>
@@ -594,7 +570,7 @@ export default function LivePage() {
                             <button
                                 disabled={!roomId.trim()}
                                 onClick={startAsViewer}
-                                className="px-6 py-3 bg-cyan-500 rounded-xl font-semibold disabled:opacity-40 hover:bg-cyan-400 transition"
+                                className="px-6 py-3 bg-cyan-500 rounded-xl font-semibold.disabled:opacity-40 hover:bg-cyan-400 transition"
                             >
                                 Join
                             </button>
@@ -613,7 +589,7 @@ export default function LivePage() {
                 </div>
             ) : (
                 /* Step 2: Configure Stream */
-                <div className="max-w-xl mx-auto py-6 px-4 space-y-6">
+                <div className="max-w-xl mx-auto.py-6 px-4 space-y-6">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => {
@@ -626,10 +602,20 @@ export default function LivePage() {
                         </button>
                         <div>
                             <h1 className="text-xl font-bold">
-                                {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.icon}{" "}
-                                {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.name}
+                                {
+                                    LIVE_MODES.find(
+                                        (m) => m.id === selectedLiveMode
+                                    )?.icon
+                                }{" "}
+                                {
+                                    LIVE_MODES.find(
+                                        (m) => m.id === selectedLiveMode
+                                    )?.name
+                                }
                             </h1>
-                            <p className="text-white/50 text-sm">Configure your stream</p>
+                            <p className="text-white/50 text-sm">
+                                Configure your stream
+                            </p>
                         </div>
                     </div>
 
@@ -642,21 +628,27 @@ export default function LivePage() {
                                     autoPlay
                                     playsInline
                                     muted
-                                    className={`w-full h-full object-cover ${cameraStatus !== "granted" ? "hidden" : ""
+                                    className={`w-full h-full object-cover ${cameraStatus !== "granted"
+                                            ? "hidden"
+                                            : ""
                                         }`}
                                 />
 
                                 {cameraStatus === "pending" && (
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
-                                        <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mb-4"></div>
-                                        <p className="text-white/60">Requesting camera...</p>
+                                    <div className="absolute inset-0 flex flex-col.items-center justify-center bg-black">
+                                        <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full.animate-spin mb-4"></div>
+                                        <p className="text-white/60">
+                                            Requesting camera...
+                                        </p>
                                     </div>
                                 )}
 
                                 {(cameraStatus === "denied" ||
                                     cameraStatus === "error") && (
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-4">
-                                            <span className="text-5xl mb-3">📷❌</span>
+                                        <div className="absolute inset-0 flex flex-col items-center.justify-center bg-black p-4">
+                                            <span className="text-5xl mb-3">
+                                                📷❌
+                                            </span>
                                             <p className="text-red-400 font-bold text-lg mb-3">
                                                 Camera Error
                                             </p>
@@ -677,16 +669,20 @@ export default function LivePage() {
                                     )}
                             </>
                         ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-orange-500/20 to-red-500/20 flex flex-col items-center justify-center">
+                            <div className="w-full h-full bg-gradient-to-br from-orange-500/20 to-red-500/20 flex flex-col items-center.justify-center">
                                 <span className="text-6xl mb-4">🎙️</span>
-                                <p className="text-white/60">Audio Only Mode</p>
+                                <p className="text-white/60">
+                                    Audio Only Mode
+                                </p>
                                 <div className="flex gap-1 mt-4">
                                     {[...Array(5)].map((_, i) => (
                                         <div
                                             key={i}
-                                            className="w-1.5 bg-gradient-to-t from-orange-500 to-red-500 rounded-full animate-pulse"
+                                            className="w-1.5 bg-gradient-to-t from-orange-500 to-red-500.rounded-full animate-pulse"
                                             style={{
-                                                height: `${15 + Math.random() * 25}px`,
+                                                height: `${15 +
+                                                    Math.random() * 25
+                                                    }px`,
                                                 animationDelay: `${i * 0.1}s`,
                                             }}
                                         />
@@ -697,8 +693,16 @@ export default function LivePage() {
 
                         {/* Mode badge */}
                         <div className="absolute top-3 left-3 px-3 py-1 bg-black/60 backdrop-blur rounded-full text-sm">
-                            {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.icon}{" "}
-                            {LIVE_MODES.find((m) => m.id === selectedLiveMode)?.name}
+                            {
+                                LIVE_MODES.find(
+                                    (m) => m.id === selectedLiveMode
+                                )?.icon
+                            }{" "}
+                            {
+                                LIVE_MODES.find(
+                                    (m) => m.id === selectedLiveMode
+                                )?.name
+                            }
                         </div>
 
                         {/* Camera status badge */}
@@ -727,10 +731,12 @@ export default function LivePage() {
                         </label>
                         <input
                             value={streamTitle}
-                            onChange={(e) => setStreamTitle(e.target.value)}
+                            onChange={(e) =>
+                                setStreamTitle(e.target.value)
+                            }
                             placeholder="What's your stream about?"
                             maxLength={100}
-                            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl outline-none focus:border-cyan-400 transition"
+                            className="w-full px-4 py-3 bg-white/10 border border-white/20.rounded-xl outline-none focus:border-cyan-400 transition"
                         />
                         <p className="text-xs text-white/40 text-right">
                             {streamTitle.length}/100
@@ -746,7 +752,9 @@ export default function LivePage() {
                             {CATEGORIES.map((cat) => (
                                 <button
                                     key={cat.id}
-                                    onClick={() => setStreamCategory(cat.id)}
+                                    onClick={() =>
+                                        setStreamCategory(cat.id)
+                                    }
                                     className={`px-3 py-2 rounded-full text-sm transition ${streamCategory === cat.id
                                             ? "bg-cyan-500 text-black font-semibold"
                                             : "bg-white/10 text-white/70 hover:bg-white/20"
@@ -768,7 +776,9 @@ export default function LivePage() {
                                 {SEAT_OPTIONS.map((count) => (
                                     <button
                                         key={count}
-                                        onClick={() => setSeatCount(count)}
+                                        onClick={() =>
+                                            setSeatCount(count)
+                                        }
                                         className={`flex-1 py-3 rounded-xl font-bold transition ${seatCount === count
                                                 ? "bg-gradient-to-r from-purple-500 to-pink-500"
                                                 : "bg-white/10 hover:bg-white/20"
@@ -791,7 +801,9 @@ export default function LivePage() {
                                 cameraStatus !== "granted")
                         }
                         onClick={startStreaming}
-                        className={`w-full py-4 rounded-xl font-bold text-lg disabled:opacity-40 bg-gradient-to-r ${LIVE_MODES.find((m) => m.id === selectedLiveMode)?.color
+                        className={`w-full py-4 rounded-xl font-bold text-lg.disabled:opacity-40 bg-gradient-to-r ${LIVE_MODES.find(
+                            (m) => m.id === selectedLiveMode
+                        )?.color
                             } hover:shadow-lg hover:scale-[1.02] transition-all flex items-center justify-center gap-3`}
                     >
                         {loading ? (

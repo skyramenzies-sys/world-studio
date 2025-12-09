@@ -28,7 +28,7 @@ const GradientCard = ({ colors, children, style }) => (
                 backgroundColor: colors[0],
                 borderRadius: 16,
                 borderWidth: 1,
-                borderColor: colors[1] + "40",
+                borderColor: (colors[1] || colors[0]) + "40",
             },
             style,
         ]}
@@ -43,7 +43,7 @@ const GradientCard = ({ colors, children, style }) => (
 const MiniBarChart = ({ data, color = "#22d3ee", height = 40 }) => {
     if (!data || data.length === 0) return null;
 
-    const max = Math.max(...data) || 1;
+    const max = Math.max(...data, 1);
 
     return (
         <View
@@ -51,7 +51,6 @@ const MiniBarChart = ({ data, color = "#22d3ee", height = 40 }) => {
                 flexDirection: "row",
                 alignItems: "flex-end",
                 height,
-                gap: 2,
             }}
         >
             {data.slice(-10).map((value, i) => (
@@ -62,6 +61,7 @@ const MiniBarChart = ({ data, color = "#22d3ee", height = 40 }) => {
                         backgroundColor: color + "60",
                         height: Math.max((value / max) * height, 2),
                         borderRadius: 2,
+                        marginRight: i === data.slice(-10).length - 1 ? 0 : 2,
                     }}
                 />
             ))}
@@ -99,7 +99,7 @@ const StatCard = ({
             }}
         >
             <Text style={{ fontSize: 20 }}>{icon}</Text>
-            {trend && (
+            {trend && typeof trendValue === "number" && (
                 <View
                     style={{
                         flexDirection: "row",
@@ -198,7 +198,11 @@ const StreamCard = ({
         >
             {/* Header Row */}
             <View
-                style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}
+                style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 12,
+                }}
             >
                 {/* Live Indicator */}
                 <View
@@ -302,7 +306,9 @@ const StreamCard = ({
                     >
                         Viewers
                     </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View
+                        style={{ flexDirection: "row", alignItems: "center" }}
+                    >
                         <Text style={{ marginRight: 4 }}>👁️</Text>
                         <Text
                             style={{
@@ -323,7 +329,9 @@ const StreamCard = ({
                     >
                         Coins
                     </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View
+                        style={{ flexDirection: "row", alignItems: "center" }}
+                    >
                         <Text style={{ marginRight: 4 }}>💰</Text>
                         <Text
                             style={{
@@ -344,7 +352,9 @@ const StreamCard = ({
                     >
                         Duration
                     </Text>
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View
+                        style={{ flexDirection: "row", alignItems: "center" }}
+                    >
                         <Text style={{ marginRight: 4 }}>⏱️</Text>
                         <Text
                             style={{
@@ -391,10 +401,10 @@ const StreamCard = ({
                         style={{
                             flexDirection: "row",
                             flexWrap: "wrap",
-                            gap: 12,
+                            justifyContent: "space-between",
                         }}
                     >
-                        <View style={{ width: "45%" }}>
+                        <View style={{ width: "45%", marginBottom: 8 }}>
                             <Text
                                 style={{
                                     color: "rgba(255,255,255,0.4)",
@@ -407,7 +417,7 @@ const StreamCard = ({
                                 {stream.quality || "1080p"}
                             </Text>
                         </View>
-                        <View style={{ width: "45%" }}>
+                        <View style={{ width: "45%", marginBottom: 8 }}>
                             <Text
                                 style={{
                                     color: "rgba(255,255,255,0.4)",
@@ -420,7 +430,7 @@ const StreamCard = ({
                                 {stream.device || "Desktop"}
                             </Text>
                         </View>
-                        <View style={{ width: "45%" }}>
+                        <View style={{ width: "45%", marginBottom: 8 }}>
                             <Text
                                 style={{
                                     color: "rgba(255,255,255,0.4)",
@@ -437,7 +447,7 @@ const StreamCard = ({
                                     : "N/A"}
                             </Text>
                         </View>
-                        <View style={{ width: "45%" }}>
+                        <View style={{ width: "45%", marginBottom: 8 }}>
                             <Text
                                 style={{
                                     color: "rgba(255,255,255,0.4)",
@@ -450,7 +460,7 @@ const StreamCard = ({
                                 {stream.chatMessages || 0}
                             </Text>
                         </View>
-                        <View style={{ width: "45%" }}>
+                        <View style={{ width: "45%", marginBottom: 8 }}>
                             <Text
                                 style={{
                                     color: "rgba(255,255,255,0.4)",
@@ -463,7 +473,7 @@ const StreamCard = ({
                                 {stream.uniqueViewers || stream.viewers || 0}
                             </Text>
                         </View>
-                        <View style={{ width: "45%" }}>
+                        <View style={{ width: "45%", marginBottom: 8 }}>
                             <Text
                                 style={{
                                     color: "rgba(255,255,255,0.4)",
@@ -475,7 +485,9 @@ const StreamCard = ({
                             <Text
                                 style={{
                                     color:
-                                        stream.reports > 0 ? "#ef4444" : "#fff",
+                                        (stream.reports || 0) > 0
+                                            ? "#ef4444"
+                                            : "#fff",
                                 }}
                             >
                                 {stream.reports || 0}
@@ -486,7 +498,7 @@ const StreamCard = ({
             )}
 
             {/* Action Buttons */}
-            <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ flexDirection: "row" }}>
                 <TouchableOpacity
                     onPress={() => onView(stream)}
                     style={{
@@ -495,6 +507,7 @@ const StreamCard = ({
                         paddingVertical: 10,
                         borderRadius: 10,
                         alignItems: "center",
+                        marginRight: 6,
                     }}
                 >
                     <Text
@@ -517,6 +530,7 @@ const StreamCard = ({
                         borderRadius: 10,
                         alignItems: "center",
                         opacity: actionLoading === "warn" ? 0.5 : 1,
+                        marginRight: 6,
                     }}
                 >
                     {actionLoading === "warn" ? (
@@ -607,17 +621,23 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
     ];
 
     // ============================================
-    // API SETUP
+    // API HELPER
     // ============================================
-    const api = axios.create({
-        baseURL: API_BASE_URL,
-        headers: { Authorization: `Bearer ${token}` },
-    });
+    const getApi = useCallback(() => {
+        const headers = token
+            ? { Authorization: `Bearer ${token}` }
+            : {};
+        return axios.create({
+            baseURL: API_BASE_URL,
+            headers,
+        });
+    }, [token]);
 
     // ============================================
     // FETCH DATA
     // ============================================
     const fetchData = useCallback(async () => {
+        const api = getApi();
         try {
             const [statsRes, streamsRes] = await Promise.allSettled([
                 api.get("/api/admin/live-analytics/stats"),
@@ -626,12 +646,13 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
 
             // Process stats
             if (statsRes.status === "fulfilled") {
-                setStats(statsRes.value.data);
+                const data = statsRes.value.data || {};
+                setStats(data);
 
                 setViewerHistory((prev) => {
                     const newHistory = [
                         ...prev,
-                        statsRes.value.data.totalViewers || 0,
+                        data.totalViewers || 0,
                     ];
                     return newHistory.slice(-10);
                 });
@@ -639,12 +660,12 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                 setRevenueHistory((prev) => {
                     const newHistory = [
                         ...prev,
-                        statsRes.value.data.todayRevenue || 0,
+                        data.todayRevenue || 0,
                     ];
                     return newHistory.slice(-10);
                 });
             } else {
-                // Mock stats
+                // Fallback stats
                 setStats({
                     activeStreams: 0,
                     totalViewers: 0,
@@ -657,9 +678,10 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
 
             // Process streams
             if (streamsRes.status === "fulfilled") {
-                const streams = Array.isArray(streamsRes.value.data)
-                    ? streamsRes.value.data
-                    : streamsRes.value.data?.streams || [];
+                const raw = streamsRes.value.data;
+                const streams = Array.isArray(raw)
+                    ? raw
+                    : raw?.streams || [];
                 setActiveStreams(streams.filter((s) => s.isLive !== false));
             }
 
@@ -672,7 +694,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [api]);
+    }, [getApi]);
 
     // ============================================
     // AUTO REFRESH
@@ -701,7 +723,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
     const handleStopStream = async (stream) => {
         Alert.alert(
             "Stop Stream",
-            `Stop "${stream.title || "Untitled"}" by ${stream.host?.username
+            `Stop "${stream.title || "Untitled"}" by ${stream.host?.username || "Unknown"
             }?`,
             [
                 { text: "Cancel", style: "cancel" },
@@ -710,12 +732,14 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                     style: "destructive",
                     onPress: async () => {
                         try {
+                            const api = getApi();
                             await api.post(
                                 `/api/admin/streams/${stream._id}/stop`
                             );
                             Alert.alert("Success", "Stream stopped");
                             fetchData();
                         } catch (err) {
+                            console.error("Stop error:", err);
                             Alert.alert("Error", "Failed to stop stream");
                         }
                     },
@@ -725,24 +749,58 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
     };
 
     const handleWarnStreamer = async (stream) => {
-        // Alert.prompt is iOS only – je kunt dit later vervangen met een eigen modal
-        Alert.prompt(
-            "Send Warning",
-            "Enter warning message for streamer:",
-            async (message) => {
-                if (!message) return;
-                try {
-                    await api.post(
-                        `/api/admin/streams/${stream._id}/warn`,
-                        { message }
-                    );
-                    Alert.alert("Success", "Warning sent");
-                } catch (err) {
-                    Alert.alert("Error", "Failed to send warning");
-                }
-            },
-            "plain-text"
-        );
+        // iOS: Alert.prompt, Android: fallback
+        if (Alert.prompt) {
+            Alert.prompt(
+                "Send Warning",
+                "Enter warning message for streamer:",
+                async (message) => {
+                    if (!message) return;
+                    try {
+                        const api = getApi();
+                        await api.post(
+                            `/api/admin/streams/${stream._id}/warn`,
+                            { message }
+                        );
+                        Alert.alert("Success", "Warning sent");
+                    } catch (err) {
+                        console.error("Warn error:", err);
+                        Alert.alert("Error", "Failed to send warning");
+                    }
+                },
+                "plain-text"
+            );
+        } else {
+            Alert.alert(
+                "Send Warning",
+                "Send a default warning to this streamer?",
+                [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                        text: "Send",
+                        onPress: async () => {
+                            try {
+                                const api = getApi();
+                                await api.post(
+                                    `/api/admin/streams/${stream._id}/warn`,
+                                    {
+                                        message:
+                                            "Please follow the community guidelines.",
+                                    }
+                                );
+                                Alert.alert("Success", "Warning sent");
+                            } catch (err) {
+                                console.error("Warn error:", err);
+                                Alert.alert(
+                                    "Error",
+                                    "Failed to send warning"
+                                );
+                            }
+                        },
+                    },
+                ]
+            );
+        }
     };
 
     const handleViewStream = (stream) => {
@@ -756,10 +814,10 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
             exportedAt: new Date().toISOString(),
             stats,
             streams: activeStreams.map((s) => ({
-                title: s.title,
-                host: s.host?.username,
-                viewers: s.viewers,
-                coins: s.giftsReceived,
+                title: s.title || "Untitled",
+                host: s.host?.username || "Unknown",
+                viewers: s.viewers || 0,
+                coins: s.giftsReceived || 0,
             })),
         };
 
@@ -774,20 +832,46 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
     };
 
     // ============================================
+    // HELPERS
+    // ============================================
+    const formatNumber = (num) => {
+        if (!num) return "0";
+        const n = Number(num) || 0;
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+        if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+        return n.toLocaleString();
+    };
+
+    const formatDuration = (minutes) => {
+        if (!minutes) return "0m";
+        const mins = Number(minutes) || 0;
+        const hours = Math.floor(mins / 60);
+        const rest = Math.round(mins % 60);
+        return hours > 0 ? `${hours}h ${rest}m` : `${rest}m`;
+    };
+
+    // ============================================
     // FILTERING
     // ============================================
     const filteredStreams = activeStreams
         .filter((stream) => {
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
+                const title = (stream.title || "").toLowerCase();
+                const hostName = (
+                    stream.host?.username || ""
+                ).toLowerCase();
                 if (
-                    !stream.title?.toLowerCase().includes(query) &&
-                    !stream.host?.username?.toLowerCase().includes(query)
+                    !title.includes(query) &&
+                    !hostName.includes(query)
                 ) {
                     return false;
                 }
             }
-            if (categoryFilter !== "all" && stream.category !== categoryFilter) {
+            if (
+                categoryFilter !== "all" &&
+                (stream.category || "Other") !== categoryFilter
+            ) {
                 return false;
             }
             return true;
@@ -798,7 +882,8 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                     return (b.viewers || 0) - (a.viewers || 0);
                 case "earnings":
                     return (
-                        (b.giftsReceived || 0) - (a.giftsReceived || 0)
+                        (b.giftsReceived || 0) -
+                        (a.giftsReceived || 0)
                     );
                 case "duration": {
                     const dA = a.startedAt
@@ -814,22 +899,6 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
             }
         });
 
-    // ============================================
-    // HELPERS
-    // ============================================
-    const formatNumber = (num) => {
-        if (!num) return "0";
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-        if (num >= 1000) return (num / 1000).toFixed(1) + "K";
-        return num.toLocaleString();
-    };
-
-    const formatDuration = (minutes) => {
-        if (!minutes) return "0m";
-        const hours = Math.floor(minutes / 60);
-        const mins = Math.round(minutes % 60);
-        return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-    };
 
     // ============================================
     // LOADING
@@ -887,9 +956,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
         },
         {
             label: "Today's Coins",
-            value:
-                formatNumber(stats?.todayRevenue || 0) +
-                " 💰",
+            value: formatNumber(stats?.todayRevenue || 0) + " 💰",
             icon: "💰",
             colors: ["#d97706", "#fbbf24"],
             trend: "up",
@@ -959,7 +1026,12 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                                     alignItems: "center",
                                 }}
                             >
-                                <Text style={{ fontSize: 24, marginRight: 8 }}>
+                                <Text
+                                    style={{
+                                        fontSize: 24,
+                                        marginRight: 8,
+                                    }}
+                                >
                                     📡
                                 </Text>
                                 <Text
@@ -992,12 +1064,25 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                             >
                                 {filteredStreams.length} active streams
                             </Text>
+                            {error ? (
+                                <Text
+                                    style={{
+                                        color: "#f97373",
+                                        fontSize: 11,
+                                        marginTop: 4,
+                                    }}
+                                >
+                                    {error}
+                                </Text>
+                            ) : null}
                         </View>
 
-                        <View style={{ flexDirection: "row", gap: 8 }}>
+                        <View style={{ flexDirection: "row" }}>
                             {/* Auto Refresh Toggle */}
                             <TouchableOpacity
-                                onPress={() => setAutoRefresh(!autoRefresh)}
+                                onPress={() =>
+                                    setAutoRefresh(!autoRefresh)
+                                }
                                 style={{
                                     paddingHorizontal: 12,
                                     paddingVertical: 8,
@@ -1009,6 +1094,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                                     borderColor: autoRefresh
                                         ? "rgba(34,197,94,0.3)"
                                         : "rgba(255,255,255,0.1)",
+                                    marginRight: 8,
                                 }}
                             >
                                 <Text
@@ -1031,10 +1117,13 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                                     paddingHorizontal: 12,
                                     paddingVertical: 8,
                                     borderRadius: 10,
-                                    backgroundColor: "rgba(255,255,255,0.1)",
+                                    backgroundColor:
+                                        "rgba(255,255,255,0.1)",
                                 }}
                             >
-                                <Text style={{ color: "#fff", fontSize: 16 }}>
+                                <Text
+                                    style={{ color: "#fff", fontSize: 16 }}
+                                >
                                     📤
                                 </Text>
                             </TouchableOpacity>
@@ -1204,7 +1293,8 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                                 fontSize: 13,
                             }}
                         >
-                            {filteredStreams.length} of {activeStreams.length}
+                            {filteredStreams.length} of{" "}
+                            {activeStreams.length}
                         </Text>
                     </View>
 
@@ -1212,13 +1302,16 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                     {filteredStreams.length === 0 ? (
                         <View
                             style={{
-                                backgroundColor: "rgba(255,255,255,0.05)",
+                                backgroundColor:
+                                    "rgba(255,255,255,0.05)",
                                 borderRadius: 16,
                                 padding: 40,
                                 alignItems: "center",
                             }}
                         >
-                            <Text style={{ fontSize: 48, marginBottom: 16 }}>
+                            <Text
+                                style={{ fontSize: 48, marginBottom: 16 }}
+                            >
                                 📡
                             </Text>
                             <Text
@@ -1250,10 +1343,14 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                                 onView={handleViewStream}
                                 onStop={handleStopStream}
                                 onWarn={handleWarnStreamer}
-                                isExpanded={expandedStream === stream._id}
+                                isExpanded={
+                                    expandedStream === stream._id
+                                }
                                 onToggle={(id) =>
                                     setExpandedStream(
-                                        expandedStream === id ? null : id
+                                        expandedStream === id
+                                            ? null
+                                            : id
                                     )
                                 }
                             />
@@ -1264,7 +1361,8 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                     {filteredStreams.length > 0 && (
                         <View
                             style={{
-                                backgroundColor: "rgba(255,255,255,0.05)",
+                                backgroundColor:
+                                    "rgba(255,255,255,0.05)",
                                 borderRadius: 16,
                                 padding: 16,
                                 marginTop: 16,
@@ -1324,7 +1422,8 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                                             filteredStreams.reduce(
                                                 (sum, s) =>
                                                     sum +
-                                                    (s.giftsReceived || 0),
+                                                    (s.giftsReceived ||
+                                                        0),
                                                 0
                                             )
                                         )}

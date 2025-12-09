@@ -14,10 +14,28 @@ try { User = require("../models/User"); } catch (e) { console.log("ℹ️ User m
 try { Stream = require("../models/Stream"); } catch (e) { console.log("ℹ️ Stream model not loaded in cleanupRoutes"); }
 try { Post = require("../models/Post"); } catch (e) { console.log("ℹ️ Post model not loaded in cleanupRoutes"); }
 try { Gift = require("../models/Gift"); } catch (e) { console.log("ℹ️ Gift model not loaded in cleanupRoutes"); }
-try { PK = require("../models/PK"); } catch (e) { console.log("ℹ️ PK model not loaded in cleanupRoutes"); }
+
+// 🔥 PK alias loader (PK / PKBattle / PKChallenge)
+try {
+    PK = require("../models/PK");
+} catch (e1) {
+    try {
+        PK = require("../models/PKBattle");
+        console.log("ℹ️ Loaded PKBattle model as PK in cleanupRoutes");
+    } catch (e2) {
+        try {
+            PK = require("../models/PKChallenge");
+            console.log("ℹ️ Loaded PKChallenge model as PK in cleanupRoutes");
+        } catch (e3) {
+            console.log("ℹ️ PK model not loaded in cleanupRoutes (PK/PKBattle/PKChallenge missing)");
+        }
+    }
+}
+
 try { Notification = require("../models/Notification"); } catch (e) { console.log("ℹ️ Notification model not loaded in cleanupRoutes"); }
 try { PredictionLog = require("../models/PredictionLog"); } catch (e) { console.log("ℹ️ PredictionLog model not loaded in cleanupRoutes"); }
 try { PlatformWallet = require("../models/PlatformWallet"); } catch (e) { console.log("ℹ️ PlatformWallet model not loaded in cleanupRoutes"); }
+
 
 // ===========================================
 // HELPER FUNCTIONS

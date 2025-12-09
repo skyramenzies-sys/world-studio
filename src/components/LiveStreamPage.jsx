@@ -1,48 +1,10 @@
-// src/components/LiveStreamPage.jsx - WORLD STUDIO LIVE EDITION 📺
+// src/components/LiveStreamPage.jsx - WORLD STUDIO LIVE EDITION 📺 (U.E.)
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { io } from "socket.io-client";
 
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION (U.E.)
-   ============================================================ */
-const RAW_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    "https://world-studio-production.up.railway.app";
-
-const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-const SOCKET_URL = API_BASE_URL;
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// Socket connection (singleton)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
+// Centrale API + SOCKET (Universe Edition)
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 /* ============================================================
    MAIN COMPONENT
@@ -63,20 +25,21 @@ export default function LiveStreamPage() {
     const [viewers, setViewers] = useState(0);
     const [gifts, setGifts] = useState([]);
 
-    // Initialize socket
+    // Initialize socket (via centrale singleton)
     useEffect(() => {
-        socketRef.current = getSocket();
-        setIsConnected(socketRef.current.connected);
+        const s = getSocket();
+        socketRef.current = s;
+        setIsConnected(s.connected);
 
         const handleConnect = () => setIsConnected(true);
         const handleDisconnect = () => setIsConnected(false);
 
-        socketRef.current.on("connect", handleConnect);
-        socketRef.current.on("disconnect", handleDisconnect);
+        s.on("connect", handleConnect);
+        s.on("disconnect", handleDisconnect);
 
         return () => {
-            socketRef.current.off("connect", handleConnect);
-            socketRef.current.off("disconnect", handleDisconnect);
+            s.off("connect", handleConnect);
+            s.off("disconnect", handleDisconnect);
         };
     }, []);
 
@@ -103,8 +66,14 @@ export default function LiveStreamPage() {
         const fetchStream = async () => {
             try {
                 const res = await api.get(`/api/live/${streamId}`);
-                setStream(res.data);
-                setViewers(res.data.viewers || 0);
+                const s = res.data;
+                setStream(s);
+                setViewers(s.viewers || 0);
+
+                // Als stream niet live is, show error maar laat info nog zien
+                if (s && s.isLive === false) {
+                    setError("This stream has ended");
+                }
             } catch (err) {
                 console.error("Failed to fetch stream:", err);
                 setError("Stream not found or has ended");
@@ -144,7 +113,8 @@ export default function LiveStreamPage() {
 
         // Viewer count updates
         const handleViewerCount = (data) => {
-            setViewers(data.viewers || data.count || 0);
+            const count = data.viewers ?? data.count ?? 0;
+            setViewers(count);
         };
 
         // Gift received
@@ -156,7 +126,9 @@ export default function LiveStreamPage() {
 
             // Auto-remove na 5 seconden op basis van deze timestamp
             setTimeout(() => {
-                setGifts((prev) => prev.filter((g) => g.timestamp !== timestamp));
+                setGifts((prev) =>
+                    prev.filter((g) => g.timestamp !== timestamp)
+                );
             }, 5000);
         };
 
@@ -184,7 +156,7 @@ export default function LiveStreamPage() {
 
 
     // Send message
-    function sendMessage(e) {
+    const sendMessage = (e) => {
         e.preventDefault();
         const messageText = input.trim();
         if (!messageText) return;
@@ -202,7 +174,7 @@ export default function LiveStreamPage() {
         }
 
         setInput("");
-    }
+    };
 
     // Loading state
     if (loading) {
@@ -216,8 +188,8 @@ export default function LiveStreamPage() {
         );
     }
 
-    // Error state
-    if (error) {
+    // Error state (maar als we wél stream data hebben, laten we die verderop nog zien)
+    if (error && !stream) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black flex items-center justify-center">
                 <div className="text-center p-8">
@@ -261,7 +233,8 @@ export default function LiveStreamPage() {
                                     alt=""
                                     className="w-5 h-5 rounded-full"
                                     onError={(e) => {
-                                        e.target.src = "/defaults/default-avatar.png";
+                                        e.target.src =
+                                            "/defaults/default-avatar.png";
                                     }}
                                 />
                                 {stream.host?.username ||
@@ -299,6 +272,13 @@ export default function LiveStreamPage() {
                         )}
                     </div>
                 </div>
+
+                {/* Error strip if stream ended */}
+                {error && stream && (
+                    <div className="mb-4 bg-red-500/10 border border-red-500/40 rounded-xl px-4 py-3 text-sm text-red-200">
+                        {error}
+                    </div>
+                )}
 
                 {/* Gift overlays */}
                 {gifts.length > 0 && (
@@ -417,7 +397,9 @@ export default function LiveStreamPage() {
                 {/* Stream info */}
                 {stream && (
                     <div className="mt-6 bg-white/5 rounded-xl p-4 border border-white/10">
-                        <h3 className="font-semibold mb-3">About this stream</h3>
+                        <h3 className="font-semibold mb-3">
+                            About this stream
+                        </h3>
                         <div className="flex items-center gap-4 mb-3">
                             <img
                                 src={
@@ -428,7 +410,8 @@ export default function LiveStreamPage() {
                                 alt=""
                                 className="w-12 h-12 rounded-full border-2 border-white/20"
                                 onError={(e) => {
-                                    e.target.src = "/defaults/default-avatar.png";
+                                    e.target.src =
+                                        "/defaults/default-avatar.png";
                                 }}
                             />
                             <div>

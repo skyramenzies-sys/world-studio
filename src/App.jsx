@@ -17,7 +17,7 @@ import { Toaster, toast } from "react-hot-toast";
 // ===========================================
 // API + SOCKET CONFIG (Universe Editions)
 // ===========================================
-import api, { API_BASE_URL } from "./api/api";
+import { API_BASE_URL } from "./api/api";
 import socket, { joinUserRoom } from "./api/socket";
 
 // ===========================================
@@ -61,6 +61,9 @@ const getCurrentUser = () => {
         return null;
     }
 };
+
+// Backend root voor assets (API_BASE_URL bevat /api)
+const API_ROOT = API_BASE_URL.replace(/\/api\/?$/, "");
 
 // ===========================================
 // ROUTE GUARDS
@@ -115,7 +118,8 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const isAdmin =
-        currentUser?.email === "menziesalm@gmail.com" || currentUser?.role === "admin";
+        currentUser?.email === "menziesalm@gmail.com" ||
+        currentUser?.role === "admin";
 
     useEffect(() => {
         if (!currentUser) return;
@@ -237,7 +241,9 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                         {currentUser && (
                             <Link
                                 to="/wallet"
-                                className={`flex items-center gap-1 bg-yellow-500/20 hover:bg-yellow-500/30 px-3 py-2 rounded-lg transition text-yellow-400 font-semibold text-sm ${isActive("/wallet") ? "bg-yellow-500/30" : ""
+                                className={`flex items-center gap-1 bg-yellow-500/20 hover:bg-yellow-500/30 px-3 py-2 rounded-lg transition text-yellow-400 font-semibold text-sm ${isActive("/wallet")
+                                        ? "bg-yellow-500/30"
+                                        : ""
                                     }`}
                             >
                                 💰{" "}
@@ -280,13 +286,12 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                                     <img
                                         src={
                                             currentUser.avatar ||
-                                            "/defaults/default-avatar.png"
+                                            `${API_ROOT}/defaults/default-avatar.png`
                                         }
                                         alt="avatar"
                                         className="w-8 h-8 rounded-full object-cover border border-white/20"
                                         onError={(e) => {
-                                            e.target.src =
-                                                "/defaults/default-avatar.png";
+                                            e.target.src = `${API_ROOT}/defaults/default-avatar.png`;
                                         }}
                                     />
                                     <span className="text-white/60 text-sm max-w-[100px] truncate">
@@ -362,8 +367,10 @@ export default function App() {
         try {
             const saved = window.localStorage.getItem("theme");
             if (saved) return saved === "dark";
-            return window.matchMedia &&
-                window.matchMedia("(prefers-color-scheme: dark)").matches;
+            return (
+                window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+            );
         } catch {
             return true;
         }
@@ -490,7 +497,14 @@ export default function App() {
                             </RequireAuth>
                         }
                     />
-                    <Route path="/profile/:userId" element={<ProfilePage />} />
+                    <Route
+                        path="/profile/:userId"
+                        element={
+                            <RequireAuth>
+                                <ProfilePage />
+                            </RequireAuth>
+                        }
+                    />
                     <Route
                         path="/upload"
                         element={

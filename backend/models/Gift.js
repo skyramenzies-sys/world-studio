@@ -848,10 +848,485 @@ giftSchema.statics.getLeaderboard = async function (period = "week", limit = 50)
 };
 
 /**
+ * Admin Coin History (for dashboards)
+ *
+ * @param {Object} options
+ * @param {"today"|"7d"|"30d"|"90d"|"all"} options.range
+ * @param {"day"|"week"|"month"} options.groupBy
+ * @returns {Promise<{summary, timeline, topStreamers, topSenders}>}
+ */
+giftSchema.statics.getAdminCoinHistory = async function (options = {}) {
+    const range = options.range || "7d";
+    const groupBy = options.groupBy || "day";
+
+    const now = new Date();
+    let startDate = null;
+
+    if (range === "today") {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (range === "7d") {
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (range === "30d") {
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (range === "90d") {
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    } else {
+        // "all" → geen extra date filter
+        startDate = null;
+    }
+
+    const match = { status: "completed" };
+    if (startDate) {
+        match.createdAt = { $gte: startDate };
+    }
+
+    const groupUnit =
+        groupBy === "month" ? "month" : groupBy === "week" ? "week" : "day";
+
+    const [result] = await this.aggregate([
+        { $match: match },
+        {
+            $facet: {
+                // SUMMARY
+                summary: [
+                    {
+                        $group: {
+                            _id: null,
+                            totalCoins: { $sum: "$coinValue" },
+                            senders: { $addToSet: "$senderId" },
+                            receivers: { $addToSet: "$recipientId" },
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            totalCoins: 1,
+                            totalSenders: { $size: "$senders" },
+                            totalReceivers: { $size: "$receivers" },
+                        },
+                    },
+                ],
+
+                // TIMELINE
+                timeline: [
+                    {
+                        $group: {
+                            _id: {
+                                bucket: {
+                                    $dateTrunc: {
+                                        date: "$createdAt",
+                                        unit: groupUnit,
+                                    },
+                                },
+                            },
+                            coins: { $sum: "$coinValue" },
+                            gifts: { $sum: 1 },
+                            streamsSet: { $addToSet: "$streamId" },
+                        },
+                    },
+                    { $sort: { "_id.bucket": 1 } },
+                    {
+                        $project: {
+                            _id: 0,
+                            date: "$_id.bucket",
+                            coins: 1,
+                            gifts: 1,
+                            streams: {
+                                $size: {
+                                    $filter: {
+                                        input: "$streamsSet",
+                                        as: "s",
+                                        cond: { $ne: ["$$s", null] },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ],
+
+                // TOP STREAMERS
+                topStreamers: [
+                    {
+                        $group: {
+                            _id: "$recipientId",
+                            recipientId: { $first: "$recipientId" },
+                            username: { $first: "$recipientUsername" },
+                            coins: { $sum: "$coinValue" },
+                            streamsSet: { $addToSet: "$streamId" },
+                        },
+                    },
+                    { $sort: { coins: -1 } },
+                    { $limit: 50 },
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "recipientId",
+                            foreignField: "_id",
+                            as: "user",
+                        },
+                    },
+                    {
+                        $unwind: {
+                            path: "$user",
+                            preserveNullAndEmptyArrays: true,
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            userId: "$recipientId",
+                            username: {
+                                $ifNull: ["$username", "$user.username"],
+                            },
+                            coins: 1,
+                            streams: {
+                                $size: {
+                                    $filter: {
+                                        input: "$streamsSet",
+                                        as: "s",
+                                        cond: { $ne: ["$$s", null] },
+                                    },
+                                },
+                            },
+                            followers: {
+                                $ifNull: ["$user.followersCount", 0],
+                            },
+                        },
+                    },
+                ],
+
+                // TOP SENDERS
+                topSenders: [
+                    {
+                        $group: {
+                            _id: "$senderId",
+                            senderId: { $first: "$senderId" },
+                            username: { $first: "$senderUsername" },
+                            coins: { $sum: "$coinValue" },
+                            gifts: { $sum: 1 },
+                        },
+                    },
+                    { $sort: { coins: -1 } },
+                    { $limit: 50 },
+                    {
+                        $project: {
+                            _id: 0,
+                            userId: "$senderId",
+                            username: 1,
+                            coins: 1,
+                            gifts: 1,
+                        },
+                    },
+                ],
+            },
+        },
+    ]);
+
+    const summary = (result.summary && result.summary[0]) || {
+        totalCoins: 0,
+        totalSenders: 0,
+        totalReceivers: 0,
+    };
+
+    let timeline = result.timeline || [];
+    const topStreamers = result.topStreamers || [];
+    const topSenders = result.topSenders || [];
+
+    // Label voor grafiek
+    timeline = timeline.map((entry) => {
+        const d = entry.date instanceof Date ? entry.date : new Date(entry.date);
+        let label = "";
+
+        if (groupUnit === "day") {
+            label = `${d.getDate()}/${d.getMonth() + 1}`;
+        } else if (groupUnit === "week") {
+            label = `W${Math.ceil(d.getDate() / 7)} ${d.getMonth() + 1}/${d.getFullYear()}`;
+        } else if (groupUnit === "month") {
+            label = `${d.getMonth() + 1}/${d.getFullYear()}`;
+        }
+
+        return {
+            ...entry,
+            date: d,
+            label,
+        };
+    });
+
+    // Top streamer/sender in summary
+    const topStreamerEntry = topStreamers[0] || null;
+    const topSenderEntry = topSenders[0] || null;
+
+    const extendedSummary = {
+        ...summary,
+        topStreamer: topStreamerEntry
+            ? {
+                username: topStreamerEntry.username,
+                coins: topStreamerEntry.coins,
+            }
+            : null,
+        topSender: topSenderEntry
+            ? {
+                username: topSenderEntry.username,
+                coins: topSenderEntry.coins,
+            }
+            : null,
+    };
+
+    return {
+        summary: extendedSummary,
+        timeline,
+        topStreamers,
+        topSenders,
+    };
+};
+
+/**
  * Expose gift config statically (optional helper)
  */
 giftSchema.statics.getGiftConfig = function (itemValue) {
     return findGiftConfig(itemValue);
+};
+
+/**
+ * Admin Coin History (for dashboards)
+ *
+ * @param {Object} options
+ * @param {"today"|"7d"|"30d"|"90d"|"all"} options.range
+ * @param {"day"|"week"|"month"} options.groupBy
+ * @returns {Promise<{summary, timeline, topStreamers, topSenders}>}
+ */
+giftSchema.statics.getAdminCoinHistory = async function (options = {}) {
+    const range = options.range || "7d";
+    const groupBy = options.groupBy || "day";
+
+    const now = new Date();
+    let startDate = null;
+
+    if (range === "today") {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (range === "7d") {
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (range === "30d") {
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (range === "90d") {
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    } else {
+        // "all" → geen extra date filter
+        startDate = null;
+    }
+
+    const match = { status: "completed" };
+    if (startDate) {
+        match.createdAt = { $gte: startDate };
+    }
+
+    const groupUnit =
+        groupBy === "month" ? "month" : groupBy === "week" ? "week" : "day";
+
+    const [result] = await this.aggregate([
+        { $match: match },
+        {
+            $facet: {
+                // ---------------------
+                // SUMMARY
+                // ---------------------
+                summary: [
+                    {
+                        $group: {
+                            _id: null,
+                            totalCoins: { $sum: "$coinValue" },
+                            senders: { $addToSet: "$senderId" },
+                            receivers: { $addToSet: "$recipientId" },
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            totalCoins: 1,
+                            totalSenders: { $size: "$senders" },
+                            totalReceivers: { $size: "$receivers" },
+                        },
+                    },
+                ],
+
+                // ---------------------
+                // TIMELINE
+                // ---------------------
+                timeline: [
+                    {
+                        $group: {
+                            _id: {
+                                bucket: {
+                                    $dateTrunc: {
+                                        date: "$createdAt",
+                                        unit: groupUnit,
+                                    },
+                                },
+                            },
+                            coins: { $sum: "$coinValue" },
+                            gifts: { $sum: 1 },
+                            streamsSet: { $addToSet: "$streamId" },
+                        },
+                    },
+                    { $sort: { "_id.bucket": 1 } },
+                    {
+                        $project: {
+                            _id: 0,
+                            date: "$_id.bucket",
+                            coins: 1,
+                            gifts: 1,
+                            streams: {
+                                $size: {
+                                    $filter: {
+                                        input: "$streamsSet",
+                                        as: "s",
+                                        cond: { $ne: ["$$s", null] },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                ],
+
+                // ---------------------
+                // TOP STREAMERS
+                // ---------------------
+                topStreamers: [
+                    {
+                        $group: {
+                            _id: "$recipientId",
+                            recipientId: { $first: "$recipientId" },
+                            username: { $first: "$recipientUsername" },
+                            coins: { $sum: "$coinValue" },
+                            streamsSet: { $addToSet: "$streamId" },
+                        },
+                    },
+                    { $sort: { coins: -1 } },
+                    { $limit: 50 },
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "recipientId",
+                            foreignField: "_id",
+                            as: "user",
+                        },
+                    },
+                    {
+                        $unwind: {
+                            path: "$user",
+                            preserveNullAndEmptyArrays: true,
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            userId: "$recipientId",
+                            username: {
+                                $ifNull: ["$username", "$user.username"],
+                            },
+                            coins: 1,
+                            streams: {
+                                $size: {
+                                    $filter: {
+                                        input: "$streamsSet",
+                                        as: "s",
+                                        cond: { $ne: ["$$s", null] },
+                                    },
+                                },
+                            },
+                            followers: {
+                                $ifNull: ["$user.followersCount", 0],
+                            },
+                        },
+                    },
+                ],
+
+                // ---------------------
+                // TOP SENDERS
+                // ---------------------
+                topSenders: [
+                    {
+                        $group: {
+                            _id: "$senderId",
+                            senderId: { $first: "$senderId" },
+                            username: { $first: "$senderUsername" },
+                            coins: { $sum: "$coinValue" },
+                            gifts: { $sum: 1 },
+                        },
+                    },
+                    { $sort: { coins: -1 } },
+                    { $limit: 50 },
+                    {
+                        $project: {
+                            _id: 0,
+                            userId: "$senderId",
+                            username: 1,
+                            coins: 1,
+                            gifts: 1,
+                        },
+                    },
+                ],
+            },
+        },
+    ]);
+
+    const summary = (result.summary && result.summary[0]) || {
+        totalCoins: 0,
+        totalSenders: 0,
+        totalReceivers: 0,
+    };
+
+    let timeline = result.timeline || [];
+    const topStreamers = result.topStreamers || [];
+    const topSenders = result.topSenders || [];
+
+    // Voeg label toe voor frontend grafiek
+    timeline = timeline.map((entry) => {
+        const d = entry.date instanceof Date ? entry.date : new Date(entry.date);
+        let label = "";
+
+        if (groupUnit === "day") {
+            label = `${d.getDate()}/${d.getMonth() + 1}`;
+        } else if (groupUnit === "week") {
+            // Week-achtige label (rough)
+            label = `W${Math.ceil(d.getDate() / 7)} ${d.getMonth() + 1}/${d.getFullYear()}`;
+        } else if (groupUnit === "month") {
+            label = `${d.getMonth() + 1}/${d.getFullYear()}`;
+        }
+
+        return {
+            ...entry,
+            date: d,
+            label,
+        };
+    });
+
+    // Top streamer / sender in summary
+    const topStreamerEntry = topStreamers[0] || null;
+    const topSenderEntry = topSenders[0] || null;
+
+    const extendedSummary = {
+        ...summary,
+        topStreamer: topStreamerEntry
+            ? {
+                username: topStreamerEntry.username,
+                coins: topStreamerEntry.coins,
+            }
+            : null,
+        topSender: topSenderEntry
+            ? {
+                username: topSenderEntry.username,
+                coins: topSenderEntry.coins,
+            }
+            : null,
+    };
+
+    return {
+        summary: extendedSummary,
+        timeline,
+        topStreamers,
+        topSenders,
+    };
 };
 
 // ===========================================

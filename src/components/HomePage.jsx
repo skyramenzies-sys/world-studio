@@ -11,7 +11,7 @@ import PostCard from "./PostCard";
 import api from "../api/api";
 import { getSocket } from "../api/socket";
 
-// SWR Fetcher
+// SWR Fetcher (werkt met relatieve paths zoals '/posts')
 const fetcher = (url) => api.get(url).then((r) => r.data);
 
 /* ============================================================
@@ -63,7 +63,7 @@ const LiveStories = ({ lives, onWatch }) => {
                                         }}
                                     />
                                 </div>
-                                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shadow-lg">
+                                <span className="absolute -bottom-1.left-1/2 -translate-x-1/2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full shadow-lg">
                                     LIVE
                                 </span>
                                 {viewers > 0 && (
@@ -102,7 +102,7 @@ const LiveStories = ({ lives, onWatch }) => {
    QUICK STATS COMPONENT
    ============================================================ */
 const QuickStats = ({ stats }) => (
-    <div className="grid grid-cols-3 gap-3 mb-6">
+    <div className="grid grid-cols-3.gap-3 mb-6">
         <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-xl p-4 border border-cyan-500/20 hover:border-cyan-500/40 transition">
             <TrendingUp className="w-5 h-5 text-cyan-400 mb-2" />
             <p className="text-2xl font-bold text-white">
@@ -111,8 +111,8 @@ const QuickStats = ({ stats }) => (
             <p className="text-xs text-white/50">Total Posts</p>
         </div>
         <div className="bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl p-4 border border-purple-500/20 hover:border-purple-500/40 transition">
-            <Users className="w-5 h-5 text-purple-400 mb-2" />
-            <p className="text-2xl font-bold text-white">
+            <Users className="w-5 h-5 text-purple-400.mb-2" />
+            <p className="text-2xl font-bold text.white">
                 {stats.users?.toLocaleString() || 0}
             </p>
             <p className="text-xs text-white/50">Creators</p>
@@ -185,7 +185,7 @@ export default function HomePage() {
     const [filter, setFilter] = useState("all");
     const [searchQuery, setSearchQuery] = useState("");
     const [showSearch, setShowSearch] = useState(false);
-    the[isRefreshing, setIsRefreshing] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false); // ✅ fixed
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const [allPosts, setAllPosts] = useState([]);
@@ -231,9 +231,9 @@ export default function HomePage() {
         return () => window.removeEventListener("auth-change", handleAuthChange);
     }, []);
 
-    // Fetch posts
+    // Fetch posts (zonder dubbel /api)
     const { data, error, isLoading, mutate } = useSWR(
-        `/api/posts?page=${page}&limit=20`,
+        `/posts?page=${page}&limit=20`,
         fetcher,
         {
             refreshInterval: 30000,
@@ -257,7 +257,7 @@ export default function HomePage() {
     );
 
     // Fetch live streams
-    const { data: liveData } = useSWR("/api/live?isLive=true", fetcher, {
+    const { data: liveData } = useSWR("/live?isLive=true", fetcher, {
         refreshInterval: 15000,
     });
 
@@ -266,7 +266,7 @@ export default function HomePage() {
         if (!currentUser) return;
 
         api
-            .get("/api/users/suggested?limit=5")
+            .get("/users/suggested?limit=5")
             .then((res) => {
                 const payload = res.data;
                 let list = [];
@@ -317,10 +317,13 @@ export default function HomePage() {
         });
 
         socket.on("live_started", (stream) => {
-            toast(`🔴 ${stream.streamerName || stream.host?.username || "Someone"} is live!`, {
-                icon: "📺",
-                duration: 5000,
-            });
+            toast(
+                `🔴 ${stream.streamerName || stream.host?.username || "Someone"} is live!`,
+                {
+                    icon: "📺",
+                    duration: 5000,
+                }
+            );
         });
 
         return () => {
@@ -377,7 +380,7 @@ export default function HomePage() {
         }
 
         try {
-            await api.post(`/api/users/${user._id}/follow`);
+            await api.post(`/users/${user._id}/follow`);
             toast.success(`Following ${user.username}!`);
             setSuggestedUsers((prev) => prev.filter((u) => u._id !== user._id));
 
@@ -484,7 +487,7 @@ export default function HomePage() {
                         <button
                             onClick={handleRefresh}
                             disabled={isRefreshing}
-                            className="p-2 bg-white/10 rounded-xl text-white/70 hover:bg-white/20 transition disabled:opacity-50"
+                            className="p-2 bg-white/10 rounded-xl text-white/70 hover:bg.white/20 transition disabled:opacity-50"
                         >
                             <RefreshCw
                                 size={20}
@@ -509,7 +512,7 @@ export default function HomePage() {
                                 onChange={(e) =>
                                     setSearchQuery(e.target.value)
                                 }
-                                className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition"
+                                className="w-full pl-12 pr-4 py-3 bg.white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 transition"
                                 autoFocus
                             />
                             {searchQuery && (
@@ -710,7 +713,7 @@ export default function HomePage() {
                     from { opacity: 0; transform: translateY(-10px); }
                     to { opacity: 1; transform: translateY(0); }
                 }
-                .animate-fadeIn { animation: fadeIn 0.2s ease-out; }
+                .animate-fadeIn { animation: fadeIn 0.2s.ease-out; }
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             `}</style>

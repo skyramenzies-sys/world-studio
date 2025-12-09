@@ -8,6 +8,7 @@ const mongoose = require("mongoose");
 const Stripe = require("stripe");
 const User = require("../models/User");
 const PlatformWallet = require("../models/PlatformWallet");
+
 const authMiddleware = require("../middleware/authMiddleware");
 const requireAdmin = require("../middleware/requireAdmin");
 
@@ -42,6 +43,13 @@ const COIN_PACKAGES = [
 // ===========================================
 // HELPERS
 // ===========================================
+
+const getCurrentUserId = (req) => {
+    if (req.user && (req.user.id || req.user._id)) {
+        return req.user.id || req.user._id;
+    }
+    return req.userId;
+};
 
 const formatPrice = (cents) => `€${(cents / 100).toFixed(2)}`;
 const coinsToEur = (coins) => (coins / COIN_RATE).toFixed(2);
@@ -119,7 +127,12 @@ router.get("/exchange-rate", (req, res) => {
  */
 router.get("/", authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.userId).select("wallet");
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
+        const user = await User.findById(currentUserId).select("wallet");
         if (!user)
             return res
                 .status(404)
@@ -153,8 +166,13 @@ router.get("/", authMiddleware, async (req, res) => {
  */
 router.get("/transactions", authMiddleware, async (req, res) => {
     try {
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
         const { limit = 50, skip = 0, type } = req.query;
-        const user = await User.findById(req.userId).select("wallet");
+        const user = await User.findById(currentUserId).select("wallet");
         if (!user)
             return res
                 .status(404)
@@ -199,7 +217,12 @@ router.get("/transactions", authMiddleware, async (req, res) => {
  */
 router.get("/stats", authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.userId).select("wallet");
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
+        const user = await User.findById(currentUserId).select("wallet");
         if (!user)
             return res
                 .status(404)
@@ -262,7 +285,12 @@ router.post("/checkout", authMiddleware, async (req, res) => {
                 .status(400)
                 .json({ success: false, error: "Invalid package" });
 
-        const user = await User.findById(req.userId);
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
+        const user = await User.findById(currentUserId);
         if (!user)
             return res
                 .status(404)
@@ -274,9 +302,9 @@ router.post("/checkout", authMiddleware, async (req, res) => {
             payment_method_types: ["card", "ideal", "bancontact"],
             mode: "payment",
             customer_email: user.email,
-            client_reference_id: req.userId.toString(),
+            client_reference_id: currentUserId.toString(),
             metadata: {
-                userId: req.userId.toString(),
+                userId: currentUserId.toString(),
                 username: user.username,
                 packageId: pkg.id,
                 coins: totalCoins.toString(),
@@ -287,10 +315,11 @@ router.post("/checkout", authMiddleware, async (req, res) => {
                         currency: "eur",
                         product_data: {
                             name: pkg.label,
-                            description: `${totalCoins} WS-Coins${pkg.bonus > 0
+                            description: `${totalCoins} WS-Coins${
+                                pkg.bonus > 0
                                     ? ` (${pkg.coins} + ${pkg.bonus} bonus)`
                                     : ""
-                                }`,
+                            }`,
                         },
                         unit_amount: pkg.price,
                     },
@@ -346,14 +375,19 @@ router.post("/verify-payment", authMiddleware, async (req, res) => {
                 .json({ success: false, error: "Payment not completed" });
         }
 
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
         const userId = session.metadata?.userId || session.client_reference_id;
-        if (userId !== req.userId.toString()) {
+        if (userId !== currentUserId.toString()) {
             return res
                 .status(403)
                 .json({ success: false, error: "Session mismatch" });
         }
 
-        const user = await User.findById(req.userId);
+        const user = await User.findById(currentUserId);
         if (!user)
             return res
                 .status(404)
@@ -391,8 +425,7 @@ router.post("/verify-payment", authMiddleware, async (req, res) => {
         addTransaction(user, {
             type: "purchase",
             amount: coins,
-            description: `Purchased ${pkg?.label || coins + " coins"
-                }`,
+            description: `Purchased ${pkg?.label || coins + " coins"}`,
             stripeSessionId: sessionId,
             status: "completed",
         });
@@ -401,7 +434,7 @@ router.post("/verify-payment", authMiddleware, async (req, res) => {
 
         const io = req.app.get("io");
         if (io) {
-            io.to(`user_${req.userId}`).emit("wallet_update", {
+            io.to(`user_${currentUserId}`).emit("wallet_update", {
                 balance: user.wallet.balance,
                 change: coins,
             });
@@ -517,6 +550,11 @@ router.post(
  */
 router.post("/transfer", authMiddleware, async (req, res) => {
     try {
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
         const { recipientId, recipientUsername, amount, message } =
             req.body;
 
@@ -552,14 +590,14 @@ router.post("/transfer", authMiddleware, async (req, res) => {
                 error: "Recipient not found",
             });
         }
-        if (recipient._id.toString() === req.userId.toString()) {
+        if (recipient._id.toString() === currentUserId.toString()) {
             return res.status(400).json({
                 success: false,
                 error: "Cannot transfer to self",
             });
         }
 
-        const sender = await User.findById(req.userId);
+        const sender = await User.findById(currentUserId);
         if (!sender) {
             return res.status(404).json({
                 success: false,
@@ -656,6 +694,11 @@ router.post("/transfer", authMiddleware, async (req, res) => {
  */
 router.post("/withdraw", authMiddleware, async (req, res) => {
     try {
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
         const { amount, method, accountDetails } = req.body;
 
         if (!amount || amount < MIN_WITHDRAWAL) {
@@ -685,7 +728,7 @@ router.post("/withdraw", authMiddleware, async (req, res) => {
             });
         }
 
-        const user = await User.findById(req.userId);
+        const user = await User.findById(currentUserId);
         if (!user)
             return res
                 .status(404)
@@ -722,6 +765,14 @@ router.post("/withdraw", authMiddleware, async (req, res) => {
 
         await user.save();
 
+        const io = req.app.get("io");
+        if (io) {
+            io.to(`user_${currentUserId}`).emit("wallet_update", {
+                balance: user.wallet.balance,
+                change: -amount,
+            });
+        }
+
         console.log(`💳 Withdrawal: €${eurAmount} by ${user.username}`);
         res.json({
             success: true,
@@ -742,7 +793,12 @@ router.post("/withdraw", authMiddleware, async (req, res) => {
  */
 router.get("/withdrawals", authMiddleware, async (req, res) => {
     try {
-        const user = await User.findById(req.userId).select("wallet");
+        const currentUserId = getCurrentUserId(req);
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: "Not authenticated" });
+        }
+
+        const user = await User.findById(currentUserId).select("wallet");
         if (!user)
             return res
                 .status(404)
@@ -782,6 +838,11 @@ router.post(
     requireAdmin,
     async (req, res) => {
         try {
+            const currentAdminId = getCurrentUserId(req);
+            if (!currentAdminId) {
+                return res.status(401).json({ success: false, error: "Not authenticated" });
+            }
+
             const {
                 targetUserId,
                 targetUsername,
@@ -826,11 +887,19 @@ router.post(
                 amount,
                 description:
                     reason || `Admin added ${amount} coins`,
-                adminId: req.userId,
+                adminId: currentAdminId,
                 status: "completed",
             });
 
             await user.save();
+
+            const io = req.app.get("io");
+            if (io) {
+                io.to(`user_${user._id}`).emit("wallet_update", {
+                    balance: user.wallet.balance,
+                    change: amount,
+                });
+            }
 
             console.log(`👑 Admin +${amount} to ${user.username}`);
             res.json({
@@ -856,6 +925,11 @@ router.post(
     requireAdmin,
     async (req, res) => {
         try {
+            const currentAdminId = getCurrentUserId(req);
+            if (!currentAdminId) {
+                return res.status(401).json({ success: false, error: "Not authenticated" });
+            }
+
             const {
                 targetUserId,
                 targetUsername,
@@ -901,11 +975,19 @@ router.post(
                 amount: -amount,
                 description:
                     reason || `Admin deducted ${amount} coins`,
-                adminId: req.userId,
+                adminId: currentAdminId,
                 status: "completed",
             });
 
             await user.save();
+
+            const io = req.app.get("io");
+            if (io) {
+                io.to(`user_${user._id}`).emit("wallet_update", {
+                    balance: user.wallet.balance,
+                    change: -amount,
+                });
+            }
 
             console.log(`👑 Admin -${amount} from ${user.username}`);
             res.json({
@@ -986,6 +1068,11 @@ router.post(
     requireAdmin,
     async (req, res) => {
         try {
+            const currentAdminId = getCurrentUserId(req);
+            if (!currentAdminId) {
+                return res.status(401).json({ success: false, error: "Not authenticated" });
+            }
+
             const { userId, transactionId, status, note } =
                 req.body;
 
@@ -1019,7 +1106,7 @@ router.post(
 
             tx.status = status;
             tx.processedAt = new Date();
-            tx.processedBy = req.userId;
+            tx.processedBy = currentAdminId;
             if (note) tx.adminNote = note;
 
             if (status === "rejected") {
@@ -1039,6 +1126,14 @@ router.post(
             }
 
             await user.save();
+
+            const io = req.app.get("io");
+            if (io) {
+                io.to(`user_${user._id}`).emit("wallet_update", {
+                    balance: user.wallet.balance,
+                    change: 0, // saldo is al verwerkt
+                });
+            }
 
             console.log(`👑 Withdrawal ${status}: ${transactionId}`);
             res.json({

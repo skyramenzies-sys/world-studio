@@ -546,7 +546,8 @@ const formatPrice = (price) => {
 };
 
 const formatNumber = (num) => {
-    if (!num || isNaN(num)) return "N/A";
+    // 0 moet gewoon "0" tonen, niet "N/A"
+    if (num == null || isNaN(num)) return "N/A";
     if (num >= 1e12) return `$${(num / 1e12).toFixed(2)}T`;
     if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
     if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
@@ -999,6 +1000,8 @@ export default function StockPredictor() {
         selectedType === "crypto"
             ? allCryptoData
             : allStockData;
+
+    const buyLinks = selectedAsset?.buyLinks || {};
 
     // ---------------------------------------
     // RENDER
@@ -1572,26 +1575,31 @@ export default function StockPredictor() {
                                     <h3 className="font-semibold mb-3 text-sm">
                                         🛒 Trade {selectedAsset.name}
                                     </h3>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {Object.entries(
-                                            selectedAsset.buyLinks
-                                        ).map(([ex, url]) => (
-                                            <a
-                                                key={ex}
-                                                href={url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex items-center justify-center px-3 py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-xl font-medium text-sm capitalize transition"
-                                            >
-                                                {ex}
-                                            </a>
-                                        ))}
-                                    </div>
+                                    {Object.keys(buyLinks).length > 0 ? (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {Object.entries(
+                                                buyLinks
+                                            ).map(([ex, url]) => (
+                                                <a
+                                                    key={ex}
+                                                    href={url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex items-center justify-center px-3 py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-xl font-medium text-sm capitalize transition"
+                                                >
+                                                    {ex}
+                                                </a>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-white/50">
+                                            No exchanges configured for this asset.
+                                        </p>
+                                    )}
                                 </div>
 
                                 <p className="text-center text-xs text-white/30">
-                                    ⚠️ Not financial advice. Always
-                                    DYOR.
+                                    ⚠️ Not financial advice. Always DYOR.
                                 </p>
                             </>
                         ) : (

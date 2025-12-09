@@ -5,35 +5,10 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import axios from "axios";
+import api from "../api/api";
 
 // ===========================================
-// API CONFIGURATION - ACTIVE SERVER
-// ===========================================
-const API_BASE_URL =
-    (typeof import.meta !== "undefined" &&
-        import.meta.env &&
-        import.meta.env.VITE_API_URL?.replace(/\/$/, "")) ||
-    "https://world-studio-production.up.railway.app";
-
-// Axios instance with auth
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-
-api.interceptors.request.use((config) => {
-    const token =
-        localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// ===========================================
-// ICONS (Inline SVG for no dependencies)
+// ICONS (Inline SVG for no extra deps)
 // ===========================================
 const Icons = {
     ArrowLeft: () => (
@@ -58,7 +33,7 @@ const Icons = {
     ),
     Music: () => (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2zM9 10l12-3" />
         </svg>
     ),
     Check: () => (
@@ -94,24 +69,29 @@ const Icons = {
 };
 
 // ===========================================
-// CATEGORIES & LICENSES
+// CATEGORIES – MATCHEN MET BACKEND CATEGORIES
 // ===========================================
 const CATEGORIES = [
-    { id: "general", name: "General", icon: "📁" },
-    { id: "art", name: "Art & Design", icon: "🎨" },
-    { id: "music", name: "Music", icon: "🎵" },
-    { id: "video", name: "Video & Film", icon: "🎬" },
-    { id: "photography", name: "Photography", icon: "📷" },
-    { id: "education", name: "Education", icon: "📚" },
-    { id: "gaming", name: "Gaming", icon: "🎮" },
-    { id: "fitness", name: "Fitness & Health", icon: "💪" },
-    { id: "cooking", name: "Food & Cooking", icon: "🍳" },
-    { id: "tech", name: "Technology", icon: "💻" },
-    { id: "fashion", name: "Fashion & Beauty", icon: "👗" },
-    { id: "travel", name: "Travel", icon: "✈️" },
-    { id: "nature", name: "Nature & Wildlife", icon: "🌿" },
-    { id: "comedy", name: "Comedy", icon: "😂" },
-    { id: "other", name: "Other", icon: "📌" },
+    { id: "General", name: "General", icon: "📁" },
+    { id: "Gaming", name: "Gaming", icon: "🎮" },
+    { id: "Music", name: "Music", icon: "🎵" },
+    { id: "Art", name: "Art & Design", icon: "🎨" },
+    { id: "Photography", name: "Photography", icon: "📷" },
+    { id: "Comedy", name: "Comedy", icon: "😂" },
+    { id: "Education", name: "Education", icon: "📚" },
+    { id: "Sports", name: "Sports", icon: "🏅" },
+    { id: "News", name: "News", icon: "📰" },
+    { id: "Technology", name: "Technology", icon: "💻" },
+    { id: "Lifestyle", name: "Lifestyle", icon: "🌈" },
+    { id: "Fashion", name: "Fashion & Beauty", icon: "👗" },
+    { id: "Food", name: "Food & Cooking", icon: "🍳" },
+    { id: "Travel", name: "Travel", icon: "✈️" },
+    { id: "Fitness", name: "Fitness & Health", icon: "💪" },
+    { id: "Entertainment", name: "Entertainment", icon: "🎬" },
+    { id: "Vlogs", name: "Vlogs", icon: "📹" },
+    { id: "Tutorials", name: "Tutorials", icon: "📖" },
+    { id: "Reviews", name: "Reviews", icon: "⭐" },
+    { id: "Other", name: "Other", icon: "📌" },
 ];
 
 const LICENSE_TYPES = [
@@ -149,25 +129,27 @@ export default function UploadPage() {
     const [preview, setPreview] = useState(null);
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
-    const [type, setType] = useState("image");
-    const [category, setCategory] = useState("general");
+    const [type, setType] = useState("image"); // image | video | audio
+    const [category, setCategory] = useState("General");
     const [tags, setTags] = useState([]);
     const [tagInput, setTagInput] = useState("");
 
-    // pricing
+
     const [isFree, setIsFree] = useState(true);
-    const [price, setPrice] = useState("");
+    const [price, setPrice] = useState(""); // dollars in UI
     const [licenseType, setLicenseType] = useState("personal");
     const [allowCommercial, setAllowCommercial] = useState(false);
 
-    // state
+
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState("");
     const [uploadProgress, setUploadProgress] = useState(0);
 
     // Load user
     useEffect(() => {
-        const storedUser = localStorage.getItem("ws_currentUser");
+        const storedUser =
+            localStorage.getItem("ws_currentUser") ||
+            localStorage.getItem("user");
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
@@ -177,7 +159,7 @@ export default function UploadPage() {
         }
     }, []);
 
-    // Clean preview
+    // Clean preview URL
     useEffect(
         () => () => {
             if (preview) URL.revokeObjectURL(preview);
@@ -238,23 +220,35 @@ export default function UploadPage() {
 
         setError("");
 
-
+        // Frontend limit: free 50MB, paid 100MB
         const maxSizeMB = isFree ? 50 : 100;
         if (f.size / (1024 * 1024) > maxSizeMB) {
             setError(`File exceeds ${maxSizeMB} MB limit.`);
             return;
         }
 
-
+        // Match backend allowed MIME types as veel mogelijk
         const validTypes = {
-            image: ["image/jpeg", "image/png", "image/webp", "image/jpg", "image/gif"],
-            video: ["video/mp4", "video/webm", "video/quicktime", "video/mov"],
-            audio: ["audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg", "audio/m4a", "audio/aac"],
+            image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+            video: [
+                "video/mp4",
+                "video/webm",
+                "video/quicktime",
+                "video/x-msvideo",
+            ],
+            audio: [
+                "audio/mpeg",
+                "audio/wav",
+                "audio/ogg",
+                "audio/mp4",
+                "audio/webm",
+            ],
         };
 
-        const isValidType = validTypes[type].some(
-            (t) => f.type === t || f.type.startsWith(type + "/")
-        );
+        const allowed = validTypes[type] || [];
+        const isValidType =
+            allowed.includes(f.type) ||
+            f.type.startsWith(type + "/");
 
         if (!isValidType) {
             setError(`Invalid file type. Please select a ${type} file.`);
@@ -286,6 +280,8 @@ export default function UploadPage() {
 
         // Validate price for paid content
         let priceNum = 0;
+        let priceCents = 0;
+
         if (!isFree) {
             priceNum = parseFloat(price);
             if (isNaN(priceNum) || priceNum < 0.99) {
@@ -296,6 +292,9 @@ export default function UploadPage() {
                 setError("Maximum price is $9,999");
                 return;
             }
+            // Backend normalizePricing gebruikt parseInt(price)
+            // => prijs moet integer zijn (cents)
+            priceCents = Math.round(priceNum * 100);
         }
 
         setUploading(true);
@@ -304,31 +303,57 @@ export default function UploadPage() {
 
         try {
             const formData = new FormData();
+            // ✅ backend: upload.array("files", ...)
             formData.append("files", file);
-            formData.append("title", title || "Untitled");
-            formData.append("description", description || "");
+            formData.append(
+                "title",
+                title || "Untitled"
+            );
+            formData.append(
+                "description",
+                description || ""
+            );
+
+            // type wordt server-side bepaald via mimetype,
+            // maar kan geen kwaad om mee te sturen (wordt gewoon genegeerd)
             formData.append("type", type);
+
+            // ✅ category moet exact overeenkomen met backend CATEGORIES
             formData.append("category", category);
-            formData.append("tags", JSON.stringify(tags));
+
+            // ✅ tags als comma-separated string, zodat parseTags goed werkt
+            if (tags.length > 0) {
+                formData.append("tags", tags.join(","));
+            }
+
+            // Pricing flags voor backend
             formData.append("isFree", isFree.toString());
-            formData.append("isPaid", (!isFree).toString()); // explicit flag for backend
+
 
 
             if (!isFree) {
-                const priceCents = Math.round(priceNum * 100);
-                formData.append("price", priceNum.toFixed(2));   // for display
-                formData.append("priceCents", String(priceCents)); // for Stripe
-                formData.append("currency", "usd");               // or "eur" if jouw backend dat gebruikt
+                // Backend kijkt alleen naar "price"
+                formData.append("price", String(priceCents)); // cents integer
+
+                // Extra info, backend negeert deze voorlopig
+                formData.append("priceDisplay", priceNum.toFixed(2));
+                formData.append("currency", "usd");
                 formData.append("licenseType", licenseType);
-                formData.append("allowCommercial", allowCommercial.toString());
+                formData.append(
+                    "allowCommercial",
+                    allowCommercial.toString()
+                );
+                formData.append("isPremium", "true");
             }
 
 
-            const response = await api.post("/api/upload", formData, {
+            const response = await api.post("/upload", formData, {
                 headers: { "Content-Type": "multipart/form-data" },
                 onUploadProgress: (evt) => {
                     if (!evt.total) return;
-                    const progress = Math.round((evt.loaded * 100) / evt.total);
+                    const progress = Math.round(
+                        (evt.loaded * 100) / evt.total
+                    );
                     setUploadProgress(progress);
                 },
             });
@@ -350,10 +375,10 @@ export default function UploadPage() {
 
             toast.success(successMsg);
 
-            // Navigation – paid content naar shop/marketplace
+            // Navigation
             setTimeout(() => {
                 if (!isFree) {
-                    navigate("/shop"); // hier staat later de Stripe “Buy” flow
+                    navigate("/shop");
                 } else {
                     navigate("/");
                 }
@@ -362,8 +387,8 @@ export default function UploadPage() {
         } catch (err) {
             console.error("Upload error:", err);
             const errorMsg =
-                err.response?.data?.error ||
-                err.response?.data?.message ||
+                err?.response?.data?.error ||
+                err?.response?.data?.message ||
                 "Upload failed. Please try again.";
             setError(errorMsg);
             toast.error(errorMsg);
@@ -403,12 +428,13 @@ export default function UploadPage() {
                                     <img
                                         src={
                                             currentUser.avatar ||
-                                            `${API_BASE_URL}/defaults/default-avatar.png`
+                                            "/defaults/default-avatar.png"
                                         }
                                         alt={currentUser.username}
                                         className="w-8 h-8 rounded-full object-cover border border-white/20"
                                         onError={(e) => {
-                                            e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
+                                            e.target.src =
+                                                "/defaults/default-avatar.png";
                                         }}
                                     />
                                     <span className="text-white/60 text-sm hidden sm:block">
@@ -587,17 +613,11 @@ export default function UploadPage() {
                                                         {file?.name || "Audio File"}
                                                     </p>
                                                     <p className="text-sm text-white/50">
-                                                        {formatFileSize(
-                                                            file?.size || 0
-                                                        )}
+                                                        {formatFileSize(file?.size || 0)}
                                                     </p>
                                                 </div>
                                             </div>
-                                            <audio
-                                                src={preview}
-                                                controls
-                                                className="w-full"
-                                            />
+                                            <audio src={preview} controls className="w-full" />
                                         </div>
                                     )}
                                 </div>
@@ -630,9 +650,7 @@ export default function UploadPage() {
                             </label>
                             <textarea
                                 value={description}
-                                onChange={(e) =>
-                                    setDescription(e.target.value)
-                                }
+                                onChange={(e) => setDescription(e.target.value)}
                                 rows="3"
                                 maxLength={500}
                                 placeholder="Describe your content..."
@@ -674,7 +692,9 @@ export default function UploadPage() {
                         <div>
                             <label className="block text-sm mb-2 text-gray-300">
                                 Tags{" "}
-                                <span className="text-white/40">(up to 10)</span>
+                                <span className="text-white/40">
+                                    (up to 10)
+                                </span>
                             </label>
                             <div className="flex gap-2 mb-2 flex-wrap">
                                 {tags.map((tag) => (
@@ -772,7 +792,8 @@ export default function UploadPage() {
                                             <span className="text-red-400">
                                                 -
                                                 {(
-                                                    parseFloat(price) * 0.15
+                                                    parseFloat(price) *
+                                                    0.15
                                                 ).toFixed(2)}
                                             </span>
                                         </div>
@@ -953,13 +974,13 @@ export default function UploadPage() {
                                 <p className="font-medium text-white/70 mb-1">
                                     🎬 Videos
                                 </p>
-                                <p>MP4, WebM, MOV supported</p>
+                                <p>MP4, WebM, MOV / AVI supported</p>
                             </div>
                             <div>
                                 <p className="font-medium text-white/70 mb-1">
                                     🎵 Audio
                                 </p>
-                                <p>MP3, WAV, OGG, M4A, AAC supported</p>
+                                <p>MP3 (audio/mpeg), WAV, OGG, MP4, WEBM</p>
                             </div>
                             <div>
                                 <p className="font-medium text-white/70 mb-1">

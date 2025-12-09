@@ -1,11 +1,9 @@
 // backend/middleware/requireAdmin.js
 // World-Studio.live - Admin Guard (UNIVERSE EDITION 🚀)
-// Used after auth middleware to protect admin-only routes.
+
 
 const authModule = require("./auth");
-
-// Haal de centrale admin-check helper uit auth.js
-const { isAdminUser } = authModule;
+const isAdminUser = authModule.isAdminUser;
 
 /**
  * Admin-only middleware
@@ -36,7 +34,7 @@ const requireAdmin = (req, res, next) => {
         });
     }
 
-    // Alles ok → doorgaan
+    // Alles oké
     next();
 };
 

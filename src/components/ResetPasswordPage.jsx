@@ -13,22 +13,28 @@ const RAW_API_BASE_URL =
     import.meta.env?.VITE_API_URL ||
     "https://world-studio-production.up.railway.app";
 
-// Normalise base URL (no trailing slash)
-const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, "");
+// Normalise base URL:
+// - strip trailing /api
+// - strip trailing slashes
+const API_ROOT = RAW_API_BASE_URL
+    .replace(/\/api\/?$/, "")
+    .replace(/\/+$/, "");
 
-// Create axios instance
+// Axios instance -> we always call /api/... in paths
 const api = axios.create({
-    baseURL: API_BASE_URL,
+    baseURL: API_ROOT,
     headers: { "Content-Type": "application/json" },
 });
 
 // Attach auth token if present (not required but safe)
 api.interceptors.request.use((config) => {
-    const token =
-        localStorage.getItem("ws_token") ||
-        localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+    if (typeof window !== "undefined") {
+        const token =
+            localStorage.getItem("ws_token") ||
+            localStorage.getItem("token");
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
     }
     return config;
 });
@@ -53,7 +59,7 @@ export default function ResetPasswordPage() {
     const token = searchParams.get("token") || "";
     const email = searchParams.get("email") || "";
 
-    // Validate link on mount
+    // Validate link on mount (simple client-side check)
     useEffect(() => {
         if (!token || !email) {
             setLinkValid(false);
@@ -141,6 +147,10 @@ export default function ResetPasswordPage() {
         setLoading(true);
 
         try {
+            // IMPORTANT: path has /api, baseURL is ROOT -> works with:
+            // - http://localhost:8080
+            // - http://localhost:8080/api
+            // - Railway URL
             await api.post("/api/auth/reset-password", {
                 email,
                 token,
@@ -158,8 +168,8 @@ export default function ResetPasswordPage() {
         } catch (err) {
             console.error("Reset error:", err);
             const message =
-                err.response?.data?.error ||
-                err.response?.data?.message ||
+                err?.response?.data?.error ||
+                err?.response?.data?.message ||
                 "Failed to reset password";
             toast.error(message);
         } finally {
@@ -250,7 +260,9 @@ export default function ResetPasswordPage() {
                         from the forgot password page.
                     </p>
                     <button
-                        onClick={() => navigate("/forgot-password")}
+                        onClick={() =>
+                            navigate("/forgot-password")
+                        }
                         className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl text-white font-semibold hover:from-cyan-400 hover:to-blue-500 transition mb-3 w-full"
                     >
                         Request New Link
@@ -363,8 +375,7 @@ export default function ResetPasswordPage() {
                                     {[...Array(5)].map((_, i) => (
                                         <div
                                             key={i}
-                                            className={`h-1 flex-1 rounded-full transition-all ${i <
-                                                passwordStrength
+                                            className={`h-1 flex-1 rounded-full transition-all ${i < passwordStrength
                                                 ? strengthColors[
                                                 passwordStrength -
                                                 1
@@ -427,7 +438,9 @@ export default function ResetPasswordPage() {
                                 className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
                                 tabIndex={-1}
                             >
-                                {showConfirmPassword ? "🙈" : "👁️"}
+                                {showConfirmPassword
+                                    ? "🙈"
+                                    : "👁️"}
                             </button>
                         </div>
                         {formData.confirmPassword &&

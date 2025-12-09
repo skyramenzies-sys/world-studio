@@ -1,21 +1,40 @@
 // src/api/socket.js - World Studio Live Socket Configuration (Universe Edition)
 import { io } from "socket.io-client";
+import { API_ORIGIN } from "./api";
+
+// ============================================
+// TOKEN HELPER (zelfde logica als api.js)
+// ============================================
+const getToken = () => {
+    try {
+        if (typeof window === "undefined") return null;
+        return (
+            window.localStorage.getItem("ws_token") ||
+            window.localStorage.getItem("token") ||
+            window.sessionStorage.getItem("ws_token") ||
+            window.sessionStorage.getItem("token")
+        );
+    } catch {
+        return null;
+    }
+};
 
 // ============================================
 // SOCKET BASE URL (Vite + Railway compatible)
 // ============================================
 
-// Prefer dedicated socket URL, fallback to API URL, dan Railway URL
-let baseUrl = "https://world-studio-production.up.railway.app";
+// Basis: backend origin uit api.js
+let baseUrl = API_ORIGIN || "https://world-studio-production.up.railway.app";
 
+// VITE_SOCKET_URL heeft hoogste prioriteit
 if (typeof import.meta !== "undefined" && import.meta.env) {
-    baseUrl =
-        import.meta.env.VITE_SOCKET_URL ||
-        import.meta.env.VITE_API_URL ||
-        baseUrl;
+    const { VITE_SOCKET_URL } = import.meta.env;
+    if (VITE_SOCKET_URL) {
+        baseUrl = VITE_SOCKET_URL;
+    }
 }
 
-// Als VITE_API_URL eindigt op /api of /api/ → strippen voor socket
+// Als URL eindigt op /api of /api/ → strippen voor socket
 baseUrl = baseUrl.replace(/\/api\/?$/, "");
 // Trailing slash weghalen
 baseUrl = baseUrl.replace(/\/$/, "");
@@ -41,7 +60,10 @@ const socket = io(baseUrl, {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10000,
     timeout: 20000,
-
+    // Initieel meteen token meesturen (als beschikbaar)
+    auth: {
+        token: getToken() || undefined,
+    },
 });
 
 // ============================================
@@ -53,7 +75,9 @@ socket.on("connect", () => {
 
 socket.on("disconnect", (reason) => {
     console.log("❌ Disconnected:", reason);
-    if (reason === "io server disconnect") socket.connect();
+    if (reason === "io server disconnect") {
+        socket.connect();
+    }
 });
 
 socket.on("connect_error", (error) => {
@@ -65,11 +89,18 @@ socket.on("connect_error", (error) => {
 // ============================================
 // AUTH HELPERS
 // ============================================
+/**
+ * Her-auth socket met verse token (na login / refresh)
+ */
 export const authenticateSocket = (token) => {
+    const nextToken = token || getToken() || undefined;
+    socket.auth = { token: nextToken };
 
-    socket.auth = { token };
-
-    socket.disconnect().connect();
+    // Forceer nieuwe connectie met nieuwe auth
+    if (socket.connected) {
+        socket.disconnect();
+    }
+    socket.connect();
 };
 
 // ============================================
@@ -105,8 +136,13 @@ export const leaveLiveStream = (streamId, userId) => {
     socket.emit("leave_stream", streamId);
 };
 
-
-export const startBroadcast = ({ roomId, streamer, title, category, streamerId }) => {
+export const startBroadcast = ({
+    roomId,
+    streamer,
+    title,
+    category,
+    streamerId,
+}) => {
     if (!roomId || !streamerId) return;
 
     socket.emit("start_broadcast", {
@@ -226,9 +262,7 @@ export const getConnectionStatus = () => ({
 
 export const isConnected = () => socket.connected;
 
-// ============================================
-// ⭐ FIXED EXPORT: getSocket()
-// ============================================
+// Universe helper: altijd dezelfde instance terug
 export const getSocket = () => socket;
 
 // ============================================

@@ -9,12 +9,11 @@ const User = require("../models/User");
 const Gift = require("../models/Gift");
 const Stream = require("../models/Stream");
 const PlatformWallet = require("../models/PlatformWallet");
-const authMiddleware = require("../middleware/authMiddleware");
+const auth = require("../middleware/auth"); // ✅ zelfde als admin.js
 
 // ===========================================
 // GIFT DEFINITIONS (HIGH LEVEL TYPES)
-// Deze zijn voor API /types, GiftShop, etc.
-// (Frontend GiftPanel heeft eigen visuele lijst)
+
 // ===========================================
 const GIFT_TYPES = {
     // Basic Gifts
@@ -38,11 +37,11 @@ const GIFT_TYPES = {
 };
 
 // Platform takes e.g. 15%, creator gets 85%
-// Config: GIFTS_PLATFORM_FEE in .env (fallback 15)
+
 const PLATFORM_FEE_PERCENT = Number(process.env.GIFTS_PLATFORM_FEE || 15);
 const CREATOR_SHARE_PERCENT = 100 - PLATFORM_FEE_PERCENT;
 
-// Export for reuse
+// Export for reuse if you want
 router.GIFT_TYPES = GIFT_TYPES;
 
 // ===========================================
@@ -54,7 +53,15 @@ router.GIFT_TYPES = GIFT_TYPES;
  * amount = coins die ONTVANGER krijgt (na fee)
  * spent  = coins die SENDER heeft uitgegeven
  */
-function buildGiftEventPayload({ gift, sender, recipient, creatorShare, platformFee, rawAmount, isAnonymous }) {
+function buildGiftEventPayload({
+    gift,
+    sender,
+    recipient,
+    creatorShare,
+    platformFee,
+    rawAmount,
+    isAnonymous,
+}) {
     return {
         giftId: gift._id.toString(),
 
@@ -66,14 +73,13 @@ function buildGiftEventPayload({ gift, sender, recipient, creatorShare, platform
         recipientUsername: recipient.username,
         recipientAvatar: recipient.avatar,
 
-        // belangrijk voor GiftPanel:
+
         item: gift.itemName || gift.item || "Coins",
         icon: gift.icon || "🎁",
 
-        // 🌟 universe keuze:
-        // amount = wat recipient erbij krijgt (creatorShare)
+
         amount: creatorShare,
-        spent: rawAmount, // volledige coins die sender betaalde
+        spent: rawAmount,
 
         message: gift.message,
         context: gift.context || (gift.streamId ? "stream" : "profile"),
@@ -91,7 +97,7 @@ function buildGiftEventPayload({ gift, sender, recipient, creatorShare, platform
 
 // ===========================================
 // GET /api/gifts/types
-// All available high-level gift types
+// Get available gift types
 // ===========================================
 router.get("/types", (req, res) => {
     const gifts = Object.entries(GIFT_TYPES).map(([name, data]) => ({
@@ -111,23 +117,21 @@ router.get("/types", (req, res) => {
 // POST /api/gifts
 // Send a gift (used by GiftPanel & GiftShop)
 // ===========================================
-
-
-router.post("/", authMiddleware, async (req, res) => {
+router.post("/", auth, async (req, res) => {
     try {
         const {
             recipientId,
-            item = "Coins",         // bv. "Neon Spark" of "Coins"
+            item = "Coins",
             amount,
             message,
             streamId,
             pkBattleId,
             postId,
-            context,               // "stream", "profile", "post", etc.
+            context,
             isAnonymous = false,
         } = req.body;
 
-        const sender = req.user;
+        const sender = req.user;          // ✅ komt uit auth
         const senderId = sender._id;
 
         // -----------------------------
@@ -165,7 +169,7 @@ router.post("/", authMiddleware, async (req, res) => {
             });
         }
 
-        // Sender balance check
+
         const senderBalance = sender.wallet?.balance || 0;
         if (senderBalance < amount) {
             return res.status(400).json({
@@ -177,7 +181,7 @@ router.post("/", authMiddleware, async (req, res) => {
             });
         }
 
-        // Recipient lookup
+
         const recipient = await User.findById(recipientId);
         if (!recipient) {
             return res.status(404).json({
@@ -195,11 +199,11 @@ router.post("/", authMiddleware, async (req, res) => {
             });
         }
 
-        // Gift type info (optioneel, voor icon & minAmount)
+
         const giftType = GIFT_TYPES[item] || GIFT_TYPES["Coins"];
         const icon = giftType.icon || "💰";
 
-        // Min amount check alleen als type bekend is
+
         if (giftType && amount < giftType.minAmount) {
             return res.status(400).json({
                 success: false,
@@ -229,7 +233,7 @@ router.post("/", authMiddleware, async (req, res) => {
             recipientUsername: recipient.username,
             recipientAvatar: recipient.avatar,
 
-            item: (item || "Coins").toString().toLowerCase(), // wordt in model gemapt
+            item: (item || "Coins").toString().toLowerCase(),
             itemName: item,
             icon,
 
@@ -243,11 +247,7 @@ router.post("/", authMiddleware, async (req, res) => {
 
             context:
                 context ||
-                (streamId
-                    ? "stream"
-                    : postId
-                        ? "post"
-                        : "profile"),
+                (streamId ? "stream" : postId ? "post" : "profile"),
 
             platformFee: PLATFORM_FEE_PERCENT,
             recipientReceives: creatorShare,
@@ -258,7 +258,7 @@ router.post("/", authMiddleware, async (req, res) => {
         // -----------------------------
         // Wallet updates
         // -----------------------------
-        // Sender ↓
+
         await User.findByIdAndUpdate(senderId, {
             $inc: {
                 "wallet.balance": -rawAmount,
@@ -285,7 +285,7 @@ router.post("/", authMiddleware, async (req, res) => {
             },
         });
 
-        // Recipient ↑
+
         await User.findByIdAndUpdate(recipient._id, {
             $inc: {
                 "wallet.balance": creatorShare,
@@ -361,14 +361,11 @@ router.post("/", authMiddleware, async (req, res) => {
                 }
             }
         } catch (err) {
-            console.log(
-                "Platform fee recording skipped:",
-                err.message
-            );
+            console.log("Platform fee recording skipped:", err.message);
         }
 
         // -----------------------------
-        // Stream stats update (optioneel)
+        // Stream stats update
         // -----------------------------
         if (streamId && Stream) {
             try {
@@ -402,7 +399,7 @@ router.post("/", authMiddleware, async (req, res) => {
         }
 
         // -----------------------------
-        // Socket events (Universe ready)
+        // Socket events
         // -----------------------------
         const io = req.app.get("io");
         const payload = buildGiftEventPayload({
@@ -416,11 +413,7 @@ router.post("/", authMiddleware, async (req, res) => {
         });
 
         if (io) {
-            // rooms: user_...  (zoals je bestaande systeem)
-            io.to(`user_${recipient._id}`).emit(
-                "gift_received",
-                payload
-            );
+            io.to(`user_${recipient._id}`).emit("gift_received", payload);
             io.to(`user_${recipient._id}`).emit("notification", {
                 type: "gift",
                 message: `${isAnonymous ? "Someone" : sender.username
@@ -439,21 +432,18 @@ router.post("/", authMiddleware, async (req, res) => {
                 balance: senderBalance - rawAmount,
             });
 
-            // Stream events
+
             if (streamId) {
                 io.to(streamId).emit("stream_gift", payload);
-                io.to(`stream_${streamId}`).emit(
-                    "stream_gift",
-                    payload
-                );
+                io.to(`stream_${streamId}`).emit("stream_gift", payload);
             }
 
-            // PK events
+
             if (pkBattleId) {
                 io.to(`pk_${pkBattleId}`).emit("pk_gift", payload);
             }
 
-            // Global event (optioneel, voor live ticker)
+
             io.emit("gift_global", payload);
         }
 
@@ -491,11 +481,9 @@ router.post("/", authMiddleware, async (req, res) => {
 // GIFT HISTORY
 // GET /api/gifts/history
 // ===========================================
-
-
-router.get("/history", authMiddleware, async (req, res) => {
+router.get("/history", auth, async (req, res) => {
     try {
-        const userId = req.userId || req.user._id;
+        const userId = req.user._id;
         const { type = "all", limit = 50, skip = 0 } = req.query;
 
         let query = {};
@@ -523,8 +511,7 @@ router.get("/history", authMiddleware, async (req, res) => {
                 total,
                 limit: parseInt(limit),
                 skip: parseInt(skip),
-                hasMore:
-                    parseInt(skip) + gifts.length < total,
+                hasMore: parseInt(skip) + gifts.length < total,
             },
         });
     } catch (err) {
@@ -539,9 +526,9 @@ router.get("/history", authMiddleware, async (req, res) => {
 // ===========================================
 // RECEIVED / SENT
 // ===========================================
-router.get("/received", authMiddleware, async (req, res) => {
+router.get("/received", auth, async (req, res) => {
     try {
-        const userId = req.userId || req.user._id;
+        const userId = req.user._id;
         const { limit = 50 } = req.query;
 
         const gifts = await Gift.find({ recipientId: userId })
@@ -566,10 +553,9 @@ router.get("/received", authMiddleware, async (req, res) => {
     }
 });
 
-
-router.get("/sent", authMiddleware, async (req, res) => {
+router.get("/sent", auth, async (req, res) => {
     try {
-        const userId = req.userId || req.user._id;
+        const userId = req.user._id;
         const { limit = 50 } = req.query;
 
         const gifts = await Gift.find({ senderId: userId })
@@ -608,7 +594,7 @@ router.get("/leaderboard", async (req, res) => {
             parseInt(limit)
         );
 
-        // Voeg rank toe
+
         const ranked = leaderboard.map((entry, index) => ({
             rank: index + 1,
             ...entry,
@@ -631,26 +617,21 @@ router.get("/leaderboard", async (req, res) => {
 // ===========================================
 // TOP CREATORS
 // GET /api/gifts/top-creators
+// ===========================================
 router.get("/top-creators", async (req, res) => {
     try {
         const { period = "week", limit = 10 } = req.query;
 
-        // Hergebruik getLeaderboard (per recipient)
+
         const now = new Date();
         let startDate = new Date(0);
 
         if (period === "day") {
-            startDate = new Date(
-                now.getTime() - 24 * 60 * 60 * 1000
-            );
+            startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         } else if (period === "week") {
-            startDate = new Date(
-                now.getTime() - 7 * 24 * 60 * 60 * 1000
-            );
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         } else if (period === "month") {
-            startDate = new Date(
-                now.getTime() - 30 * 24 * 60 * 60 * 1000
-            );
+            startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         }
 
         const topCreators = await Gift.aggregate([
@@ -663,9 +644,7 @@ router.get("/top-creators", async (req, res) => {
             {
                 $group: {
                     _id: "$recipientId",
-                    totalReceived: {
-                        $sum: "$recipientReceives",
-                    },
+                    totalReceived: { $sum: "$recipientReceives" },
                     giftCount: { $sum: 1 },
                     uniqueGifters: { $addToSet: "$senderId" },
                     username: { $first: "$recipientUsername" },
@@ -678,18 +657,14 @@ router.get("/top-creators", async (req, res) => {
                     _id: 1,
                     totalReceived: 1,
                     giftCount: 1,
-                    uniqueGifterCount: {
-                        $size: "$uniqueGifters",
-                    },
+                    uniqueGifterCount: { $size: "$uniqueGifters" },
                     username: 1,
                 },
             },
         ]);
 
         const userIds = topCreators.map((c) => c._id);
-        const users = await User.find({
-            _id: { $in: userIds },
-        })
+        const users = await User.find({ _id: { $in: userIds } })
             .select("avatar isVerified followersCount")
             .lean();
 
@@ -705,14 +680,10 @@ router.get("/top-creators", async (req, res) => {
         const result = topCreators.map((c, index) => ({
             rank: index + 1,
             ...c,
-            avatar:
-                userMap[c._id?.toString()]?.avatar || "",
-            isVerified:
-                userMap[c._id?.toString()]?.isVerified ||
-                false,
+            avatar: userMap[c._id?.toString()]?.avatar || "",
+            isVerified: userMap[c._id?.toString()]?.isVerified || false,
             followersCount:
-                userMap[c._id?.toString()]
-                    ?.followersCount || 0,
+                userMap[c._id?.toString()]?.followersCount || 0,
         }));
 
         res.json({
@@ -749,10 +720,7 @@ router.get("/stream/:streamId", async (req, res) => {
             .lean();
 
         const stats = await Gift.getStreamStats(streamId);
-        const topGifters = await Gift.getTopGifters(
-            streamId,
-            10
-        );
+        const topGifters = await Gift.getTopGifters(streamId, 10);
 
         res.json({
             success: true,
@@ -771,6 +739,7 @@ router.get("/stream/:streamId", async (req, res) => {
 
 // ===========================================
 // USER STATS
+// GET /api/gifts/stats/:userId
 // ===========================================
 
 
@@ -778,40 +747,33 @@ router.get("/stats/:userId", async (req, res) => {
     try {
         const { userId } = req.params;
 
-        const [received, sent, uniqueGifters] =
-            await Promise.all([
-                Gift.aggregate([
-                    {
-                        $match: { recipientId: userId },
+        const [received, sent, uniqueGifters] = await Promise.all([
+            Gift.aggregate([
+                { $match: { recipientId: userId } },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$amount" },
+                        count: { $sum: 1 },
                     },
-                    {
-                        $group: {
-                            _id: null,
-                            total: { $sum: "$amount" },
-                            count: { $sum: 1 },
-                        },
+                },
+            ]),
+            Gift.aggregate([
+                { $match: { senderId: userId } },
+                {
+                    $group: {
+                        _id: null,
+                        total: { $sum: "$amount" },
+                        count: { $sum: 1 },
                     },
-                ]),
-                Gift.aggregate([
-                    {
-                        $match: { senderId: userId },
-                    },
-                    {
-                        $group: {
-                            _id: null,
-                            total: { $sum: "$amount" },
-                            count: { $sum: 1 },
-                        },
-                    },
-                ]),
-                Gift.aggregate([
-                    {
-                        $match: { recipientId: userId },
-                    },
-                    { $group: { _id: "$senderId" } },
-                    { $count: "count" },
-                ]),
-            ]);
+                },
+            ]),
+            Gift.aggregate([
+                { $match: { recipientId: userId } },
+                { $group: { _id: "$senderId" } },
+                { $count: "count" },
+            ]),
+        ]);
 
         res.json({
             success: true,
@@ -820,8 +782,7 @@ router.get("/stats/:userId", async (req, res) => {
                 receivedCount: received[0]?.count || 0,
                 totalSent: sent[0]?.total || 0,
                 sentCount: sent[0]?.count || 0,
-                uniqueGifters:
-                    uniqueGifters[0]?.count || 0,
+                uniqueGifters: uniqueGifters[0]?.count || 0,
             },
         });
     } catch (err) {
@@ -837,9 +798,9 @@ router.get("/stats/:userId", async (req, res) => {
 // MY STATS
 // GET /api/gifts/my-stats
 // ===========================================
-router.get("/my-stats", authMiddleware, async (req, res) => {
+router.get("/my-stats", auth, async (req, res) => {
     try {
-        const userId = req.userId || req.user._id;
+        const userId = req.user._id;
 
         const [received, sent] = await Promise.all([
             Gift.aggregate([

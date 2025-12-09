@@ -1,48 +1,10 @@
 // src/components/LivePublisher.jsx - WORLD STUDIO LIVE EDITION 📹 (U.E.)
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
-import axios from "axios";
-import { io } from "socket.io-client";
 
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION (U.E.)
-   ============================================================ */
-const RAW_BASE_URL =
-    import.meta.env.VITE_API_URL ||
-    "https://world-studio-production.up.railway.app";
-
-const API_BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-const SOCKET_URL = API_BASE_URL;
-
-// Create API instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: { "Content-Type": "application/json" },
-});
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-    const token = localStorage.getItem("ws_token") || localStorage.getItem("token");
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-});
-
-// Socket connection (singleton)
-let socket = null;
-const getSocket = () => {
-    if (!socket) {
-        socket = io(SOCKET_URL, {
-            transports: ["websocket", "polling"],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 10,
-            reconnectionDelay: 1000,
-        });
-    }
-    return socket;
-};
+// Centrale API + SOCKET
+import api from "../api/api";
+import { getSocket } from "../api/socket";
 
 /* ============================================================
    WebRTC Configuration
@@ -84,20 +46,21 @@ export default function LivePublisher({
     const [isConnected, setIsConnected] = useState(false);
     const [chatInput, setChatInput] = useState("");
 
-    // Initialize socket
+    // Initialize socket (via centrale singleton)
     useEffect(() => {
-        socketRef.current = getSocket();
-        setIsConnected(socketRef.current.connected);
+        const s = getSocket();
+        socketRef.current = s;
+        setIsConnected(s.connected);
 
         const handleConnect = () => setIsConnected(true);
         const handleDisconnect = () => setIsConnected(false);
 
-        socketRef.current.on("connect", handleConnect);
-        socketRef.current.on("disconnect", handleDisconnect);
+        s.on("connect", handleConnect);
+        s.on("disconnect", handleDisconnect);
 
         return () => {
-            socketRef.current.off("connect", handleConnect);
-            socketRef.current.off("disconnect", handleDisconnect);
+            s.off("connect", handleConnect);
+            s.off("disconnect", handleDisconnect);
         };
     }, []);
 
@@ -140,7 +103,10 @@ export default function LivePublisher({
 
                 const socket = socketRef.current;
                 if (socket) {
-                    socket.emit("host_muted", { roomId, isMuted: !audioTrack.enabled });
+                    socket.emit("host_muted", {
+                        roomId,
+                        isMuted: !audioTrack.enabled,
+                    });
                 }
             }
         }
@@ -156,7 +122,10 @@ export default function LivePublisher({
 
                 const socket = socketRef.current;
                 if (socket) {
-                    socket.emit("host_camera", { roomId, isCameraOff: !videoTrack.enabled });
+                    socket.emit("host_camera", {
+                        roomId,
+                        isCameraOff: !videoTrack.enabled,
+                    });
                 }
             }
         }
@@ -177,7 +146,9 @@ export default function LivePublisher({
         const m = Math.floor((s % 3600) / 60);
         const sec = s % 60;
         if (h > 0) {
-            return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+            return `${h}:${m.toString().padStart(2, "0")}:${sec
+                .toString()
+                .padStart(2, "0")}`;
         }
         return `${m}:${sec.toString().padStart(2, "0")}`;
     };
@@ -203,12 +174,31 @@ export default function LivePublisher({
         setChatInput("");
     };
 
-    // Main broadcast setup
+    /* ============================================================
+       Main broadcast setup (WebRTC + socket signalling)
+       ============================================================ */
     useEffect(() => {
         let active = true;
         const socket = socketRef.current;
 
+        if (!socket) {
+            console.warn("LivePublisher: socket not ready");
+            return;
+        }
+
         const startBroadcast = async () => {
+            // Check mediaDevices support
+            if (
+                !navigator.mediaDevices ||
+                !navigator.mediaDevices.getUserMedia
+            ) {
+                const errorMsg =
+                    "Camera/microphone not supported in this browser.";
+                setError(errorMsg);
+                toast.error(errorMsg);
+                return;
+            }
+
             try {
                 // 1) Get camera + mic
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -234,7 +224,7 @@ export default function LivePublisher({
                     videoRef.current.srcObject = stream;
                 }
 
-                // 2) Create stream entry in DB
+                // 2) Create/ensure stream entry in DB
                 try {
                     await api.post("/api/live", {
                         roomId,
@@ -245,7 +235,10 @@ export default function LivePublisher({
                         hostAvatar: currentUser?.avatar,
                     });
                 } catch (err) {
-                    console.log("Stream creation error:", err?.response?.data || err);
+                    console.log(
+                        "Stream creation error:",
+                        err?.response?.data || err
+                    );
                 }
 
                 const streamerId = currentUser?._id || currentUser?.id;
@@ -261,20 +254,22 @@ export default function LivePublisher({
                 });
 
                 setIsLive(true);
-                toast.success("You're now live! 🔴 Your followers will be notified!");
+                toast.success(
+                    "You're now live! 🔴 Your followers will be notified!"
+                );
 
                 // 4) WebRTC signalling handlers
 
                 // Viewer joins - create offer
-                socket.on("watcher", async ({ watcherId }) => {
+                const onWatcher = async ({ watcherId }) => {
                     if (!streamRef.current) return;
 
                     const pc = new RTCPeerConnection(RTC_CONFIG);
 
                     // Add tracks
-                    streamRef.current.getTracks().forEach((t) =>
-                        pc.addTrack(t, streamRef.current)
-                    );
+                    streamRef.current
+                        .getTracks()
+                        .forEach((t) => pc.addTrack(t, streamRef.current));
 
                     // ICE candidate to viewer
                     pc.onicecandidate = ({ candidate }) => {
@@ -288,8 +283,14 @@ export default function LivePublisher({
 
                     // Connection state monitoring
                     pc.onconnectionstatechange = () => {
-                        console.log(`Peer ${watcherId}: ${pc.connectionState}`);
-                        if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+                        console.log(
+                            `Peer ${watcherId}: ${pc.connectionState}`
+                        );
+                        if (
+                            pc.connectionState === "failed" ||
+                            pc.connectionState === "disconnected" ||
+                            pc.connectionState === "closed"
+                        ) {
                             pc.close();
                             peersRef.current.delete(watcherId);
                         }
@@ -309,58 +310,73 @@ export default function LivePublisher({
                     } catch (err) {
                         console.error("Failed to create offer:", err);
                     }
-                });
+                };
 
                 // Viewer sends answer back
-                socket.on("answer", async ({ watcherId, sdp }) => {
+                const onAnswer = async ({ watcherId, sdp }) => {
                     const pc = peersRef.current.get(watcherId);
                     if (!pc) return;
 
                     try {
-                        await pc.setRemoteDescription(new RTCPeerConnection.prototype.constructor.prototype._RTCSessionDescription(sdp));
-                    } catch (e) {
-                        // fallback – mostly browsers expose RTCSessionDescription globally
-                        try {
-                            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-                        } catch (err2) {
-                            console.error("setRemoteDescription error:", err2);
+                        // Gebruik browser-global RTCSessionDescription als die er is
+                        if (window.RTCSessionDescription) {
+                            await pc.setRemoteDescription(
+                                new window.RTCSessionDescription(sdp)
+                            );
+                        } else {
+                            // fallback: sommige implementaties accepteren plain object
+                            await pc.setRemoteDescription(sdp);
                         }
+                    } catch (err) {
+                        console.error(
+                            "setRemoteDescription error (answer):",
+                            err
+                        );
                     }
-                });
+                };
 
                 // ICE candidate from viewer
-                socket.on("candidate", async ({ from, candidate }) => {
+                const onCandidate = async ({ from, candidate }) => {
                     const pc = peersRef.current.get(from);
                     if (pc && candidate) {
                         try {
-                            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                            if (window.RTCIceCandidate) {
+                                await pc.addIceCandidate(
+                                    new window.RTCIceCandidate(candidate)
+                                );
+                            } else {
+                                await pc.addIceCandidate(candidate);
+                            }
                         } catch (e) {
-                            console.warn("addIceCandidate error:", e?.message || e);
+                            console.warn(
+                                "addIceCandidate error:",
+                                e?.message || e
+                            );
                         }
                     }
-                });
+                };
 
                 // Viewer left
-                socket.on("remove_watcher", ({ watcherId }) => {
+                const onRemoveWatcher = ({ watcherId }) => {
                     const pc = peersRef.current.get(watcherId);
                     if (pc) pc.close();
                     peersRef.current.delete(watcherId);
-                });
+                };
 
                 // Viewer count update
-                socket.on("viewer_count", ({ viewers: count, roomId: rid }) => {
+                const onViewerCount = ({ viewers: count, roomId: rid }) => {
                     if (rid && rid !== roomId) return;
                     setViewers(count || 0);
-                });
+                };
 
                 // Chat messages
-                socket.on("chat_message", (msg) => {
+                const onChatMessage = (msg) => {
                     if (msg.roomId && msg.roomId !== roomId) return;
                     setChat((prev) => [...prev.slice(-50), msg]);
-                });
+                };
 
                 // Gift received
-                socket.on("gift_received", (gift) => {
+                const onGiftReceived = (gift) => {
                     const timestamp = Date.now();
                     const giftObj = { ...gift, timestamp };
 
@@ -368,34 +384,56 @@ export default function LivePublisher({
                     setTotalGifts((prev) => prev + (gift.amount || 0));
 
                     toast.success(
-                        `🎁 ${gift.senderUsername} sent ${gift.icon || "💝"} x${gift.amount}!`,
+                        `🎁 ${gift.senderUsername} sent ${gift.icon || "💝"
+                        } x${gift.amount}!`,
                         { duration: 3000 }
                     );
 
-                    // Auto-remove gift after 5 seconds (per eigen timestamp)
+                    // Auto-remove gift na 5s
                     setTimeout(() => {
-                        setGifts((prev) => prev.filter((g) => g.timestamp !== timestamp));
+                        setGifts((prev) =>
+                            prev.filter((g) => g.timestamp !== timestamp)
+                        );
                     }, 5000);
-                });
+                };
 
-                // Stream ended (external trigger)
-                socket.on("stream_ended", () => {
+                // Stream ended (extern)
+                const onStreamEnded = () => {
                     toast.error("Stream ended");
                     stopLive();
-                });
+                };
 
+                // Register listeners
+                socket.on("watcher", onWatcher);
+                socket.on("answer", onAnswer);
+                socket.on("candidate", onCandidate);
+                socket.on("remove_watcher", onRemoveWatcher);
+                socket.on("viewer_count", onViewerCount);
+                socket.on("chat_message", onChatMessage);
+                socket.on("gift_received", onGiftReceived);
+                socket.on("stream_ended", onStreamEnded);
             } catch (err) {
                 console.error("getUserMedia error:", err);
 
                 let errorMsg = "Failed to start stream.";
-                if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-                    errorMsg = "Camera/microphone access denied. Check browser permissions.";
-                } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-                    errorMsg = "No camera or microphone found on this device.";
+                if (
+                    err.name === "NotAllowedError" ||
+                    err.name === "PermissionDeniedError"
+                ) {
+                    errorMsg =
+                        "Camera/microphone access denied. Check browser permissions.";
+                } else if (
+                    err.name === "NotFoundError" ||
+                    err.name === "DevicesNotFoundError"
+                ) {
+                    errorMsg =
+                        "No camera or microphone found on this device.";
                 } else if (err.name === "NotReadableError") {
-                    errorMsg = "Camera or microphone is already in use by another app.";
+                    errorMsg =
+                        "Camera or microphone is already in use by another app.";
                 } else if (err.name === "OverconstrainedError") {
-                    errorMsg = "This camera doesn't support the requested resolution.";
+                    errorMsg =
+                        "This camera doesn't support the requested resolution.";
                 }
 
                 setError(errorMsg);
@@ -408,17 +446,18 @@ export default function LivePublisher({
         return () => {
             active = false;
 
-            // Remove socket listeners
-            [
-                "watcher",
-                "answer",
-                "candidate",
-                "remove_watcher",
-                "viewer_count",
-                "chat_message",
-                "stream_ended",
-                "gift_received",
-            ].forEach((e) => socket.off(e));
+            if (socket) {
+                [
+                    "watcher",
+                    "answer",
+                    "candidate",
+                    "remove_watcher",
+                    "viewer_count",
+                    "chat_message",
+                    "stream_ended",
+                    "gift_received",
+                ].forEach((e) => socket.off(e));
+            }
 
             // Stop media tracks
             if (streamRef.current) {
@@ -454,9 +493,17 @@ export default function LivePublisher({
             {/* Top bar */}
             <div className="p-3 flex items-center gap-3 bg-black/80 border-b border-white/10">
                 {/* Live badge */}
-                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isLive ? "bg-red-500" : "bg.white/20"}`}>
-                    <span className={`w-2 h-2 rounded-full ${isLive ? "bg-white animate-pulse" : "bg-white/50"}`}></span>
-                    <span className="font-bold text-sm">{isLive ? "LIVE" : "STARTING..."}</span>
+                <div
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isLive ? "bg-red-500" : "bg-white/20"
+                        }`}
+                >
+                    <span
+                        className={`w-2 h-2 rounded-full ${isLive ? "bg-white animate-pulse" : "bg-white/50"
+                            }`}
+                    ></span>
+                    <span className="font-bold text-sm">
+                        {isLive ? "LIVE" : "STARTING..."}
+                    </span>
                 </div>
 
                 {/* Duration */}
@@ -468,8 +515,12 @@ export default function LivePublisher({
 
                 {/* Stream title (desktop) */}
                 <div className="hidden md:block flex-1 text-center">
-                    <span className="text-white font-semibold">{streamTitle}</span>
-                    <span className="text-white/50 ml-2">• {streamCategory}</span>
+                    <span className="text-white font-semibold">
+                        {streamTitle}
+                    </span>
+                    <span className="text-white/50 ml-2">
+                        • {streamCategory}
+                    </span>
                 </div>
 
                 {/* Connection status */}
@@ -484,7 +535,7 @@ export default function LivePublisher({
                 </div>
 
                 {/* Stats */}
-                <div className="ml-auto flex items-center gap-3">
+                <div className="ml-auto flex.items-center gap-3">
                     {totalGifts > 0 && (
                         <div className="flex items-center gap-2 text-yellow-400 bg-yellow-500/10 px-3 py-1.5 rounded-lg">
                             <span>🎁</span>
@@ -533,7 +584,7 @@ export default function LivePublisher({
                     )}
 
                     {/* Controls */}
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3">
+                    <div className="absolute.bottom-4 left-1/2 -translate-x-1/2 flex gap-3">
                         <button
                             onClick={toggleMute}
                             className={`p-3 rounded-full transition ${isMuted
@@ -548,9 +599,13 @@ export default function LivePublisher({
                             onClick={toggleCamera}
                             className={`p-3 rounded-full transition ${isCameraOff
                                     ? "bg-red-500 hover:bg-red-400"
-                                    : "bg-white/20 hover:bg.white/30"
+                                    : "bg-white/20 hover:bg-white/30"
                                 }`}
-                            title={isCameraOff ? "Turn on camera" : "Turn off camera"}
+                            title={
+                                isCameraOff
+                                    ? "Turn on camera"
+                                    : "Turn off camera"
+                            }
                         >
                             {isCameraOff ? "📷" : "🎥"}
                         </button>
@@ -570,7 +625,8 @@ export default function LivePublisher({
                         {gifts.slice(-5).map((gift, i) => (
                             <div
                                 key={gift.timestamp || i}
-                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color || "from-purple-500/80 to-pink-500/80"
+                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color ||
+                                    "from-purple-500/80 to-pink-500/80"
                                     } px-3 py-2 rounded-lg animate-slideIn`}
                             >
                                 <span className="text-2xl animate-bounce">
@@ -581,7 +637,8 @@ export default function LivePublisher({
                                         {gift.senderUsername}
                                     </p>
                                     <p className="text-xs text-white/80">
-                                        sent {gift.item || "gift"} x{gift.amount}
+                                        sent {gift.item || "gift"} x
+                                        {gift.amount}
                                     </p>
                                 </div>
                             </div>
@@ -661,7 +718,7 @@ export default function LivePublisher({
                     from { transform: translateX(-20px); opacity: 0; }
                     to { transform: translateX(0); opacity: 1; }
                 }
-                .animate-slideIn { animation: slideIn 0.3s ease-out; }
+                .animate-slideIn { animation: slideIn 0.3s.ease-out; }
             `}</style>
         </div>
     );

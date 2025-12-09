@@ -1,7 +1,12 @@
 // src/components/AdminLiveAnalytics.jsx - ULTIMATE EDITION 🚀
 // World-Studio Live Analytics Dashboard
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, {
+    useEffect,
+    useState,
+    useCallback,
+    useMemo,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
     Radio,
@@ -35,7 +40,7 @@ import socket from "../api/socket";
 // ============================================
 
 const SITE_NAME = "World-Studio";
-// Gebruik runtime origin i.p.v. harde URL
+
 const SITE_URL =
     typeof window !== "undefined" ? window.location.origin : "";
 
@@ -58,14 +63,18 @@ const TIME_RANGES = [
 // SIMPLE BAR CHART COMPONENT
 // ============================================
 const SimpleBarChart = ({ data, color = "#06b6d4", height = 120 }) => {
-    const maxValue = Math.max(...data.map((d) => d.value), 1);
+    const safeData = Array.isArray(data) ? data : [];
+    const maxValue = Math.max(
+        ...safeData.map((d) => d.value || 0),
+        1
+    );
 
     return (
         <div
             className="flex items-end justify-between gap-1"
             style={{ height }}
         >
-            {data.map((item, idx) => (
+            {safeData.map((item, idx) => (
                 <div
                     key={idx}
                     className="flex-1 flex flex-col items-center"
@@ -98,7 +107,9 @@ const CircularProgress = ({
     color = "#06b6d4",
     label,
 }) => {
-    const percentage = max > 0 ? (value / max) * 100 : 0;
+    const safeMax = max > 0 ? max : 1;
+    const safeValue = Math.max(0, value || 0);
+    const percentage = (safeValue / safeMax) * 100;
     const radius = 35;
     const circumference = 2 * Math.PI * radius;
     const strokeDashoffset =
@@ -128,7 +139,9 @@ const CircularProgress = ({
                     className="transition-all duration-500"
                 />
             </svg>
-            <span className="text-xl font-bold -mt-14">{value}</span>
+            <span className="text-xl font-bold -mt-14">
+                {safeValue}
+            </span>
             <span className="text-xs text-white/50 mt-8">{label}</span>
         </div>
     );
@@ -137,7 +150,15 @@ const CircularProgress = ({
 // ============================================
 // STAT CARD COMPONENT
 // ============================================
-const StatCard = ({ label, value, icon: Icon, color, trend, subtitle, onClick }) => (
+const StatCard = ({
+    label,
+    value,
+    icon: Icon,
+    color,
+    trend,
+    subtitle,
+    onClick,
+}) => (
     <div
         onClick={onClick}
         className={`bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition ${onClick ? "cursor-pointer" : ""
@@ -147,7 +168,7 @@ const StatCard = ({ label, value, icon: Icon, color, trend, subtitle, onClick })
             <div className={`p-2 rounded-lg ${color}`}>
                 <Icon className="w-5 h-5" />
             </div>
-            {trend !== undefined && (
+            {trend !== undefined && trend !== null && (
                 <span
                     className={`text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1 ${trend >= 0
                             ? "bg-green-500/20 text-green-400"
@@ -184,14 +205,17 @@ const formatDuration = (ms) => {
 };
 
 const formatNumber = (num) => {
-    if (!num && num !== 0) return "0";
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-    if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-    return num.toString();
+    if (num === null || num === undefined) return "0";
+    const n = Number(num) || 0;
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return n.toString();
 };
 
-const formatCurrency = (amount, currency = "€") =>
-    `${currency}${(amount || 0).toLocaleString()}`;
+const formatCurrency = (amount, currency = "€") => {
+    const n = Number(amount) || 0;
+    return `${currency}${n.toLocaleString()}`;
+};
 
 // ============================================
 // STREAM ROW COMPONENT
@@ -206,9 +230,12 @@ const StreamRow = ({ stream, onView, onStop, isAdmin }) => {
             )
         )
             return;
-        setStopping(true);
-        await onStop(stream._id);
-        setStopping(false);
+        try {
+            setStopping(true);
+            await onStop(stream._id);
+        } finally {
+            setStopping(false);
+        }
     };
 
     const streamDuration = stream.startedAt
@@ -350,7 +377,7 @@ const TopStreamerCard = ({ streamer, rank, metric, metricLabel }) => {
     const fallbackAvatar = "/defaults/default-avatar.png";
 
     return (
-        <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl hover:bg-white/10 transition">
+        <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl hover:bg_WHITE/10 transition">
             <span className="text-2xl w-8 text-center">
                 {rank === 1
                     ? "🥇"
@@ -414,7 +441,11 @@ export default function AdminLiveAnalytics() {
     // AUTH CHECK
     // =========================
     useEffect(() => {
-        const storedUser = localStorage.getItem("ws_currentUser");
+        if (typeof window === "undefined") return;
+
+        const storedUser = window.localStorage.getItem(
+            "ws_currentUser"
+        );
         if (storedUser) {
             try {
                 const user = JSON.parse(storedUser);
@@ -438,14 +469,15 @@ export default function AdminLiveAnalytics() {
     // =========================
     const fetchStats = useCallback(async () => {
         try {
-            const [statsRes, streamsRes, topRes] = await Promise.allSettled([
-                api.get("/live-analytics/stats"),
-                api.get("/live"),
-                api.get("/live-analytics/top-streamers"),
-            ]);
+            const [statsRes, streamsRes, topRes] =
+                await Promise.allSettled([
+                    api.get("/live-analytics/stats"),
+                    api.get("/live"),
+                    api.get("/live-analytics/top-streamers"),
+                ]);
 
             if (statsRes.status === "fulfilled") {
-                setStats(statsRes.value.data);
+                setStats(statsRes.value.data || {});
             } else {
                 setStats({
                     totalStreams: 0,
@@ -472,11 +504,13 @@ export default function AdminLiveAnalytics() {
 
             if (topRes.status === "fulfilled") {
                 setTopStreamers(
-                    topRes.value.data?.streamers || topRes.value.data || []
+                    topRes.value.data?.streamers ||
+                    topRes.value.data ||
+                    []
                 );
             }
 
-            // Dummy historical data for charts (kan je later koppelen aan echte API)
+            // Dummy historical data (later koppelen aan echte API)
             const last7Days = Array.from({ length: 7 }, (_, i) => {
                 const date = new Date();
                 date.setDate(date.getDate() - (6 - i));
@@ -521,6 +555,8 @@ export default function AdminLiveAnalytics() {
     // SOCKET LISTENERS
     // =========================
     useEffect(() => {
+        if (!socket || !socket.on || !socket.off) return;
+
         // Live started
         socket.on("live_started", (stream) => {
             setActiveStreams((prev) => [
@@ -531,7 +567,8 @@ export default function AdminLiveAnalytics() {
                 prev
                     ? {
                         ...prev,
-                        activeStreams: (prev.activeStreams || 0) + 1,
+                        activeStreams:
+                            (prev.activeStreams || 0) + 1,
                     }
                     : prev
             );
@@ -565,7 +602,9 @@ export default function AdminLiveAnalytics() {
             const viewerCount = viewers ?? count ?? 0;
             setActiveStreams((prev) =>
                 prev.map((s) =>
-                    s._id === streamId ? { ...s, viewers: viewerCount } : s
+                    s._id === streamId
+                        ? { ...s, viewers: viewerCount }
+                        : s
                 )
             );
         });
@@ -578,7 +617,8 @@ export default function AdminLiveAnalytics() {
                         ? {
                             ...s,
                             totalGifts:
-                                (s.totalGifts || 0) + (amount || 1),
+                                (s.totalGifts || 0) +
+                                (amount || 1),
                         }
                         : s
                 )
@@ -588,7 +628,8 @@ export default function AdminLiveAnalytics() {
                     ? {
                         ...prev,
                         totalGifts:
-                            (prev.totalGifts || 0) + (amount || 1),
+                            (prev.totalGifts || 0) +
+                            (amount || 1),
                     }
                     : prev
             );
@@ -614,7 +655,9 @@ export default function AdminLiveAnalytics() {
     const handleStopStream = async (streamId) => {
         try {
             await api.post(`/admin/stop-stream/${streamId}`);
-            socket.emit("admin_stop_stream", streamId);
+            if (socket && socket.emit) {
+                socket.emit("admin_stop_stream", streamId);
+            }
             setActiveStreams((prev) =>
                 prev.filter((s) => s._id !== streamId)
             );
@@ -630,6 +673,11 @@ export default function AdminLiveAnalytics() {
     };
 
     const handleExport = () => {
+        if (typeof window === "undefined") {
+            toast.error("Export not available in this environment");
+            return;
+        }
+
         const data = activeStreams.map((s) => ({
             title: s.title || "Untitled",
             host:
@@ -638,8 +686,7 @@ export default function AdminLiveAnalytics() {
                 "Unknown",
             category: s.category || "General",
             viewers: s.viewers || 0,
-            peakViewers:
-                s.peakViewers || s.viewers || 0,
+            peakViewers: s.peakViewers || s.viewers || 0,
             gifts:
                 s.totalGifts || s.giftsReceived || 0,
             startedAt: s.startedAt || "",
@@ -717,16 +764,17 @@ export default function AdminLiveAnalytics() {
     const filteredStreams = useMemo(
         () =>
             activeStreams.filter((stream) => {
+                const search = searchQuery.toLowerCase();
                 const matchesSearch =
-                    searchQuery === "" ||
+                    search === "" ||
                     (stream.title || "")
                         .toLowerCase()
-                        .includes(searchQuery.toLowerCase()) ||
+                        .includes(search) ||
                     (stream.host?.username ||
                         stream.streamerName ||
                         "")
                         .toLowerCase()
-                        .includes(searchQuery.toLowerCase());
+                        .includes(search);
 
                 const matchesCategory =
                     categoryFilter === "all" ||
@@ -966,8 +1014,7 @@ export default function AdminLiveAnalytics() {
                                 {count !== null &&
                                     count > 0 && (
                                         <span
-                                            className={`px-1.5 py-0.5 rounded-full text-xs ${activeTab ===
-                                                    tab.id
+                                            className={`px-1.5 py-0.5 rounded-full text-xs ${activeTab === tab.id
                                                     ? "bg-black/20"
                                                     : "bg-green-500/20 text-green-400"
                                                 }`}
@@ -1273,7 +1320,7 @@ export default function AdminLiveAnalytics() {
                                     label="Total Viewers"
                                 />
                             </div>
-                            <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex justify-center">
+                            <div className="bg-white/5 border border_WHITE/10 rounded-xl p-6 flex justify-center">
                                 <CircularProgress
                                     value={stats?.totalGifts || 0}
                                     max={500}
@@ -1283,7 +1330,10 @@ export default function AdminLiveAnalytics() {
                             </div>
                             <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex justify-center">
                                 <CircularProgress
-                                    value={stats?.newStreamersToday || 0}
+                                    value={
+                                        stats?.newStreamersToday ||
+                                        0
+                                    }
                                     max={50}
                                     color="#22c55e"
                                     label="New Streamers"

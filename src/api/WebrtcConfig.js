@@ -11,19 +11,24 @@
  */
 
 // ===========================================
-// API / SOCKET CONFIGURATION (dynamic)
+// API / SOCKET CONFIGURATION (dynamic, in sync with api.js)
 // ===========================================
+import { API_BASE_URL } from "./api";
+
+// Start from API_BASE_URL (root from api.js), fallback to env / window
 let baseUrl =
+    API_BASE_URL ||
     (typeof import.meta !== "undefined" &&
         import.meta.env &&
         import.meta.env.VITE_API_URL) ||
-    "https://world-studio-production.up.railway.app";
+    (typeof window !== "undefined" ? window.location.origin : "https://world-studio-production.up.railway.app");
 
-// Strip trailing /api and slashes -> root domain
+// Strip trailing /api en slashes -> root domain
 baseUrl = baseUrl.replace(/\/api\/?$/, "").replace(/\/+$/, "");
 
-export const API_BASE_URL = baseUrl;
-export const SOCKET_URL = baseUrl;
+export const API_BASE_URL_RTC = baseUrl;   // explicit name voor RTC
+export const API_BASE_URL_WEBSOCKET = baseUrl;
+export const SOCKET_URL = baseUrl;         // backwards compatible export
 
 // ===========================================
 // PRIMARY RTC CONFIGURATION
@@ -341,6 +346,7 @@ export const testIceConnectivity = async (config = RTC_CONFIG) => {
             if (event.candidate) {
                 results.candidates.push(event.candidate.candidate);
 
+                // In moderne browsers bestaat event.candidate.type
                 if (event.candidate.type === "srflx") {
                     results.stun = true;
                 }

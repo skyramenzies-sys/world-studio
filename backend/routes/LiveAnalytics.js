@@ -1,4 +1,4 @@
-// backend/routes/LiveAnalytics.js
+// backend/routes/liveAnalytics.js
 // World-Studio.live - Live Stream Analytics Routes (UNIVERSE EDITION 🚀)
 // Comprehensive analytics for streaming platform
 
@@ -14,12 +14,12 @@ try {
     Gift = require("../models/Gift");
 } catch (err) {
     console.warn(
-        "⚠️ Optional model 'Gift' not found in LiveAnalytics:",
+        "⚠️ Optional model 'Gift' not found in liveAnalytics:",
         err.message
     );
 }
 
-const auth = require("../middleware/authMiddleware");
+const auth = require("../middleware/auth");
 const requireAdmin = require("../middleware/requireAdmin");
 
 // ===========================================
