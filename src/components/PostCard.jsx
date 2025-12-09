@@ -666,7 +666,7 @@ export default function PostCard({
 
         try {
             const res = await api.post(
-                `/api/posts/${post._id}/like`
+                `/posts/${post._id}/like`
             );
 
 
@@ -743,7 +743,7 @@ export default function PostCard({
 
         try {
             const res = await api.post(
-                `/api/posts/${post._id}/comment`,
+                `/posts/${post._id}/comment`,
                 { text }
             );
 
@@ -795,7 +795,7 @@ export default function PostCard({
 
         try {
             await api.delete(
-                `/api/posts/${post._id}`
+                `/posts/${post._id}`
             );
             toast.success("Post deleted!");
             setShowDeleteModal(false);
