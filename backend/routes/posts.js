@@ -213,3 +213,25 @@ router.post("/:id/like", auth, async (req, res) => {
 });
 
 module.exports = router;
+
+// DELETE /api/posts/:id - Delete post
+router.delete("/:id", auth, async (req, res) => {
+    try {
+        const post = await Post.findById(req.params.id);
+        if (!post) {
+            return res.status(404).json({ error: "Post not found" });
+        }
+        
+        // Check ownership
+        const userId = req.user.id || req.user._id;
+        if (post.user?.toString() !== userId.toString() && !req.user.isAdmin) {
+            return res.status(403).json({ error: "Not authorized" });
+        }
+        
+        await Post.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: "Post deleted" });
+    } catch (err) {
+        console.error("DELETE /posts/:id error:", err);
+        res.status(500).json({ error: "Failed to delete post" });
+    }
+});
