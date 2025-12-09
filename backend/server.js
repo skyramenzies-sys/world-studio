@@ -132,6 +132,7 @@ app.use("/api/upload", uploadRoutes);
 // Posts routes
 const postsRoutes = require("./routes/posts");
 app.use("/api/posts", postsRoutes);
+console.log("📝 Posts routes loaded");
 app.use("/api/wallet", walletRoutes);
 app.use("/api/stream-cleanup", streamCleanupRoutes);
 
