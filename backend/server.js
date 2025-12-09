@@ -96,7 +96,7 @@ const streamCleanupRoutes = require("./routes/streamCleanupRoutes");
 // Optionele LIVE routes (geen crash als file mist)
 let liveRoutes = null;
 try {
-    liveRoutes = require("./routes/live");
+    liveRoutes = require("./routes/liveRoutes");
     console.log("🎥 Live routes loaded");
 } catch (err) {
     console.warn("⚠️ ./routes/live niet gevonden – live API uitgeschakeld.");
