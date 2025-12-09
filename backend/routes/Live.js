@@ -1,436 +1,742 @@
-// backend/routes/live.js
-// World-Studio.live - Live Streaming Routes (UNIVERSE EDITION 🌌)
+// backend/routes/liveRoutes.js
+// World-Studio.live - Live Stream Management Routes (UNIVERSE EDITION 🚀)
+// Handles stream cleanup, discovery, and maintenance
 
 const express = require("express");
 const router = express.Router();
 
-const auth = require("../middleware/auth");
-const checkBan = require("../middleware/checkBan");
-const Stream = require("../models/Stream");
-const User = require("../models/User");
-
-const PUBLIC_STREAM_FIELDS =
-    "title description category thumbnailUrl roomId isLive status viewersCount viewers startedAt createdAt streamerId streamerName streamerAvatar";
-
-const isObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id || "");
-
-// ------------------------------------------------
-// HELPER: basis query voor discover
-// ------------------------------------------------
-function buildDiscoverQuery({ category, type }) {
-    const query = {
-        isLive: true,
-        status: { $in: ["live", "scheduled"] },
-    };
-
-    if (category) {
-        query.category = category;
-    }
-    if (type) {
-        query.type = type;
-    }
-
-    return query;
+// LiveStream is OPTIONAL (oud model), Stream is de huidige standaard
+let LiveStream = null;
+try {
+    LiveStream = require("../models/LiveStream");
+} catch (err) {
+    console.warn(
+        "⚠️ Optional model 'LiveStream' not found, falling back to 'Stream':",
+        err.message
+    );
 }
 
-// ------------------------------------------------
-// GET /api/live
-//  - zonder query: discover live streams
-//  - ?userId=...: streams van specifieke user
-//  - ?userId=...&discover=live: alleen live van user
-// ------------------------------------------------
-router.get("/", async (req, res) => {
+const Stream = require("../models/Stream");
+const User = require("../models/User");
+const auth = require("../middleware/authMiddleware");
+const requireAdmin = require("../middleware/requireAdmin");
 
+// ===========================================
+// HELPER FUNCTIONS
+// ===========================================
+
+/**
+ * Get the correct Stream model (supports both LiveStream and Stream)
+ */
+const getStreamModel = () => {
+    return LiveStream || Stream;
+};
+
+/**
+ * Get hours ago date
+ */
+const hoursAgo = (hours) =>
+    new Date(Date.now() - hours * 60 * 60 * 1000);
+
+/**
+ * Get days ago date
+ */
+const daysAgo = (days) =>
+    new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+// ===========================================
+// CLEANUP ROUTES
+// ===========================================
+
+/**
+ * GET /api/live/cleanup
+ * Cleanup stale streams (auto or manual trigger)
+ */
+router.get("/cleanup", async (req, res) => {
     try {
-        const {
-            userId,
-            discover,
-            category,
-            type,
-            limit = 20,
-            skip = 0,
-            sortBy = "viewers",
-        } = req.query;
-
-        const parsedLimit = Number(limit) || 20;
-        const parsedSkip = Number(skip) || 0;
-
-        // 1) Streams voor specifieke user (ProfilePage)
-        if (userId) {
-            if (!isObjectId(userId)) {
-                return res.status(400).json({
-                    success: false,
-                    error: "Invalid user ID format",
-                });
-            }
-
-            const query = { streamerId: userId };
-
-            // optioneel: alleen live
-            if (discover === "live" || discover === "true") {
-                query.isLive = true;
-                query.status = "live";
-            }
-
-            const streams = await Stream.find(query)
-                .sort({ startedAt: -1 })
-                .skip(parsedSkip)
-                .limit(parsedLimit)
-                .select(PUBLIC_STREAM_FIELDS)
-                .lean();
-
-            return res.json({
-                success: true,
-                mode: "user",
-                streams,
-            });
-        }
-
-        // 2) Discover live streams (home/live pagina)
-        const query = buildDiscoverQuery({ category, type });
-
-        const sort =
-            sortBy === "createdAt"
-                ? { startedAt: -1 }
-                : { viewersCount: -1, startedAt: -1 };
-
-        const streams = await Stream.find(query)
-            .sort(sort)
-            .skip(parsedSkip)
-            .limit(parsedLimit)
-            .select(PUBLIC_STREAM_FIELDS)
-            .lean();
-
-        return res.json({
-            success: true,
-            mode: "discover",
-            streams,
-        });
-    } catch (err) {
-        console.error("❌ [GET /api/live] error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Failed to load live streams" });
-    }
-});
-
-// ------------------------------------------------
-// alias: GET /api/live/discover
-// ------------------------------------------------
-router.get("/discover", async (req, res) => {
-    // gewoon dezelfde handler als hierboven gebruiken
-    return router.handle(
-        { ...req, url: "/?discover=true", query: { ...req.query, discover: "true" } },
-        res
-    );
-});
-
-// ------------------------------------------------
-// POST /api/live/start  -> start stream
-// body: { title?, description?, category?, thumbnailUrl?, roomId? }
-// ------------------------------------------------
-router.post("/start", auth, checkBan, async (req, res) => {
-    try {
-        const userId = req.user._id;
-        const {
-            title = "Live stream",
-            description = "",
-            category = "general",
-            thumbnailUrl = "",
-            roomId,
-        } = req.body;
-
-        const user = await User.findById(userId).select(
-            "username avatar isBanned isDeactivated isLive currentStreamId lastStreamedAt"
-        );
-        if (!user || user.isBanned || user.isDeactivated) {
-            return res
-                .status(400)
-                .json({ success: false, error: "User not allowed to stream" });
-        }
-
-        let stream = await Stream.findOne({
-            streamerId: userId,
-            isLive: true,
-            status: { $in: ["live", "scheduled"] },
-        });
-
+        const StreamModel = getStreamModel();
         const now = new Date();
-        const room = roomId || (stream ? stream.roomId : undefined) || userId.toString();
+        const twoHoursAgo = hoursAgo(2);
+        const twelveHoursAgo = hoursAgo(12);
 
-        if (!stream) {
-            stream = new Stream({
-                title,
-                description,
-                category,
-                thumbnailUrl,
-                streamerId: userId,
-                streamerName: user.username,
-                streamerAvatar: user.avatar,
-                roomId: room,
+
+        const results = {
+            staleEnded: 0,
+            orphanedEnded: 0,
+            userStatusReset: 0,
+        };
+
+        // 1. End streams older than 12 hours
+        const oldStreamsResult = await StreamModel.updateMany(
+            {
                 isLive: true,
-                status: "live",
-                viewers: [],
-                viewersCount: 0,
-                startedAt: now,
-            });
-        } else {
-            stream.title = title;
-            stream.description = description;
-            stream.category = category;
-            stream.thumbnailUrl = thumbnailUrl;
-            stream.roomId = room;
-            stream.isLive = true;
-            stream.status = "live";
-            stream.startedAt = stream.startedAt || now;
-        }
-
-        await stream.save();
-
-
-        user.isLive = true;
-        user.currentStreamId = stream._id;
-        user.lastStreamedAt = now;
-        await user.save();
-
-        return res.json({
-            success: true,
-            streamId: stream._id,
-            roomId: stream.roomId || stream._id.toString(),
-            stream,
-        });
-    } catch (err) {
-        console.error("❌ [POST /api/live/start] error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Failed to start live stream" });
-    }
-});
-
-// ------------------------------------------------
-// POST /api/live/stop/:id  -> stop stream
-// :id mag stream _id of roomId zijn
-// ------------------------------------------------
-router.post("/stop/:id", auth, checkBan, async (req, res) => {
-    try {
-        const userId = req.user._id;
-        const param = req.params.id;
-
-        const orConditions = [];
-        if (isObjectId(param)) {
-            orConditions.push({ _id: param });
-        }
-        orConditions.push({ roomId: param });
-
-        const stream = await Stream.findOne({ $or: orConditions });
-
-        if (!stream) {
-            return res.status(404).json({ success: false, error: "Stream not found" });
-        }
-        if (stream.streamerId.toString() !== userId.toString()) {
-            return res
-                .status(403)
-                .json({ success: false, error: "Not allowed to stop this stream" });
-        }
-
-        stream.isLive = false;
-        stream.status = "ended";
-        stream.endedAt = new Date();
-        await stream.save();
-
-        await User.updateOne(
-            { _id: userId },
+                $or: [
+                    { createdAt: { $lt: twelveHoursAgo } },
+                    { startedAt: { $lt: twelveHoursAgo } },
+                ],
+            },
             {
                 $set: {
                     isLive: false,
-                    currentStreamId: null,
-                    lastStreamedAt: new Date(),
+                    endedAt: now,
+                    status: "ended",
+                },
+            }
+        );
+        results.staleEnded += oldStreamsResult.modifiedCount || 0;
+
+        // 2. End streams with no activity for 2+ hours
+        const inactiveResult = await StreamModel.updateMany(
+            {
+                isLive: true,
+                updatedAt: { $lt: twoHoursAgo },
+                createdAt: { $lt: twoHoursAgo },
+            },
+            {
+                $set: {
+                    isLive: false,
+                    endedAt: now,
+                    status: "ended",
+                },
+            }
+        );
+        results.staleEnded += inactiveResult.modifiedCount || 0;
+
+        // 3. End streams where streamer hasn't been seen in 2 hours
+        if (User) {
+            try {
+                const inactiveStreamers = await User.find({
+                    isLive: true,
+                    lastSeen: { $lt: twoHoursAgo },
+                }).select("_id currentStreamId");
+
+                for (const user of inactiveStreamers) {
+                    if (user.currentStreamId) {
+                        await StreamModel.updateOne(
+                            {
+                                _id: user.currentStreamId,
+                                isLive: true,
+                            },
+                            {
+                                $set: {
+                                    isLive: false,
+                                    endedAt: now,
+                                    status: "ended",
+                                },
+                            }
+                        );
+                        results.orphanedEnded++;
+                    }
+                }
+
+                // Reset user live status
+                const userResetResult = await User.updateMany(
+                    {
+                        isLive: true,
+                        lastSeen: { $lt: twoHoursAgo },
+                    },
+                    {
+                        $set: {
+                            isLive: false,
+                            currentStreamId: null,
+                        },
+                    }
+                );
+                results.userStatusReset =
+                    userResetResult.modifiedCount || 0;
+            } catch (err) {
+                console.log("User cleanup skipped:", err.message);
+            }
+        }
+
+        const totalCleaned =
+            results.staleEnded + results.orphanedEnded;
+
+        if (totalCleaned > 0) {
+            console.log(
+                `🧹 Cleaned up ${totalCleaned} stale streams, reset ${results.userStatusReset} user statuses`
+            );
+        }
+
+        res.json({
+            success: true,
+            cleaned: totalCleaned,
+            details: results,
+            message: `Ended ${totalCleaned} stale streams`,
+        });
+    } catch (error) {
+        console.error("❌ Cleanup error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to cleanup streams",
+        });
+    }
+});
+
+/**
+ * GET /api/live/cleanup/all
+ * Force cleanup ALL live streams (nuclear option - admin only)
+ */
+router.get("/cleanup/all", auth, requireAdmin, async (req, res) => {
+    try {
+        const StreamModel = getStreamModel();
+        const now = new Date();
+
+        // End all live streams
+        const streamResult = await StreamModel.updateMany(
+            { isLive: true },
+            {
+                $set: {
+                    isLive: false,
+                    endedAt: now,
+                    status: "ended",
                 },
             }
         );
 
-        return res.json({ success: true });
-    } catch (err) {
-        console.error("❌ [POST /api/live/stop/:id] error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Failed to stop live stream" });
-    }
-});
-
-// ------------------------------------------------
-// GET /api/live/user/:userId/status -> user's live status
-// ⚠️ MOET VOOR /:id ROUTE STAAN
-// ------------------------------------------------
-router.get("/user/:userId/status", async (req, res) => {
-    try {
-        const { userId } = req.params;
-
-
-        if (!isObjectId(userId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid user ID format",
-            });
-        }
-
-
-        const user = await User.findById(userId)
-            .select("isLive currentStreamId username avatar isVerified")
-            .lean();
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: "User not found",
-            });
-        }
-
-
-        let stream = null;
-        if (user.isLive && user.currentStreamId) {
-            stream = await Stream.findById(user.currentStreamId)
-                .select(
-                    "title category roomId viewersCount thumbnailUrl startedAt status"
-                )
-                .lean();
-        }
-
-
-        if (!stream && user.isLive) {
-            stream = await Stream.findOne({
-                streamerId: userId,
-                isLive: true,
-                status: { $in: ["live", "scheduled"] },
-            })
-                .select(
-                    "title category roomId viewersCount thumbnailUrl startedAt status"
-                )
-                .lean();
-        }
-
-
-        const actuallyLive = user.isLive && !!stream;
-
-
-        if (user.isLive && !stream) {
-            await User.updateOne(
-                { _id: userId },
-                { $set: { isLive: false, currentStreamId: null } }
+        // Reset all user live statuses
+        let userResult = { modifiedCount: 0 };
+        if (User) {
+            userResult = await User.updateMany(
+                { isLive: true },
+                {
+                    $set: {
+                        isLive: false,
+                        currentStreamId: null,
+                    },
+                }
             );
         }
 
-        return res.json({
-            success: true,
-            isLive: actuallyLive,
-            user: {
-                _id: user._id,
-                username: user.username,
-                avatar: user.avatar,
-                isVerified: user.isVerified,
-            },
-            stream: stream
-                ? {
-                    _id: stream._id,
-                    title: stream.title,
-                    category: stream.category,
-                    roomId: stream.roomId,
-                    viewers: stream.viewersCount || 0,
-                    thumbnailUrl: stream.thumbnailUrl,
-                    startedAt: stream.startedAt,
-                    status: stream.status,
-                }
-                : null,
-        });
-    } catch (err) {
-        console.error("❌ [GET /api/live/user/:userId/status] error:", err);
-        return res.status(500).json({
-            success: false,
-            error: "Failed to get user status",
-        });
-    }
-});
+        console.log(
+            `🧹 FORCE CLEANED: ${streamResult.modifiedCount || 0} streams, ${userResult.modifiedCount || 0
+            } users`
+        );
 
-// ------------------------------------------------
-// GET /api/live/user/:userId/history -> user's stream history
-// ------------------------------------------------
-router.get("/user/:userId/history", async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const { page = 1, limit = 20 } = req.query;
-
-        if (!isObjectId(userId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid user ID format",
+        // Emit socket event to notify all clients
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("all_streams_ended", {
+                reason: "System maintenance",
+                timestamp: now,
             });
         }
 
-        const parsedLimit = parseInt(limit) || 20;
-        const parsedPage = parseInt(page) || 1;
-        const skip = (parsedPage - 1) * parsedLimit;
-
-        const [streams, total] = await Promise.all([
-            Stream.find({ streamerId: userId })
-                .sort({ startedAt: -1 })
-                .skip(skip)
-                .limit(parsedLimit)
-                .select(
-                    "title category roomId viewersCount peakViewers thumbnailUrl startedAt endedAt status duration"
-                )
-                .lean(),
-            Stream.countDocuments({ streamerId: userId }),
-        ]);
-
-        return res.json({
+        res.json({
             success: true,
-            streams,
-            pagination: {
-                page: parsedPage,
-                limit: parsedLimit,
-                total,
-                pages: Math.ceil(total / parsedLimit),
-            },
+            cleaned: streamResult.modifiedCount || 0,
+            usersReset: userResult.modifiedCount || 0,
+            message: `Force ended ALL ${streamResult.modifiedCount || 0} streams`,
         });
-    } catch (err) {
-        console.error("❌ [GET /api/live/user/:userId/history] error:", err);
-        return res.status(500).json({
+    } catch (error) {
+        console.error("❌ Force cleanup error:", error);
+        res.status(500).json({
             success: false,
-            error: "Failed to get stream history",
+            error: "Failed to force cleanup streams",
         });
     }
 });
 
-// ------------------------------------------------
-// GET /api/live/:id  -> stream details (id of roomId)
-// ⚠️ MOET ALS LAATSTE ROUTE STAAN
-// ------------------------------------------------
-router.get("/:id", async (req, res) => {
+/**
+ * GET /api/live/cleanup/old
+ * Delete old ended streams
+ */
+router.get("/cleanup/old", auth, requireAdmin, async (req, res) => {
     try {
-        const param = req.params.id;
+        const { daysOld = 30 } = req.query;
+        const StreamModel = getStreamModel();
+        const cutoffDate = daysAgo(parseInt(daysOld, 10));
 
-        const orConditions = [];
-        if (isObjectId(param)) {
-            orConditions.push({ _id: param });
+        const result = await StreamModel.deleteMany({
+            isLive: false,
+            endedAt: { $lt: cutoffDate },
+        });
+
+        console.log(
+            `🗑️ Deleted ${result.deletedCount} old streams (${daysOld}+ days)`
+        );
+
+        res.json({
+            success: true,
+            deleted: result.deletedCount || 0,
+            message: `Deleted ${result.deletedCount || 0} streams older than ${daysOld} days`,
+        });
+    } catch (error) {
+        console.error("❌ Delete old streams error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to delete old streams",
+        });
+    }
+});
+
+// ===========================================
+// END SPECIFIC STREAM
+// ===========================================
+
+/**
+ * POST /api/live/:id/end
+ * End a specific stream
+ */
+router.post("/:id/end", auth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        const StreamModel = getStreamModel();
+
+        const rawUserId = req.user?.id || req.user?._id;
+        if (!rawUserId) {
+            return res.status(401).json({
+                success: false,
+                error: "Unauthorized",
+            });
         }
-        orConditions.push({ roomId: param });
+        const userIdStr = String(rawUserId);
 
-        const stream = await Stream.findOne({ $or: orConditions })
-            .populate("streamerId", "username avatar isVerified")
-            .lean();
+        // Find stream first to check ownership
+        const stream = await StreamModel.findById(id);
 
         if (!stream) {
-            return res.status(404).json({ success: false, error: "Stream not found" });
+            return res.status(404).json({
+                success: false,
+                error: "Stream not found",
+            });
         }
 
-        return res.json({ success: true, stream });
-    } catch (err) {
-        console.error("❌ [GET /api/live/:id] error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Failed to load stream" });
+        // Check if user owns stream or is admin
+        const user = await User.findById(rawUserId);
+
+        // 🔥 Gebruik streamerId (host is geen echte kolom in het nieuwe model)
+        const isOwner =
+            (stream.streamerId &&
+                String(stream.streamerId) === userIdStr);
+
+        const isAdmin =
+            user?.role === "admin" ||
+            user?.email === "menziesalm@gmail.com";
+
+        if (!isOwner && !isAdmin) {
+            return res.status(403).json({
+                success: false,
+                error: "Not authorized to end this stream",
+            });
+        }
+
+        // Calculate duration
+        const duration = stream.startedAt
+            ? Math.floor(
+                (Date.now() - stream.startedAt.getTime()) / 1000
+            )
+            : 0;
+
+        // Update stream
+        stream.isLive = false;
+        stream.endedAt = new Date();
+        stream.status = "ended";
+        stream.duration = duration;
+        if (reason) stream.endReason = reason;
+        await stream.save();
+
+        // Update user status
+        const streamerId = stream.streamerId;
+        if (streamerId) {
+            await User.findByIdAndUpdate(streamerId, {
+                isLive: false,
+                currentStreamId: null,
+            });
+        }
+
+        // Emit socket events
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("stream_ended", {
+                streamId: id,
+                _id: id,
+                duration,
+                reason,
+            });
+            io.emit("live_ended", {
+                streamId: id,
+                _id: id,
+            });
+
+            if (stream.roomId) {
+                io.to(stream.roomId).emit("stream_ended", {
+                    streamId: id,
+                    duration,
+                });
+            }
+        }
+
+        console.log(
+            `⏹️ Stream ${id} ended by ${user?.username || "system"}`
+        );
+
+        res.json({
+            success: true,
+            stream,
+            duration,
+            message: "Stream ended successfully",
+        });
+    } catch (error) {
+        console.error("❌ End stream error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to end stream",
+        });
     }
 });
 
+// ===========================================
+// GET ACTIVE STREAMS
+// ===========================================
+
+/**
+ * GET /api/live/streams
+ * Get active live streams (excludes stale)
+ */
+router.get("/streams", async (req, res) => {
+    try {
+        const StreamModel = getStreamModel();
+        const twelveHoursAgo = hoursAgo(12);
+        const {
+            category,
+            limit = 50,
+            skip = 0,
+            sortBy = "viewers",
+        } = req.query;
+
+        // Build query - only get actually live, non-stale streams
+        const query = {
+            isLive: true,
+            $or: [
+                { startedAt: { $gte: twelveHoursAgo } },
+                { createdAt: { $gte: twelveHoursAgo } },
+            ],
+        };
+
+        if (category && category !== "all") {
+            query.category = category;
+        }
+
+        // Sort options
+        const sortOptions = {
+            viewers: { viewers: -1, createdAt: -1 },
+            recent: { startedAt: -1, createdAt: -1 },
+            gifts: { totalGifts: -1, viewers: -1 },
+        };
+
+        const streams = await StreamModel.find(query)
+            .sort(sortOptions[sortBy] || sortOptions.viewers)
+            .skip(parseInt(skip, 10))
+            .limit(parseInt(limit, 10))
+            .populate("host", "username avatar isVerified")
+            .populate("streamerId", "username avatar isVerified")
+            .select("-streamKey -viewerList -bannedUsers")
+            .lean();
+
+        const total = await StreamModel.countDocuments(query);
+
+        res.json({
+            success: true,
+            streams: streams || [],
+            pagination: {
+                total,
+                limit: parseInt(limit, 10),
+                skip: parseInt(skip, 10),
+                hasMore:
+                    parseInt(skip, 10) +
+                    (streams ? streams.length : 0) <
+                    total,
+            },
+        });
+    } catch (error) {
+        console.error("❌ Get streams error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch streams",
+        });
+    }
+});
+
+/**
+ * GET /api/live/streams/all
+ * Get all streams including ended (for admin/history)
+ */
+router.get("/streams/all", auth, async (req, res) => {
+    try {
+        const StreamModel = getStreamModel();
+        const {
+            limit = 50,
+            skip = 0,
+            isLive,
+            category,
+            userId,
+        } = req.query;
+
+        const query = {};
+
+        if (isLive !== undefined) {
+            query.isLive = isLive === "true";
+        }
+
+        if (category && category !== "all") {
+            query.category = category;
+        }
+
+        if (userId) {
+            // 🔥 Gebruik alleen streamerId – host is geen echte kolom
+            query.streamerId = userId;
+        }
+
+        const streams = await StreamModel.find(query)
+            .sort({ startedAt: -1, createdAt: -1 })
+            .skip(parseInt(skip, 10))
+            .limit(parseInt(limit, 10))
+            .populate("host", "username avatar")
+            .populate("streamerId", "username avatar")
+            .select("-streamKey -viewerList")
+            .lean();
+
+        const total = await StreamModel.countDocuments(query);
+
+        res.json({
+            success: true,
+            streams: streams || [],
+            pagination: {
+                total,
+                limit: parseInt(limit, 10),
+                skip: parseInt(skip, 10),
+            },
+        });
+    } catch (error) {
+        console.error("❌ Get all streams error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch streams",
+        });
+    }
+});
+
+// ===========================================
+// STREAM STATS
+// ===========================================
+
+/**
+ * GET /api/live/stats
+ * Get live streaming statistics
+ */
+router.get("/stats", async (req, res) => {
+    try {
+        const StreamModel = getStreamModel();
+        const twelveHoursAgo = hoursAgo(12);
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        // Count active streams (exclude stale)
+        const activeStreams = await StreamModel.countDocuments({
+            isLive: true,
+            $or: [
+                { startedAt: { $gte: twelveHoursAgo } },
+                { createdAt: { $gte: twelveHoursAgo } },
+            ],
+        });
+
+        // Total viewers
+        const viewerStats = await StreamModel.aggregate([
+            {
+                $match: {
+                    isLive: true,
+                    $or: [
+                        { startedAt: { $gte: twelveHoursAgo } },
+                        { createdAt: { $gte: twelveHoursAgo } },
+                    ],
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalViewers: { $sum: "$viewers" },
+                    peakViewers: { $max: "$viewers" },
+                },
+            },
+        ]);
+
+        // Streams today
+        const streamsToday = await StreamModel.countDocuments({
+            $or: [
+                { startedAt: { $gte: todayStart } },
+                { createdAt: { $gte: todayStart } },
+            ],
+        });
+
+        // Categories
+        const categories = await StreamModel.aggregate([
+            {
+                $match: {
+                    isLive: true,
+                    $or: [
+                        { startedAt: { $gte: twelveHoursAgo } },
+                        { createdAt: { $gte: twelveHoursAgo } },
+                    ],
+                },
+            },
+            {
+                $group: {
+                    _id: "$category",
+                    count: { $sum: 1 },
+                    viewers: { $sum: "$viewers" },
+                },
+            },
+            { $sort: { viewers: -1 } },
+            { $limit: 10 },
+        ]);
+
+        res.json({
+            success: true,
+            stats: {
+                activeStreams,
+                totalViewers: viewerStats[0]?.totalViewers || 0,
+                peakViewers: viewerStats[0]?.peakViewers || 0,
+                streamsToday,
+            },
+            categories,
+        });
+    } catch (error) {
+        console.error("❌ Stats error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch stats",
+        });
+    }
+});
+
+// ===========================================
+// FEATURED STREAMS
+// ===========================================
+
+/**
+ * GET /api/live/featured
+ * Get featured streams
+ */
+router.get("/featured", async (req, res) => {
+    try {
+        const StreamModel = getStreamModel();
+        const { limit = 10 } = req.query;
+
+        const streams = await StreamModel.find({
+            isLive: true,
+            isFeatured: true,
+        })
+            .sort({ viewers: -1 })
+            .limit(parseInt(limit, 10))
+            .populate("host", "username avatar isVerified")
+            .populate("streamerId", "username avatar isVerified")
+            .select("-streamKey -viewerList -bannedUsers")
+            .lean();
+
+        res.json({
+            success: true,
+            streams: streams || [],
+        });
+    } catch (error) {
+        console.error("❌ Featured streams error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch featured streams",
+        });
+    }
+});
+
+// ===========================================
+// CRON ENDPOINT
+// ===========================================
+
+/**
+ * POST /api/live/cron-cleanup
+ * Endpoint for scheduled cleanup (called by cron job)
+ */
+router.post("/cron-cleanup", async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+
+        // Verify API key
+        if (
+            apiKey !== process.env.CLEANUP_API_KEY &&
+            apiKey !== process.env.CRON_SECRET
+        ) {
+            return res.status(401).json({
+                success: false,
+                error: "Invalid API key",
+            });
+        }
+
+        const StreamModel = getStreamModel();
+        const now = new Date();
+        const twoHoursAgo = hoursAgo(2);
+        const twelveHoursAgo = hoursAgo(12);
+
+        // Cleanup stale streams
+        const result = await StreamModel.updateMany(
+            {
+                isLive: true,
+                $or: [
+                    { createdAt: { $lt: twelveHoursAgo } },
+                    { startedAt: { $lt: twelveHoursAgo } },
+                    {
+                        updatedAt: { $lt: twoHoursAgo },
+                        createdAt: { $lt: twoHoursAgo },
+                    },
+                ],
+            },
+            {
+                $set: {
+                    isLive: false,
+                    endedAt: now,
+                    status: "ended",
+                },
+            }
+        );
+
+        // Reset stale user statuses
+        let userResult = { modifiedCount: 0 };
+        if (User) {
+            userResult = await User.updateMany(
+                {
+                    isLive: true,
+                    lastSeen: { $lt: twoHoursAgo },
+                },
+                {
+                    $set: {
+                        isLive: false,
+                        currentStreamId: null,
+                    },
+                }
+            );
+        }
+
+        if (
+            (result.modifiedCount || 0) > 0 ||
+            (userResult.modifiedCount || 0) > 0
+        ) {
+            console.log(
+                `🕐 Cron cleanup: ${result.modifiedCount || 0} streams, ${userResult.modifiedCount || 0
+                } users`
+            );
+        }
+
+        res.json({
+            success: true,
+            cleaned: result.modifiedCount || 0,
+            usersReset: userResult.modifiedCount || 0,
+        });
+    } catch (error) {
+        console.error("❌ Cron cleanup error:", error);
+        res.status(500).json({
+            success: false,
+            error: "Cron cleanup failed",
+        });
+    }
+});
 
 module.exports = router;
