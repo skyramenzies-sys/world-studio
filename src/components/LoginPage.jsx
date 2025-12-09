@@ -64,7 +64,7 @@ export default function LoginPage() {
 
             if (mode === "forgot") {
                 // Forgot password
-                await api.post("/api/auth/forgot-password", {
+                await api.post("/auth/forgot-password", {
                     email: trimmedEmail,
                 });
                 toast.success(
@@ -122,12 +122,12 @@ export default function LoginPage() {
             let response;
 
             if (mode === "login") {
-                response = await api.post("/api/auth/login", {
+                response = await api.post("/auth/login", {
                     email: trimmedEmail,
                     password: formData.password,
                 });
             } else {
-                response = await api.post("/api/auth/register", {
+                response = await api.post("/auth/register", {
                     email: trimmedEmail,
                     password: formData.password,
                     username: trimmedUsername,

@@ -151,7 +151,7 @@ export default function ResetPasswordPage() {
             // - http://localhost:8080
             // - http://localhost:8080/api
             // - Railway URL
-            await api.post("/api/auth/reset-password", {
+            await api.post("/auth/reset-password", {
                 email,
                 token,
                 newPassword: formData.newPassword,

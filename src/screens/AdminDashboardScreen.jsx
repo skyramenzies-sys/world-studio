@@ -1540,7 +1540,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
 
             // current user ophalen
             axios
-                .get("/api/auth/me", authHeaders)
+                .get("/auth/me", authHeaders)
                 .then((res) => {
                     if (res?.data?._id) {
                         setCurrentUserId(res.data._id);

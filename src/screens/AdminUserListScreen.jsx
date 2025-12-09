@@ -330,7 +330,7 @@ export default function AdminUserListScreen({ token, navigation }) {
             loadUsers();
 
             // current user ophalen
-            api.get("/api/auth/me", authHeaders)
+            api.get("/auth/me", authHeaders)
                 .then((res) => {
                     if (res?.data?._id) {
                         setCurrentUserId(res.data._id);
