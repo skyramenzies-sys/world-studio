@@ -128,6 +128,10 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
+
+// Posts routes
+const postsRoutes = require("./routes/posts");
+app.use("/api/posts", postsRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/stream-cleanup", streamCleanupRoutes);
 
