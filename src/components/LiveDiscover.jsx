@@ -263,7 +263,7 @@ const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
         </div>
         <div className="h-4 w-px bg-white/20" />
         <div className="flex items-center gap-2">
-            <Users.size />={16} className="text-cyan-400"
+            <Users size={16} className="text-cyan-400" />
             <span className="text-white font-semibold">
                 {totalViewers.toLocaleString()}
             </span>
