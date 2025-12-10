@@ -14,6 +14,7 @@ const app = express();
 // --------------------------------------------------
 
 const allowedOrigins = [
+    /^https:\/\/world-studio.*\.vercel\.app$/,  // Vercel previews
     "https://www.world-studio.live",
     "https://world-studio.live",
 
