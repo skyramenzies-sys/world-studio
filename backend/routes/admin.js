@@ -743,3 +743,14 @@ router.post(
 );
 
 module.exports = router;
+
+// GET /api/admin/reports - Get all reports
+router.get("/reports", auth, requireAdmin, async (req, res) => {
+    try {
+        // Return empty array for now - implement later
+        res.json({ success: true, reports: [] });
+    } catch (err) {
+        console.error("GET /admin/reports error:", err);
+        res.status(500).json({ error: "Failed to load reports" });
+    }
+});

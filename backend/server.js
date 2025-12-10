@@ -90,6 +90,7 @@ mongoose
 const authRoutes = require("./routes/auth");
 const userRoutes = require("./routes/users");
 const adminRoutes = require("./routes/admin");
+const giftsRoutes = require("./routes/gifts.route");
 const uploadRoutes = require("./routes/upload");
 const walletRoutes = require("./routes/wallet");
 const streamCleanupRoutes = require("./routes/streamCleanupRoutes");
@@ -128,6 +129,8 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/gifts", giftsRoutes);
+console.log("🎁 Gifts routes loaded");
 app.use("/api/upload", uploadRoutes);
 
 // Posts routes
