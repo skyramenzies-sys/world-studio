@@ -519,3 +519,14 @@ router.get("/:id", auth, checkBan, async (req, res) => {
 
 
 module.exports = router;
+
+// DELETE /api/users/notifications - Clear all
+router.delete("/notifications", auth, async (req, res) => {
+    try {
+        await User.findByIdAndUpdate(req.user.id, { notifications: [], unreadNotifications: 0 });
+        res.json({ success: true, message: "Notifications cleared" });
+    } catch (err) {
+        console.error("DELETE /users/notifications error:", err);
+        res.status(500).json({ error: "Failed to clear notifications" });
+    }
+});
