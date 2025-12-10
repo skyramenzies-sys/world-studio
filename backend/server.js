@@ -207,6 +207,10 @@ io.on("connection", (socket) => {
     // PK Battle events
     registerPkSocket(io, socket);
 
+    // Live streaming WebRTC events
+    const registerLiveSocket = require("./sockets/liveSocket");
+    registerLiveSocket(io, socket);
+
     socket.on("disconnect", () => {
         console.log("🔌 Socket disconnected:", socket.id);
     });
