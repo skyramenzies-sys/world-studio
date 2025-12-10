@@ -49,7 +49,7 @@ export default function ProfilePage() {
 
     const [profile, setProfile] = useState(null);
     const [streams, setStreams] = useState([]);
-    the[receivedGifts, setReceivedGifts] = useState([]);
+    const [receivedGifts, setReceivedGifts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
