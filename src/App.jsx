@@ -24,6 +24,7 @@ import socket, { joinUserRoom } from "./api/socket";
 // COMPONENT IMPORTS
 // ===========================================
 import HomePage from "./components/HomePage";
+import GoLiveForm from "./components/GoLiveForm";
 import LivePage from "./components/LivePage";
 import ProfilePage from "./components/ProfilePage";
 import UploadPage from "./components/UploadPage";
@@ -465,6 +466,7 @@ export default function App() {
                     <Route path="/" element={<HomePage />} />
                     <Route path="/discover" element={<LiveDiscover />} />
                     <Route path="/stocks" element={<StockPredictor />} />
+                    <Route path="/go-live" element={<GoLiveForm />} />
                     <Route path="/live" element={<LivePage />} />
                     <Route path="/live/:streamId" element={<LivePage />} />
                     <Route path="/shop" element={<Giftshop />} />
