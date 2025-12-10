@@ -247,7 +247,7 @@ export default function GoLiveForm({ onLiveStarted }) {
             };
 
             // ✅ use central api (no extra /api in path)
-            const res = await api.post("/live", payload);
+            const res = await api.post("/live/start", payload);
 
             dispatch({
                 type: "SET",

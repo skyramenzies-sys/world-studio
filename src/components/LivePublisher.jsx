@@ -226,7 +226,7 @@ export default function LivePublisher({
 
                 // 2) Create/ensure stream entry in DB
                 try {
-                    await api.post("/live", {
+                    await api.post("/live/start", {
                         roomId,
                         title: streamTitle,
                         category: streamCategory,
