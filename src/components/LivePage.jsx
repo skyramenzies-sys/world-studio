@@ -286,19 +286,6 @@ export default function LivePage() {
             setActiveStreamId(stream._id || stream.id);
             setRoomId(stream.roomId || stream._id);
             setStreamInfo(stream);
-
-            // Emit socket event (bestaande eventnaam behouden)
-            const socket = socketRef.current;
-            if (socket) {
-                socket.emit("start_broadcast", {
-                    streamId: stream._id,
-                    roomId: stream.roomId || stream._id,
-                    hostId: currentUser._id || currentUser.id,
-                    hostUsername: currentUser.username,
-                    title: streamTitle.trim(),
-                    category: streamCategory,
-                    type: selectedLiveMode,
-                });
             }
 
             toast.success("🔴 You're now live!");
