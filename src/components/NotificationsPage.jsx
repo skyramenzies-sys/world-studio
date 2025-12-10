@@ -18,7 +18,7 @@ const RAW_BASE_URL =
 const BASE_URL = RAW_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
 // API root (we gebruiken nog steeds /api/... in de routes)
-const API_BASE_URL = BASE_URL;
+const API_BASE_URL = `${BASE_URL}/api`;
 
 // Socket URL = zelfde domein
 const SOCKET_URL = BASE_URL;
