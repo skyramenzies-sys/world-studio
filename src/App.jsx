@@ -28,7 +28,6 @@ import GoLiveForm from "./components/GoLiveForm";
 import LivePage from "./components/LivePage";
 import ProfilePage from "./components/ProfilePage";
 import UploadPage from "./components/UploadPage";
-import StockPredictor from "./components/StockPredictor";
 import LiveDiscover from "./components/LiveDiscover";
 import LoginPage from "./components/LoginPage";
 import NotificationsPage from "./components/NotificationsPage";
@@ -465,7 +464,6 @@ export default function App() {
                     {/* Public Routes */}
                     <Route path="/" element={<HomePage />} />
                     <Route path="/discover" element={<LiveDiscover />} />
-                    <Route path="/stocks" element={<StockPredictor />} />
                     <Route path="/go-live" element={<GoLiveForm />} />
                     <Route path="/live" element={<LivePage />} />
                     <Route path="/live/:streamId" element={<LivePage />} />

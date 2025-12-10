@@ -15,6 +15,9 @@ import {
 } from "recharts";
 import { toast } from "react-hot-toast";
 
+// API Base URL for proxy
+const API_BASE = import.meta.env.VITE_API_URL || "https://world-studio-production.up.railway.app";
+
 // ===========================================
 // ASSET CONFIG
 // ===========================================
@@ -605,10 +608,10 @@ export default function StockPredictor() {
 
                 const [priceRes, chartRes] = await Promise.all([
                     fetch(
-                        `https://api.coingecko.com/api/v3/coins/${asset.symbol}?localization=false&tickers=false&community_data=false&developer_data=false`
+                        `${API_BASE}/api/stocks/crypto/${asset.symbol}`
                     ),
                     fetch(
-                        `https://api.coingecko.com/api/v3/coins/${asset.symbol}/market_chart?vs_currency=usd&days=${days}&interval=${days === 1 ? "hourly" : "daily"
+                        `${API_BASE}/api/stocks/crypto/${asset.symbol}/chart?days=${days}&interval=${days === 1 ? "hourly" : "daily"
                         }`
                     ),
                 ]);
@@ -765,7 +768,7 @@ export default function StockPredictor() {
                 const interval =
                     timeframe === "24h" ? "5m" : "1d";
 
-                const url = `https://query1.finance.yahoo.com/v8/finance/chart/${asset.symbol}?range=${range}&interval=${interval}`;
+                const url = `${API_BASE}/api/stocks/chart/${asset.symbol}?range=${range}&interval=${interval}`;
 
                 const res = await fetch(url);
                 if (!res.ok) throw new Error("Yahoo API error");
@@ -863,7 +866,7 @@ export default function StockPredictor() {
                 .map((a) => a.symbol)
                 .join(",");
             const res = await fetch(
-                `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currency=usd&include_24hr_change=true`
+                `${API_BASE}/api/stocks/crypto/prices?ids=${ids}`
             );
             if (!res.ok) return;
             const json = await res.json();
@@ -882,7 +885,7 @@ export default function StockPredictor() {
                 .map((a) => a.symbol)
                 .join(",");
             const res = await fetch(
-                `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`
+                `${API_BASE}/api/stocks/quotes?symbols=${symbols}`
             );
             if (!res.ok) throw new Error("Quote API error");
             const data = await res.json();

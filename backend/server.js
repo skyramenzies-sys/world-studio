@@ -142,6 +142,7 @@ app.use("/api/stream-cleanup", streamCleanupRoutes);
 
 if (liveRoutes) {
     app.use("/api/live", liveRoutes);
+app.use("/api/stocks", require("./routes/stocks"));
 }
 
 if (cryptoRoutes) {
