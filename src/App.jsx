@@ -34,6 +34,7 @@ import NotificationsPage from "./components/NotificationsPage";
 import WalletPage from "./components/WalletPage";
 import ResetPasswordPage from "./components/ResetPasswordPage";
 import AdminDashboard from "./components/AdminDashboard";
+import StockPredictor from "./components/StockPredictor";
 import Giftshop from "./components/Giftshop";
 import PostDetail from "./pages/PostDetail";
 
@@ -468,6 +469,7 @@ export default function App() {
                     <Route path="/live" element={<LivePage />} />
                     <Route path="/live/:streamId" element={<LivePage />} />
                     <Route path="/shop" element={<Giftshop />} />
+                    <Route path="/stocks" element={<StockPredictor />} />
                     <Route path="/posts/:id" element={<PostDetail />} />
 
                     {/* Guest Only Routes */}
