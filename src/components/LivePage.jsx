@@ -208,7 +208,7 @@ export default function LivePage() {
             const fetchStreamInfo = async () => {
                 try {
                     const res = await api.get(`/live/${streamId}`);
-                    const stream = res.data;
+                    const stream = res.data.stream || res.data;
 
                     if (!stream) {
                         toast.error("Stream not found");
@@ -280,7 +280,7 @@ export default function LivePage() {
                 hostAvatar: currentUser.avatar,
             });
 
-            const stream = res.data;
+            const stream = res.data.stream || res.data;
             console.log("✅ Stream created:", stream);
 
             setActiveStreamId(stream._id || stream.id);
