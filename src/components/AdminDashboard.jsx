@@ -442,4 +442,3 @@ const formatCoins = (n) => {
     return n?.toLocaleString() || "0";
 };
 
-export default AdminDashboard;
