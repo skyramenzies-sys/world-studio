@@ -165,6 +165,7 @@ const UserCard = ({ user, onPress, onBan, onMakeAdmin, currentUserId }) => {
                 marginBottom: 10,
                 borderWidth: 1,
                 cursor: "pointer",
+                cursor: "pointer",
                 borderColor: user.isBanned
                     ? "rgba(239,68,68,0.3)"
                     : "rgba(255,255,255,0.1)",
