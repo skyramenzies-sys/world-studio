@@ -308,7 +308,7 @@ export default function LivePage() {
     };
 
     const startAsViewer = () => {
-        if (!roomId.trim()) {
+        if (!roomId?.trim()) {
             toast.error("Please enter a valid Room ID");
             return;
         }
@@ -555,7 +555,7 @@ export default function LivePage() {
                                 className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-xl outline-none focus:border-cyan-400 transition"
                             />
                             <button
-                                disabled={!roomId.trim()}
+                                disabled={!roomId?.trim()}
                                 onClick={startAsViewer}
                                 className="px-6 py-3 bg-cyan-500 rounded-xl font-semibold.disabled:opacity-40 hover:bg-cyan-400 transition"
                             >
