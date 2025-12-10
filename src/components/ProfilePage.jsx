@@ -98,7 +98,7 @@ export default function ProfilePage() {
                 const [profileRes, streamsRes, giftsRes] =
                     await Promise.all([
                         api
-                            .get(`/api/users/${targetUserId}`)
+                            .get(`/users/${targetUserId}`)
                             .catch(() => ({ data: null })),
                         api
                             .get("/live", {
@@ -107,7 +107,7 @@ export default function ProfilePage() {
                             .catch(() => ({ data: [] })),
                         // gifts voor ingelogde user (token via interceptor)
                         api
-                            .get("/api/gifts/received")
+                            .get("/gifts/received")
                             .catch(() => ({ data: [] })),
                     ]);
 

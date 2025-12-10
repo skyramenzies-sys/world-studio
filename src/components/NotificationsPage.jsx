@@ -199,7 +199,7 @@ export default function NotificationsPage() {
                 // 1) Dedicated endpoint
                 try {
                     const res = await api.get(
-                        "/api/users/notifications"
+                        "/users/notifications"
                     );
                     const list = Array.isArray(res.data)
                         ? res.data
@@ -214,7 +214,7 @@ export default function NotificationsPage() {
                     // 2) Fallback user profile
                     try {
                         const res = await api.get(
-                            `/api/users/${userId}`
+                            `/users/${userId}`
                         );
                         const list =
                             res.data?.notifications || [];
@@ -340,7 +340,7 @@ export default function NotificationsPage() {
     const markAllAsRead = async () => {
         try {
             await api.post(
-                "/api/users/notifications/read-all"
+                "/users/notifications/read-all"
             );
         } catch (err) {
             console.error(
@@ -372,7 +372,7 @@ export default function NotificationsPage() {
         if (notification._id) {
             try {
                 await api.post(
-                    `/api/users/notifications/${notification._id}/read`
+                    `/users/notifications/${notification._id}/read`
                 );
             } catch {
                 // ignore
@@ -402,7 +402,7 @@ export default function NotificationsPage() {
 
     const clearAll = async () => {
         try {
-            await api.delete("/api/users/notifications");
+            await api.delete("/users/notifications");
             setNotifications([]);
             toast.success("All notifications cleared");
         } catch (err) {

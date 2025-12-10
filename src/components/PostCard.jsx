@@ -591,7 +591,7 @@ export default function PostCard({
 
         try {
             await api.post(
-                `/api/users/${author.id}/follow`
+                `/users/${author.id}/follow`
             );
 
             const updatedUser = {

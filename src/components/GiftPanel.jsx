@@ -610,7 +610,7 @@ export default function GiftPanel({
             };
 
             // Universe Edition: gebruik gedeelde api instance (API_URL → /api)
-            // Backend route: POST /api/gifts  → sla op in Gift-collectie en update Stream / Wallet
+            // Backend route: POST /gifts  → sla op in Gift-collectie en update Stream / Wallet
             await api.post("/gifts", giftPayload);
 
             // Combo system

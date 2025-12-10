@@ -416,7 +416,7 @@ export default function LiveViewer({
 
         try {
             // Aanname: bestaande endpoint
-            await api.post(`/api/users/${targetId}/follow`);
+            await api.post(`/users/${targetId}/follow`);
             setFollowingIds((prev) =>
                 prev.includes(targetId) ? prev : [...prev, targetId]
             );
