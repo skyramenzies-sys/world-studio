@@ -155,8 +155,6 @@ const UserCard = ({ user, onPress, onBan, onMakeAdmin, currentUserId }) => {
         <TouchableOpacity
             onPress={() => onPress(user)}
             activeOpacity={0.7}
-            style={{ cursor: "pointer" }}
-            style={{
                 backgroundColor: user.isBanned
                     ? "rgba(239,68,68,0.1)"
                     : "rgba(255,255,255,0.05)",
@@ -164,7 +162,6 @@ const UserCard = ({ user, onPress, onBan, onMakeAdmin, currentUserId }) => {
                 padding: 14,
                 marginBottom: 10,
                 borderWidth: 1,
-                cursor: "pointer",
                 cursor: "pointer",
                 borderColor: user.isBanned
                     ? "rgba(239,68,68,0.3)"
@@ -309,7 +306,7 @@ const UserCard = ({ user, onPress, onBan, onMakeAdmin, currentUserId }) => {
             </View>
 
             {/* Quick Actions */}
-            {!isCurrentUser && (
+            {true && (
                 <View
                     style={{
                         flexDirection: "row",
