@@ -284,7 +284,6 @@ export default function LivePage() {
             console.log("✅ Stream created:", stream);
 
             setActiveStreamId(stream._id || stream.id);
-            setRoomId(stream.roomId || stream._id);
             setStreamInfo(stream);
             }
 
