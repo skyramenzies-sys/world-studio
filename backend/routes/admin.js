@@ -307,3 +307,87 @@ router.post("/streams/:streamId/end", auth, requireAdmin, async (req, res) => {
 });
 
 module.exports = router;
+
+// ============ ANALYTICS ENDPOINT ============
+router.get("/analytics", auth, requireAdmin, async (req, res) => {
+    try {
+        const { range = "7d", groupBy = "day" } = req.query;
+        
+        const Gift = require("../models/Gift");
+        const User = require("../models/User");
+        
+        // Get coin history from Gift model
+        const coinHistory = await Gift.getAdminCoinHistory({ range, groupBy });
+        
+        // Get additional platform stats
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const monthStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        
+        // User stats
+        const [totalUsers, usersToday, usersWeek, usersMonth] = await Promise.all([
+            User.countDocuments({}),
+            User.countDocuments({ createdAt: { $gte: todayStart } }),
+            User.countDocuments({ createdAt: { $gte: weekStart } }),
+            User.countDocuments({ createdAt: { $gte: monthStart } })
+        ]);
+        
+        // Gift stats by period
+        const [giftsToday, giftsWeek, giftsMonth, giftsTotal] = await Promise.all([
+            Gift.countDocuments({ status: "completed", createdAt: { $gte: todayStart } }),
+            Gift.countDocuments({ status: "completed", createdAt: { $gte: weekStart } }),
+            Gift.countDocuments({ status: "completed", createdAt: { $gte: monthStart } }),
+            Gift.countDocuments({ status: "completed" })
+        ]);
+        
+        // Coins by period
+        const [coinsToday, coinsWeek, coinsMonth] = await Promise.all([
+            Gift.aggregate([
+                { $match: { status: "completed", createdAt: { $gte: todayStart } } },
+                { $group: { _id: null, total: { $sum: "$coinValue" } } }
+            ]),
+            Gift.aggregate([
+                { $match: { status: "completed", createdAt: { $gte: weekStart } } },
+                { $group: { _id: null, total: { $sum: "$coinValue" } } }
+            ]),
+            Gift.aggregate([
+                { $match: { status: "completed", createdAt: { $gte: monthStart } } },
+                { $group: { _id: null, total: { $sum: "$coinValue" } } }
+            ])
+        ]);
+        
+        res.json({
+            success: true,
+            analytics: {
+                // Coin history with timeline
+                ...coinHistory,
+                
+                // Platform overview
+                platform: {
+                    users: {
+                        total: totalUsers,
+                        today: usersToday,
+                        week: usersWeek,
+                        month: usersMonth
+                    },
+                    gifts: {
+                        total: giftsTotal,
+                        today: giftsToday,
+                        week: giftsWeek,
+                        month: giftsMonth
+                    },
+                    coins: {
+                        total: coinHistory.summary?.totalCoins || 0,
+                        today: coinsToday[0]?.total || 0,
+                        week: coinsWeek[0]?.total || 0,
+                        month: coinsMonth[0]?.total || 0
+                    }
+                }
+            }
+        });
+    } catch (err) {
+        console.error("Analytics error:", err);
+        res.status(500).json({ success: false, error: "Failed to load analytics" });
+    }
+});

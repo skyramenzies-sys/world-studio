@@ -77,6 +77,7 @@ export const adminApi = {
     // STATS / SYSTEM / REVENUE (admin router)
     getStats: () => api.get("/admin/stats"),
     getRevenue: () => api.get("/admin/revenue"),
+    getAnalytics: (range = "7d", groupBy = "day") => api.get(`/admin/analytics?range=${range}&groupBy=${groupBy}`),
     getSystem: () => api.get("/admin/system"),
 
     // USERS (admin router)
