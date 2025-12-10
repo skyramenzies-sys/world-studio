@@ -83,4 +83,35 @@ router.post("/stop/:id", auth, async (req, res) => {
     }
 });
 
+
+// ============ END STREAM (ALIAS FOR /stop) ============
+router.post("/:id/end", auth, async (req, res) => {
+    try {
+        const stream = await LiveStream.findById(req.params.id);
+        if (!stream) {
+            return res.status(404).json({ success: false, error: "Stream not found" });
+        }
+        // Allow owner or admin
+        const isOwner = stream.user.toString() === req.userId.toString();
+        const user = await User.findById(req.userId);
+        const isAdmin = user?.role === "admin";
+        
+        if (!isOwner && !isAdmin) {
+            return res.status(403).json({ success: false, error: "Not authorized" });
+        }
+        
+        stream.isLive = false;
+        stream.endedAt = new Date();
+        await stream.save();
+        
+        // Update user status
+        await User.findByIdAndUpdate(stream.user, { isLive: false, currentStreamId: null });
+        
+        res.json({ success: true, message: "Stream ended", stream });
+    } catch (err) {
+        console.error("❌ End stream error:", err);
+        res.status(500).json({ success: false, error: "Failed to end stream" });
+    }
+});
+
 module.exports = router;
