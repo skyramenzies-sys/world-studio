@@ -11,17 +11,9 @@ const LiveStreamSchema = new mongoose.Schema(
         
         isLive: { type: Boolean, default: true },
         viewerCount: { type: Number, default: 0 },
-        viewers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
         
         seatCount: { type: Number, default: 12 },
-        guests: [{
-            oderId: mongoose.Schema.Types.ObjectId,
-            odername: String,
-            seatIndex: Number,
-            joinedAt: Date
-        }],
         
-        streamKey: { type: String },
         thumbnail: { type: String, default: "" },
         background: { type: String, default: "" },
         
@@ -36,9 +28,5 @@ const LiveStreamSchema = new mongoose.Schema(
     },
     { timestamps: true }
 );
-
-// Index for faster lookups
-LiveStreamSchema.index({ roomId: 1 });
-LiveStreamSchema.index({ user: 1, isLive: 1 });
 
 module.exports = mongoose.model("LiveStream", LiveStreamSchema);
