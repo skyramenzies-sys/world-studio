@@ -308,7 +308,7 @@ export default function AdminUserListScreen({ token, navigation }) {
             if (!refreshing) setLoading(true);
 
             const res = await api
-                .get("/api/admin/users", authHeaders)
+                .get("/admin/users", authHeaders)
                 .catch(() => ({ data: [] }));
 
             const list = Array.isArray(res.data)
@@ -386,7 +386,7 @@ export default function AdminUserListScreen({ token, navigation }) {
             switch (action) {
                 case "makeAdmin":
                     await api.post(
-                        `/api/admin/make-admin/${userId}`,
+                        `/admin/make-admin/${userId}`,
                         null,
                         authHeaders
                     );
@@ -394,7 +394,7 @@ export default function AdminUserListScreen({ token, navigation }) {
                     break;
                 case "removeAdmin":
                     await api.post(
-                        `/api/admin/remove-admin/${userId}`,
+                        `/admin/remove-admin/${userId}`,
                         null,
                         authHeaders
                     );
@@ -402,7 +402,7 @@ export default function AdminUserListScreen({ token, navigation }) {
                     break;
                 case "ban":
                     await api.post(
-                        `/api/admin/ban-user/${userId}`,
+                        `/admin/ban-user/${userId}`,
                         null,
                         authHeaders
                     );
@@ -410,7 +410,7 @@ export default function AdminUserListScreen({ token, navigation }) {
                     break;
                 case "unban":
                     await api.post(
-                        `/api/admin/unban-user/${userId}`,
+                        `/admin/unban-user/${userId}`,
                         null,
                         authHeaders
                     );
@@ -418,7 +418,7 @@ export default function AdminUserListScreen({ token, navigation }) {
                     break;
                 case "delete":
                     await api.delete(
-                        `/api/admin/delete-user/${userId}`,
+                        `/admin/delete-user/${userId}`,
                         authHeaders
                     );
                     Alert.alert("Success", "User deleted!");

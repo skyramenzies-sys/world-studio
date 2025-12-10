@@ -640,8 +640,8 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
         const api = getApi();
         try {
             const [statsRes, streamsRes] = await Promise.allSettled([
-                api.get("/api/admin/live-analytics/stats"),
-                api.get("/api/live"),
+                api.get("/admin/live-analytics/stats"),
+                api.get("/live"),
             ]);
 
             // Process stats
@@ -734,7 +734,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                         try {
                             const api = getApi();
                             await api.post(
-                                `/api/admin/streams/${stream._id}/stop`
+                                `/admin/streams/${stream._id}/stop`
                             );
                             Alert.alert("Success", "Stream stopped");
                             fetchData();
@@ -759,7 +759,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                     try {
                         const api = getApi();
                         await api.post(
-                            `/api/admin/streams/${stream._id}/warn`,
+                            `/admin/streams/${stream._id}/warn`,
                             { message }
                         );
                         Alert.alert("Success", "Warning sent");
@@ -782,7 +782,7 @@ export default function AdminLiveAnalyticsScreen({ token, navigation }) {
                             try {
                                 const api = getApi();
                                 await api.post(
-                                    `/api/admin/streams/${stream._id}/warn`,
+                                    `/admin/streams/${stream._id}/warn`,
                                     {
                                         message:
                                             "Please follow the community guidelines.",

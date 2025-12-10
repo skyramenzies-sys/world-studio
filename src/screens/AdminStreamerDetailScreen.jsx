@@ -150,7 +150,7 @@ export default function AdminStreamerDetailScreen({ token, route, navigation }) 
         try {
             if (!refreshing) setLoading(true);
 
-            const res = await api.get(`/api/admin/users/${streamerId}/overview`);
+            const res = await api.get(`/admin/users/${streamerId}/overview`);
 
             const data = res.data || {};
 
@@ -213,7 +213,7 @@ export default function AdminStreamerDetailScreen({ token, route, navigation }) 
                     setModLoading(false);
                     return;
                 }
-                await api.post(`/api/admin/users/${streamerId}/warn`, {
+                await api.post(`/admin/users/${streamerId}/warn`, {
                     message: modMessage.trim(),
                 });
                 Alert.alert("Sent", "Warning has been sent.");
@@ -228,7 +228,7 @@ export default function AdminStreamerDetailScreen({ token, route, navigation }) 
                             style: "destructive",
                             onPress: async () => {
                                 try {
-                                    await api.post(`/api/admin/users/${streamerId}/ban`, {
+                                    await api.post(`/admin/users/${streamerId}/ban`, {
                                         reason: modMessage.trim() || undefined,
                                     });
                                     Alert.alert("Done", "User has been banned.");
@@ -244,7 +244,7 @@ export default function AdminStreamerDetailScreen({ token, route, navigation }) 
                 );
                 return;
             } else if (type === "unban") {
-                await api.post(`/api/admin/users/${streamerId}/unban`);
+                await api.post(`/admin/users/${streamerId}/unban`);
                 Alert.alert("Done", "User has been unbanned.");
                 fetchData();
             }

@@ -85,7 +85,7 @@ export default function LivePublisher({
         }
 
         try {
-            await api.post(`/api/live/${streamId || roomId}/end`);
+            await api.post(`/live/${streamId || roomId}/end`);
         } catch (err) {
             console.error("Failed to end stream:", err);
         }
@@ -226,7 +226,7 @@ export default function LivePublisher({
 
                 // 2) Create/ensure stream entry in DB
                 try {
-                    await api.post("/api/live", {
+                    await api.post("/live", {
                         roomId,
                         title: streamTitle,
                         category: streamCategory,

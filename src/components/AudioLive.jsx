@@ -618,7 +618,7 @@ export default function AudioLive({
 
         try {
 
-            await api.post("/api/live/start", {
+            await api.post("/live/start", {
                 title: streamTitle,
                 category: streamCategory,
                 roomId,
@@ -666,7 +666,7 @@ export default function AudioLive({
             return;
 
         try {
-            await api.post(`/api/live/${roomId}/end`);
+            await api.post(`/live/${roomId}/end`);
         } catch (err) {
             console.error("End stream error:", err);
         }

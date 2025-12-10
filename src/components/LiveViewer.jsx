@@ -170,7 +170,7 @@ export default function LiveViewer({
 
         const fetchInfo = async () => {
             try {
-                const res = await api.get(`/api/live/${roomId}`);
+                const res = await api.get(`/live/${roomId}`);
                 const s = res.data;
                 if (s) {
                     setStreamInfo(s);

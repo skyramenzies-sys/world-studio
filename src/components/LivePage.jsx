@@ -207,7 +207,7 @@ export default function LivePage() {
             setLoading(true);
             const fetchStreamInfo = async () => {
                 try {
-                    const res = await api.get(`/api/live/${streamId}`);
+                    const res = await api.get(`/live/${streamId}`);
                     const stream = res.data;
 
                     if (!stream) {
@@ -269,8 +269,8 @@ export default function LivePage() {
         stopCameraPreview();
 
         try {
-            // Let op: gebruikt nog steeds je bestaande /api/live/start endpoint
-            const res = await api.post("/api/live/start", {
+            // Let op: gebruikt nog steeds je bestaande /live/start endpoint
+            const res = await api.post("/live/start", {
                 title: streamTitle.trim(),
                 category: streamCategory,
                 type: selectedLiveMode,
@@ -331,7 +331,7 @@ export default function LivePage() {
     const handleStopStream = async () => {
         try {
             if (activeStreamId) {
-                await api.post(`/api/live/${activeStreamId}/end`);
+                await api.post(`/live/${activeStreamId}/end`);
             }
 
             const socket = socketRef.current;
@@ -356,7 +356,7 @@ export default function LivePage() {
     const handleLeaveStream = async () => {
         try {
             if (activeStreamId) {
-                await api.post(`/api/live/${activeStreamId}/leave`);
+                await api.post(`/live/${activeStreamId}/leave`);
             }
 
             const socket = socketRef.current;

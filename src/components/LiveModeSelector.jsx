@@ -141,7 +141,7 @@ export default function LiveModeSelector({ currentUser, onStartLive }) {
             const roomId = generateRoomId();
 
             // Create stream on server
-            const res = await api.post("/api/live", {
+            const res = await api.post("/live", {
                 title: title.trim(),
                 category,
                 mode: selectedMode,

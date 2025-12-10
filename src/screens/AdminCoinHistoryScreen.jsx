@@ -208,7 +208,7 @@ export default function AdminCoinHistoryScreen({ token, navigation }) {
             setLoading(true);
 
             const res = await axios.get(
-                `${API_BASE_URL}/api/admin/coins/history`,
+                `${API_BASE_URL}/admin/coins/history`,
                 {
                     params: {
                         range: timeRange,

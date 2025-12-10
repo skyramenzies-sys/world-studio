@@ -737,7 +737,7 @@ export default function MultiGuestLive({
 
         // Host info voor viewers
         if (!isHost && (streamId || roomId)) {
-            api.get(`/api/live/${streamId || roomId}`)
+            api.get(`/live/${streamId || roomId}`)
                 .then((res) => {
                     if (res.data?.host) {
                         setHostInfo(res.data.host);
@@ -822,7 +822,7 @@ export default function MultiGuestLive({
 
         if (streamId) {
             try {
-                await api.post(`/api/live/${streamId}/end`);
+                await api.post(`/live/${streamId}/end`);
             } catch {
                 // ignore
             }

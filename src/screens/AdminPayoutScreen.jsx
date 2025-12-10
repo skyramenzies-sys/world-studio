@@ -433,7 +433,7 @@ export default function AdminPayoutScreen({ token, navigation }) {
             const params =
                 statusFilter === "all" ? {} : { status: statusFilter };
 
-            const res = await api.get("/api/admin/payouts", { params });
+            const res = await api.get("/admin/payouts", { params });
             const data = Array.isArray(res.data)
                 ? res.data
                 : res.data?.payouts || [];
@@ -515,7 +515,7 @@ export default function AdminPayoutScreen({ token, navigation }) {
                     onPress: async () => {
                         try {
                             await api.post(
-                                `/api/admin/payouts/${payout._id}/approve`
+                                `/admin/payouts/${payout._id}/approve`
                             );
                             fetchPayouts();
                         } catch (err) {
@@ -544,7 +544,7 @@ export default function AdminPayoutScreen({ token, navigation }) {
                     onPress: async () => {
                         try {
                             await api.post(
-                                `/api/admin/payouts/${payout._id}/mark-paid`
+                                `/admin/payouts/${payout._id}/mark-paid`
                             );
                             fetchPayouts();
                         } catch (err) {
@@ -573,7 +573,7 @@ export default function AdminPayoutScreen({ token, navigation }) {
         }
         try {
             await api.post(
-                `/api/admin/payouts/${rejectTarget._id}/reject`,
+                `/admin/payouts/${rejectTarget._id}/reject`,
                 { reason: rejectReason.trim() }
             );
             setRejectModalVisible(false);

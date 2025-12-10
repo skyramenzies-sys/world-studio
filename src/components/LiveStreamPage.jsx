@@ -65,7 +65,7 @@ export default function LiveStreamPage() {
 
         const fetchStream = async () => {
             try {
-                const res = await api.get(`/api/live/${streamId}`);
+                const res = await api.get(`/live/${streamId}`);
                 const s = res.data;
                 setStream(s);
                 setViewers(s.viewers || 0);

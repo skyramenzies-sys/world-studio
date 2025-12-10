@@ -101,7 +101,7 @@ export default function ProfilePage() {
                             .get(`/api/users/${targetUserId}`)
                             .catch(() => ({ data: null })),
                         api
-                            .get("/api/live", {
+                            .get("/live", {
                                 params: { userId: targetUserId },
                             })
                             .catch(() => ({ data: [] })),

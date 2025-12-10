@@ -1483,9 +1483,9 @@ export default function AdminDashboardScreen({ token, navigation }) {
             if (!refreshing) setLoading(true);
 
             const [statsRes, usersRes, revenueRes] = await Promise.all([
-                axios.get("/api/admin/stats", authHeaders).catch(() => ({ data: {} })),
-                axios.get("/api/admin/users", authHeaders).catch(() => ({ data: [] })),
-                axios.get("/api/admin/revenue", authHeaders).catch(() => ({ data: {} })),
+                axios.get("/admin/stats", authHeaders).catch(() => ({ data: {} })),
+                axios.get("/admin/users", authHeaders).catch(() => ({ data: [] })),
+                axios.get("/admin/revenue", authHeaders).catch(() => ({ data: {} })),
             ]);
 
             setStats(statsRes.data);
@@ -1500,13 +1500,13 @@ export default function AdminDashboardScreen({ token, navigation }) {
             const [streamsRes, withdrawalsRes, reportsRes] =
                 await Promise.all([
                     axios
-                        .get("/api/admin/streams", authHeaders)
+                        .get("/admin/streams", authHeaders)
                         .catch(() => ({ data: [] })),
                     axios
-                        .get("/api/admin/withdrawals", authHeaders)
+                        .get("/admin/withdrawals", authHeaders)
                         .catch(() => ({ data: [] })),
                     axios
-                        .get("/api/admin/reports", authHeaders)
+                        .get("/admin/reports", authHeaders)
                         .catch(() => ({ data: [] })),
                 ]);
 
@@ -1601,7 +1601,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
             switch (action) {
                 case "makeAdmin":
                     await axios.post(
-                        `/api/admin/make-admin/${userId}`,
+                        `/admin/make-admin/${userId}`,
                         null,
                         authHeaders
                     );
@@ -1609,7 +1609,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
                     break;
                 case "removeAdmin":
                     await axios.post(
-                        `/api/admin/remove-admin/${userId}`,
+                        `/admin/remove-admin/${userId}`,
                         null,
                         authHeaders
                     );
@@ -1617,7 +1617,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
                     break;
                 case "ban":
                     await axios.post(
-                        `/api/admin/ban-user/${userId}`,
+                        `/admin/ban-user/${userId}`,
                         null,
                         authHeaders
                     );
@@ -1625,7 +1625,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
                     break;
                 case "unban":
                     await axios.post(
-                        `/api/admin/unban-user/${userId}`,
+                        `/admin/unban-user/${userId}`,
                         null,
                         authHeaders
                     );
@@ -1633,7 +1633,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
                     break;
                 case "delete":
                     await axios.delete(
-                        `/api/admin/delete-user/${userId}`,
+                        `/admin/delete-user/${userId}`,
                         authHeaders
                     );
                     Alert.alert("Success", "User deleted!");
@@ -1681,7 +1681,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
                     onPress: async () => {
                         try {
                             await axios.post(
-                                `/api/admin/stop-stream/${streamId}`,
+                                `/admin/stop-stream/${streamId}`,
                                 null,
                                 authHeaders
                             );
@@ -1712,7 +1712,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
         }));
         try {
             await axios.post(
-                `/api/admin/withdrawals/${id}/approve`,
+                `/admin/withdrawals/${id}/approve`,
                 null,
                 authHeaders
             );
@@ -1738,7 +1738,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
         }));
         try {
             await axios.post(
-                `/api/admin/withdrawals/${id}/reject`,
+                `/admin/withdrawals/${id}/reject`,
                 null,
                 authHeaders
             );
@@ -1767,7 +1767,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
         }));
         try {
             await axios.post(
-                `/api/admin/reports/${id}/resolve`,
+                `/admin/reports/${id}/resolve`,
                 null,
                 authHeaders
             );
@@ -1793,7 +1793,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
         }));
         try {
             await axios.post(
-                `/api/admin/reports/${id}/dismiss`,
+                `/admin/reports/${id}/dismiss`,
                 null,
                 authHeaders
             );
@@ -1818,7 +1818,7 @@ export default function AdminDashboardScreen({ token, navigation }) {
     const handleSendAnnouncement = async (data) => {
         try {
             await axios.post(
-                "/api/admin/announcement",
+                "/admin/announcement",
                 data,
                 authHeaders
             );
