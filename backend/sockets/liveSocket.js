@@ -4,8 +4,8 @@ module.exports = function registerLiveSocket(io, socket) {
     
     socket.on("start_broadcast", (data) => {
         const roomId = data.roomId;
-        const oderId = data.oderId || data.userId || socket.id;
-        const username = data.odername || data.username || "Host";
+        const oderId = data.oderId || data.userId || data.streamerId || socket.id;
+        const username = data.odername || data.username || data.streamer || "Host";
         
         rooms.set(roomId, { host: socket.id, oderId: oderId, viewers: new Map() });
         socket.join(roomId);
@@ -20,7 +20,7 @@ module.exports = function registerLiveSocket(io, socket) {
         const roomId = data.roomId;
         if (!roomId) return;
         
-        const oderId = data.oderId || data.userId || socket.id;
+        const oderId = data.oderId || data.userId || data.streamerId || socket.id;
         let room = rooms.get(roomId);
         if (!room) {
             room = { host: null, viewers: new Map() };
