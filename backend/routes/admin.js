@@ -638,10 +638,6 @@ router.post("/remove-admin/:userId", auth, requireAdmin, async (req, res) => {
                 error: "User not found"
             });
         }
-
-        console.log(`⬇️ User ${user.username} demoted from admin by ${req.user.username}`);
-
-        res.json({ success: true, user });
     } catch (err) {
         console.error("❌ Error in remove-admin:", err);
         res.status(500).json({
