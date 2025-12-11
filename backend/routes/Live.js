@@ -59,11 +59,11 @@ router.post("/start", auth, async (req, res) => {
         );
 
         // Generate roomId if not provided
-        const finalRoomId = roomId || `${user.username}-${Math.random().toString(36).substring(2, 10)}`;
+        // roomId wordt gezet na create
 
         const stream = await LiveStream.create({
             user: req.userId,
-            roomId: finalRoomId,
+            // roomId wordt later gezet als _id
             title: title || `${user.username}'s Live`,
             category: category || "Chat",
             mode: mode || "solo",
@@ -73,6 +73,8 @@ router.post("/start", auth, async (req, res) => {
             startedAt: new Date(),
         });
 
+        // Set roomId to _id
+        await LiveStream.findByIdAndUpdate(stream._id, { roomId: stream._id.toString() });
         // Update user status
         await User.findByIdAndUpdate(req.userId, {
             isLive: true,
