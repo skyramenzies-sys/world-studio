@@ -226,13 +226,13 @@ export default function LivePage() {
     }
 
     if (mode === "publish") {
-        return <LivePublisher currentUser={currentUser} roomId={activeStreamId || roomId} streamTitle={streamTitle} streamCategory={streamCategory} streamId={activeStreamId} onStop={handleStopStream} />;
+        return <LivePublisher currentUser={currentUser} roomId={roomId} streamTitle={streamTitle} streamCategory={streamCategory} streamId={activeStreamId} onStop={handleStopStream} />;
     }
     if (mode === "multi") {
-        return <MultiGuestLive roomId={activeStreamId || roomId} currentUser={currentUser} streamTitle={streamTitle} streamCategory={streamCategory} maxSeats={seatCount} streamId={activeStreamId} isHost={true} onEnd={handleStopStream} />;
+        return <MultiGuestLive roomId={roomId} currentUser={currentUser} streamTitle={streamTitle} streamCategory={streamCategory} maxSeats={seatCount} streamId={activeStreamId} isHost={true} onEnd={handleStopStream} />;
     }
     if (mode === "audio") {
-        return <AudioLive roomId={activeStreamId || roomId} currentUser={currentUser} streamTitle={streamTitle} streamCategory={streamCategory} streamId={activeStreamId} isHost={true} onEnd={handleStopStream} />;
+        return <AudioLive roomId={roomId} currentUser={currentUser} streamTitle={streamTitle} streamCategory={streamCategory} streamId={activeStreamId} isHost={true} onEnd={handleStopStream} />;
     }
     if (mode === "watch") {
         return <LiveViewer roomId={roomId} currentUser={currentUser} streamInfo={streamInfo} streamId={activeStreamId || streamId} onLeave={handleLeaveStream} />;
