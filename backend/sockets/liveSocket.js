@@ -163,7 +163,7 @@ module.exports = function registerLiveSocket(io, socket) {
         socket.oderId = oderId;
         
         io.to(roomId).emit("viewerCount", room.viewers.size);
-        if (room.host) io.to(room.host).emit("watcher", { socketId: socket.id });
+        if (room.host) io.to(room.host).emit("watcher", { watcherId: socket.id, socketId: socket.id });
         console.log("👁 Joined:", roomId, "viewers:", room.viewers.size);
     };
     socket.on("join_room", joinRoom);
