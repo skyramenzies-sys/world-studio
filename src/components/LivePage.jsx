@@ -89,7 +89,7 @@ export default function LivePage() {
             setCameraStatus("granted");
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(() => {});
+                videoRef.current.play().catch(() => { });
             }
         } catch (err) {
             console.error("❌ Camera error:", err.name, err.message);
