@@ -274,8 +274,13 @@ export default function LivePage() {
                         <div className="flex gap-2">
                             <input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="Enter Room ID"
                                 className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-xl outline-none focus:border-cyan-400" />
-                            <button disabled={!roomId?.trim()} onClick={() => setMode("watch")}
-                                className="px-6 py-3 bg-cyan-500 rounded-xl font-semibold disabled:opacity-40">Join</button>
+                            <button
+                                disabled={!roomId?.trim() || loading}
+                                onClick={handleJoinByRoomId}
+                                className="px-6 py-3 bg-cyan-500 rounded-xl font-semibold disabled:opacity-40"
+                            >
+                                {loading ? "Connecting..." : "Join"}
+                            </button>
                         </div>
                     </div>
                 </div>
