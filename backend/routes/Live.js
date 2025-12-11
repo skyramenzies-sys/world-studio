@@ -54,6 +54,7 @@ router.post("/start", auth, checkBan, async (req, res) => {
         );
 
         const stream = await LiveStream.create({
+            roomId: null, // wordt na create gezet
             user: userId,
             title: title || "Live on World-Studio",
             description: description || "",
@@ -61,6 +62,9 @@ router.post("/start", auth, checkBan, async (req, res) => {
             isLive: true,
         });
 
+        stream.roomId = stream._id.toString();
+        await stream.save();
+        
         user.isLive = true;
         user.currentStreamId = stream._id;
         await user.save();
@@ -194,10 +198,17 @@ router.get("/", async (req, res) => {
 // ---------------------------------------------
 router.get("/:id", async (req, res) => {
     try {
-        const stream = await LiveStream.findById(req.params.id).populate(
-            "user",
-            "username displayName avatar isVerified"
-        );
+        const mongoose = require('mongoose');
+        const id = req.params.id;
+        let stream;
+        
+        // Zoek eerst op _id, dan op roomId
+        if (mongoose.Types.ObjectId.isValid(id)) {
+            stream = await LiveStream.findById(id).populate("user", "username displayName avatar isVerified");
+        }
+        if (!stream) {
+            stream = await LiveStream.findOne({ roomId: id }).populate("user", "username displayName avatar isVerified");
+        }
 
         if (!stream) {
             return res.status(404).json({ success: false, error: "Stream not found" });

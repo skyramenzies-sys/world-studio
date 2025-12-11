@@ -19,6 +19,7 @@ const liveStreamSchema = new mongoose.Schema(
 
         // Optioneel: stream type (camera, screen, etc.)
         kind: { type: String, default: "camera" },
+        roomId: { type: String, index: true },
 
         // Handige velden
         createdAt: { type: Date, default: Date.now },
