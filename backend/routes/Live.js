@@ -85,6 +85,21 @@ router.post("/start", auth, checkBan, async (req, res) => {
 
 // ---------------------------------------------
 // STOP STREAM
+// POST /api/live/:id/end
+router.post("/:id/end", auth, checkBan, async (req, res) => {
+    try {
+        const stream = await LiveStream.findById(req.params.id);
+        if (!stream) return res.status(404).json({ error: "Stream not found" });
+        stream.isLive = false;
+        stream.endedAt = new Date();
+        await stream.save();
+        await User.findByIdAndUpdate(stream.user, { isLive: false, currentStreamId: null });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to end stream" });
+    }
+});
+
 // POST /api/live/stop/:id
 // ---------------------------------------------
 // POST /api/live/:id/end (alias voor stop)
