@@ -214,6 +214,37 @@ export default function LivePage() {
         navigate("/discover");
     };
 
+    const handleJoinByRoomId = async () => {
+        if (!roomId?.trim()) {
+            toast.error("Please enter a Room ID");
+            return;
+        }
+        setLoading(true);
+        try {
+            const res = await api.get(`/live/${roomId}`);
+            const stream = res.data.stream || res.data;
+            if (!stream || !stream.isLive) {
+                toast.error("Stream not available");
+                setLoading(false);
+                return;
+            }
+            setStreamInfo(stream);
+            setActiveStreamId(stream._id || stream.id);
+            setRoomId(stream.roomId || stream._id || roomId);
+            setMode(
+                stream.type === "multi"
+                    ? "watch-multi"
+                    : stream.type === "audio"
+                    ? "watch-audio"
+                    : "watch"
+            );
+        } catch (err) {
+            toast.error("Stream not found");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black">
