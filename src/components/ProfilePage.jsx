@@ -632,7 +632,6 @@ export default function ProfilePage() {
        ============================================================ */
     useEffect(() => {
 
-
         if (!targetUserId) {
             setError("No user profile found");
             setLoading(false);
@@ -656,8 +655,8 @@ export default function ProfilePage() {
                 if (cancelled) return;
 
                 if (!profileRes.data) {
-                    setError("User not found");
 
+                    setError("User not found");
                     return;
                 }
 
@@ -902,7 +901,7 @@ export default function ProfilePage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950">
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-blue-900 to-black">
                 <div className="text-center">
                     <Loader2 className="w-12 h-12 text-cyan-400 animate-spin mx-auto mb-4" />
                     <p className="text-white/70">Loading profile...</p>
@@ -913,7 +912,7 @@ export default function ProfilePage() {
 
     if (error || !profile) {
         return (
-            <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950">
+            <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-purple-900 via-blue-900 to-black">
                 <div className="text-center max-w-md">
                     <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
                         <span className="text-5xl">😢</span>
@@ -947,7 +946,7 @@ export default function ProfilePage() {
        MAIN RENDER
        ============================================================ */
     return (
-        <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 text-white">
+        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black text-white">
             <div className="max-w-4xl mx-auto px-4 py-6">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
@@ -1210,6 +1209,7 @@ export default function ProfilePage() {
                             <h3 className="font-semibold text-sm text-white/80">
                                 {isOwnProfile ? "My Gifts" : "Recent Gifts"}
                             </h3>
+
 
                         </div>
                         <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
