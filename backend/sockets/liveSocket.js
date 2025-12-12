@@ -47,12 +47,12 @@ module.exports = function registerLiveSocket(io, socket) {
 
     socket.on("start_broadcast", (data) => {
         const roomId = data.roomId || data.streamId;
-        const oderId = data.hostId || data.streamerId || socket.id;
+        const hostId = data.hostId || data.streamerId || socket.id;
         const username = data.hostUsername || data.streamer || "Host";
 
         rooms.set(roomId, {
             host: socket.id,
-            oderId,
+            hostId,
             username,
             viewers: new Map(),
             seats: new Map()
@@ -82,7 +82,7 @@ module.exports = function registerLiveSocket(io, socket) {
         const { roomId, host } = data;
         rooms.set(roomId, {
             host: socket.id,
-            oderId: host?._id,
+            hostId: host?._id,
             username: host?.username,
             viewers: new Map(),
             seats: new Map()
@@ -126,7 +126,7 @@ module.exports = function registerLiveSocket(io, socket) {
 
         const viewerData = {
             socketId: socket.id,
-            oderId: data.oderId || data.userId,
+            userId: data.userId,
             username: data.username,
         };
 
@@ -285,7 +285,7 @@ module.exports = function registerLiveSocket(io, socket) {
     socket.on("approve_seat", (data) => {
         const room = rooms.get(data.roomId);
         if (room) {
-            const viewer = room.viewers.get(data.oderId);
+            const viewer = room.viewers.get(data.userId);
             if (viewer) {
                 io.to(viewer.socketId).emit("seat_approved", data);
             }
@@ -295,7 +295,7 @@ module.exports = function registerLiveSocket(io, socket) {
 
     socket.on("reject_seat", (data) => {
         const room = rooms.get(data.roomId);
-        const viewer = room?.viewers.get(data.oderId);
+        const viewer = room?.viewers.get(data.userId);
         if (viewer) {
             io.to(viewer.socketId).emit("seat_rejected", data);
         }

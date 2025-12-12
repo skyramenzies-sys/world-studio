@@ -123,8 +123,8 @@ const liveStreamSchema = new mongoose.Schema(
         // Simple viewer tracking (lightweight)
         activeViewers: [
             {
-                oderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-                odername: String,
+                userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                username: String,
                 joinedAt: { type: Date, default: Date.now },
             },
         ],
