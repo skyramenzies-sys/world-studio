@@ -94,6 +94,266 @@ const Modal = ({ isOpen, onClose, title, children }) => {
     );
 };
 
+// Edit Profile Modal Component
+const EditProfileModal = ({ isOpen, onClose, user, onSave }) => {
+    const [formData, setFormData] = useState({
+        username: user?.username || "",
+        bio: user?.bio || "",
+        location: user?.location || "",
+        website: user?.website || "",
+        displayName: user?.displayName || user?.username || "",
+    });
+    const [saving, setSaving] = useState(false);
+    const [avatarFile, setAvatarFile] = useState(null);
+    const [avatarPreview, setAvatarPreview] = useState(null);
+    const fileInputRef = useRef(null);
+
+    // Reset form when user changes
+    useEffect(() => {
+        if (user) {
+            setFormData({
+                username: user.username || "",
+                bio: user.bio || "",
+                location: user.location || "",
+                website: user.website || "",
+                displayName: user.displayName || user.username || "",
+            });
+        }
+    }, [user]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData((prev) => ({ ...prev, [name]: value }));
+    };
+
+    const handleAvatarChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Validate file
+        if (!file.type.startsWith("image/")) {
+            toast.error("Please select an image file");
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error("Image must be less than 5MB");
+            return;
+        }
+
+        setAvatarFile(file);
+        setAvatarPreview(URL.createObjectURL(file));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSaving(true);
+
+        try {
+            // Upload avatar first if changed
+            let newAvatarUrl = null;
+            if (avatarFile) {
+                const avatarFormData = new FormData();
+                avatarFormData.append("avatar", avatarFile);
+
+                const avatarRes = await api.post("/users/avatar", avatarFormData, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                });
+                newAvatarUrl = avatarRes.data?.avatar || avatarRes.data?.url;
+            }
+
+            // Update profile
+            const updateData = { ...formData };
+            if (newAvatarUrl) {
+                updateData.avatar = newAvatarUrl;
+            }
+
+            const res = await api.put("/users/profile", updateData);
+            const updatedUser = res.data?.user || res.data;
+
+            // Update localStorage
+            updateStoredUser(updatedUser);
+
+            toast.success("Profile updated! ✨");
+            onSave?.(updatedUser);
+            onClose();
+        } catch (err) {
+            console.error("Profile update error:", err);
+            toast.error(err.response?.data?.message || "Failed to update profile");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // Cleanup preview URL
+    useEffect(() => {
+        return () => {
+            if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+        };
+    }, [avatarPreview]);
+
+    if (!isOpen) return null;
+
+    const currentAvatar = avatarPreview || resolveAvatar(user?.avatar);
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+                onClick={onClose}
+            />
+            <div className="relative bg-gray-900 border border-white/10 rounded-2xl w-full max-w-md max-h-[90vh] overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-white/10">
+                    <h3 className="text-lg font-bold text-white">Edit Profile</h3>
+                    <button
+                        onClick={onClose}
+                        className="p-2 hover:bg-white/10 rounded-lg transition"
+                    >
+                        <X size={20} className="text-white/70" />
+                    </button>
+                </div>
+
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="p-4 space-y-4 overflow-y-auto max-h-[70vh]">
+                    {/* Avatar */}
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="relative">
+                            <img
+                                src={currentAvatar}
+                                alt="Avatar"
+                                className="w-24 h-24 rounded-full object-cover border-4 border-white/20"
+                                onError={(e) => {
+                                    e.target.src = `${API_BASE_URL}/defaults/default-avatar.png`;
+                                }}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="absolute bottom-0 right-0 p-2 bg-cyan-500 hover:bg-cyan-600 rounded-full transition"
+                            >
+                                <Camera size={16} className="text-white" />
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleAvatarChange}
+                                className="hidden"
+                            />
+                        </div>
+                        <p className="text-xs text-white/50">Tap to change avatar</p>
+                    </div>
+
+                    {/* Display Name */}
+                    <div>
+                        <label className="block text-sm text-white/70 mb-1">
+                            Display Name
+                        </label>
+                        <input
+                            type="text"
+                            name="displayName"
+                            value={formData.displayName}
+                            onChange={handleChange}
+                            maxLength={50}
+                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500 transition"
+                            placeholder="Your display name"
+                        />
+                    </div>
+
+                    {/* Username */}
+                    <div>
+                        <label className="block text-sm text-white/70 mb-1">
+                            Username
+                        </label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50">@</span>
+                            <input
+                                type="text"
+                                name="username"
+                                value={formData.username}
+                                onChange={handleChange}
+                                maxLength={30}
+                                className="w-full pl-8 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500 transition"
+                                placeholder="username"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Bio */}
+                    <div>
+                        <label className="block text-sm text-white/70 mb-1">
+                            Bio
+                        </label>
+                        <textarea
+                            name="bio"
+                            value={formData.bio}
+                            onChange={handleChange}
+                            maxLength={160}
+                            rows={3}
+                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500 transition resize-none"
+                            placeholder="Tell us about yourself..."
+                        />
+                        <p className="text-xs text-white/40 mt-1 text-right">
+                            {formData.bio.length}/160
+                        </p>
+                    </div>
+
+                    {/* Location */}
+                    <div>
+                        <label className="block text-sm text-white/70 mb-1">
+                            Location
+                        </label>
+                        <input
+                            type="text"
+                            name="location"
+                            value={formData.location}
+                            onChange={handleChange}
+                            maxLength={50}
+                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500 transition"
+                            placeholder="City, Country"
+                        />
+                    </div>
+
+                    {/* Website */}
+                    <div>
+                        <label className="block text-sm text-white/70 mb-1">
+                            Website
+                        </label>
+                        <input
+                            type="url"
+                            name="website"
+                            value={formData.website}
+                            onChange={handleChange}
+                            maxLength={100}
+                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none focus:border-cyan-500 transition"
+                            placeholder="https://yoursite.com"
+                        />
+                    </div>
+
+                    {/* Submit */}
+                    <button
+                        type="submit"
+                        disabled={saving}
+                        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-xl font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {saving ? (
+                            <>
+                                <Loader2 size={18} className="animate-spin" />
+                                Saving...
+                            </>
+                        ) : (
+                            <>
+                                <Check size={18} />
+                                Save Changes
+                            </>
+                        )}
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 // User List Item (for followers/following)
 const UserListItem = ({ user, onFollow, onUnfollow, isFollowing, currentUserId }) => {
     const navigate = useNavigate();
@@ -349,6 +609,9 @@ export default function ProfilePage() {
     const [unreadCount, setUnreadCount] = useState(0);
     const [loadingNotifications, setLoadingNotifications] = useState(false);
 
+    // Edit profile state
+    const [showEditModal, setShowEditModal] = useState(false);
+
     // User data
     const viewer = useMemo(() => getStoredUser(), []);
     const targetUserId = useMemo(
@@ -368,6 +631,7 @@ export default function ProfilePage() {
        FETCH PROFILE DATA
        ============================================================ */
     useEffect(() => {
+
 
         if (!targetUserId) {
             setError("No user profile found");
@@ -768,7 +1032,7 @@ export default function ProfilePage() {
                         {isOwnProfile ? (
                             <>
                                 <button
-                                    onClick={() => navigate("/settings/profile")}
+                                    onClick={() => setShowEditModal(true)}
                                     className="w-full px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-sm font-semibold transition flex items-center justify-center gap-2"
                                 >
                                     <Settings size={16} />
@@ -1107,6 +1371,17 @@ export default function ProfilePage() {
                     </div>
                 )}
             </Modal>
+
+            {/* Edit Profile Modal */}
+            <EditProfileModal
+                isOpen={showEditModal}
+                onClose={() => setShowEditModal(false)}
+                user={profile}
+                onSave={(updatedUser) => {
+                    // Update local profile state
+                    setProfile((prev) => ({ ...prev, ...updatedUser }));
+                }}
+            />
         </div>
     );
 }
