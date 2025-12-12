@@ -1,271 +1,234 @@
-// src/api/socket.js - World Studio Live Socket Configuration (Universe Edition)
+// src/api/socket.js
+// World-Studio.live - Socket Client (UNIVERSE EDITION 🌌)
+// Handles all real-time communication
+
 import { io } from "socket.io-client";
-import { API_ORIGIN } from "./api";
 
-// ============================================
-// TOKEN HELPER (zelfde logica als api.js)
-// ============================================
-const getToken = () => {
-    try {
-        if (typeof window === "undefined") return null;
-        return (
-            window.localStorage.getItem("ws_token") ||
-            window.localStorage.getItem("token") ||
-            window.sessionStorage.getItem("ws_token") ||
-            window.sessionStorage.getItem("token")
-        );
-    } catch {
-        return null;
-    }
-};
+// Get API URL and convert to socket URL
+const RAW_API_URL =
+    import.meta.env.VITE_API_URL ||
+    "https://world-studio-production.up.railway.app";
 
-// ============================================
-// SOCKET BASE URL (Vite + Railway compatible)
-// ============================================
+// Remove /api suffix for socket connection
+const SOCKET_URL = RAW_API_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
-// Basis: backend origin uit api.js
-let baseUrl = API_ORIGIN || "https://world-studio-production.up.railway.app";
-
-// VITE_SOCKET_URL heeft hoogste prioriteit
-if (typeof import.meta !== "undefined" && import.meta.env) {
-    const { VITE_SOCKET_URL } = import.meta.env;
-    if (VITE_SOCKET_URL) {
-        baseUrl = VITE_SOCKET_URL;
-    }
-}
-
-// Als URL eindigt op /api of /api/ → strippen voor socket
-baseUrl = baseUrl.replace(/\/api\/?$/, "");
-// Trailing slash weghalen
-baseUrl = baseUrl.replace(/\/$/, "");
-
-// Alleen hard loggen in development
-const isDev =
-    typeof import.meta !== "undefined" &&
-    import.meta.env &&
-    import.meta.env.MODE !== "production";
-
-if (isDev) {
-    console.log("🔗 [WS] Socket connecting to:", baseUrl);
-}
-
-// ============================================
-// SOCKET INSTANCE (singleton)
-// ============================================
-const socket = io(baseUrl, {
-    transports: ["websocket", "polling"], // WebSocket eerst, daarna fallback
+// Create socket instance
+const socket = io(SOCKET_URL, {
     autoConnect: true,
     reconnection: true,
-    reconnectionAttempts: 20,
+    reconnectionAttempts: 10,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 10000,
+    reconnectionDelayMax: 5000,
     timeout: 20000,
-    // Initieel meteen token meesturen (als beschikbaar)
-    auth: {
-        token: getToken() || undefined,
-    },
+    transports: ["websocket", "polling"],
 });
 
-// ============================================
-// CONNECTION EVENTS
-// ============================================
+// Connection status logging
 socket.on("connect", () => {
-    console.log("✅ Connected to World Studio Live (ID:", socket.id, ")");
+    console.log("🔌 Socket connected:", socket.id);
 });
 
 socket.on("disconnect", (reason) => {
-    console.log("❌ Disconnected:", reason);
-    if (reason === "io server disconnect") {
-        socket.connect();
-    }
+    console.log("🔌 Socket disconnected:", reason);
 });
 
 socket.on("connect_error", (error) => {
-    console.error("🔴 Socket connect error:", error?.message || error);
+    console.error("🔌 Socket connection error:", error.message);
 });
 
+socket.on("reconnect", (attemptNumber) => {
+    console.log("🔌 Socket reconnected after", attemptNumber, "attempts");
+});
 
+// ===========================================
+// USER ROOM HELPERS (for notifications)
+// ===========================================
 
-// ============================================
-// AUTH HELPERS
-// ============================================
 /**
- * Her-auth socket met verse token (na login / refresh)
+ * Join user's personal room for receiving notifications
+ * Call this after login
  */
-export const authenticateSocket = (token) => {
-    const nextToken = token || getToken() || undefined;
-    socket.auth = { token: nextToken };
-
-    // Forceer nieuwe connectie met nieuwe auth
-    if (socket.connected) {
-        socket.disconnect();
-    }
-    socket.connect();
-};
-
-// ============================================
-// USER ROOMS
-// ============================================
 export const joinUserRoom = (userId) => {
-    if (!userId) return;
+    if (!userId) {
+        console.warn("joinUserRoom: No userId provided");
+        return;
+    }
     socket.emit("join_user_room", userId);
+    console.log("🔔 Joined user room:", userId);
 };
 
+/**
+ * Leave user's personal room
+ * Call this on logout
+ */
 export const leaveUserRoom = (userId) => {
     if (!userId) return;
     socket.emit("leave_user_room", userId);
+    console.log("🔕 Left user room:", userId);
 };
 
-// ============================================
-// LIVE STREAM (SOLO)
-// ============================================
+// ===========================================
+// LIVE STREAMING HELPERS
+// ===========================================
 
-
-export const joinLiveStream = (streamId, userData) => {
-    if (!streamId) return;
-
-    socket.emit("join_stream", streamId);
-    socket.emit("watcher", { roomId: streamId, user: userData || null });
-};
-
-
-export const leaveLiveStream = (streamId, userId) => {
-    if (!streamId) return;
-
-    socket.emit("leave_watcher", { roomId: streamId, userId });
-    socket.emit("leave_stream", streamId);
-};
-
-export const startBroadcast = ({
-    roomId,
-    streamer,
-    title,
-    category,
-    streamerId,
-}) => {
-    if (!roomId || !streamerId) return;
-
+/**
+ * Host starts a broadcast
+ */
+export const startBroadcast = (data) => {
     socket.emit("start_broadcast", {
-        roomId,
-        streamer,
-        title,
-        category,
-        streamerId,
+        roomId: data.roomId || data.streamId,
+        hostId: data.hostId || data.userId,
+        hostUsername: data.username || data.hostUsername,
+        ...data,
     });
 };
 
+/**
+ * Viewer joins a stream
+ */
+export const joinStream = (data) => {
+    socket.emit("join_stream", {
+        roomId: data.roomId || data.streamId,
+        userId: data.userId,
+        username: data.username,
+        ...data,
+    });
+};
 
+/**
+ * Leave a stream
+ */
+export const leaveStream = (roomId) => {
+    socket.emit("leave_stream", { roomId });
+};
+
+/**
+ * Stop broadcasting
+ */
 export const stopBroadcast = (roomId) => {
-    if (!roomId) return;
+
     socket.emit("stop_broadcast", { roomId });
 };
 
-// ============================================
-// MULTI-LIVE
-// ============================================
+// ===========================================
+// WEBRTC SIGNALING HELPERS
+// ===========================================
 
-export const joinMultiLive = (roomId, user) => {
-    if (!roomId || !user) return;
-    socket.emit("join_multi_live", { roomId, user });
+/**
+ * Send WebRTC offer (host -> viewer)
+ */
+export const sendOffer = (data) => {
+    socket.emit("offer", data);
 };
 
-export const startMultiLive = ({ roomId, streamId, host, title, maxSeats }) => {
-    if (!roomId || !host) return;
-    socket.emit("start_multi_live", {
-        roomId,
-        streamId,
-        host,
-        title,
-        maxSeats,
-    });
+/**
+ * Send WebRTC answer (viewer -> host)
+ */
+export const sendAnswer = (data) => {
+    socket.emit("answer", data);
 };
 
-export const requestSeat = ({ roomId, seatId, user, odId }) => {
-    if (!roomId || !user) return;
-    socket.emit("request_seat", { roomId, seatId, user, odId });
-};
-
-export const approveSeat = ({ roomId, seatId, user, socketId }) => {
-    if (!roomId || !user) return;
-    socket.emit("approve_seat", { roomId, seatId, user, socketId });
-};
-
-export const rejectSeat = ({ roomId, odId }) => {
-    if (!roomId || !odId) return;
-    socket.emit("reject_seat", { roomId, odId });
-};
-
-export const guestReady = ({ roomId, odId, seatId }) => {
-    if (!roomId || !odId) return;
-    socket.emit("guest_ready", { roomId, odId, seatId });
-};
-
-export const leaveSeat = ({ roomId, odId }) => {
-    if (!roomId || !odId) return;
-    socket.emit("leave_seat", { roomId, odId });
+/**
+ * Send ICE candidate
+ */
+export const sendCandidate = (data) => {
+    socket.emit("candidate", data);
 };
 
 
 
-// ============================================
-// CHAT
-// ============================================
+// ===========================================
+// CHAT HELPERS
+// ===========================================
 
-export const sendChatMessage = (roomId, message, userData) => {
-    if (!roomId || !message) return;
-
+/**
+ * Send chat message
+ */
+export const sendChatMessage = (data) => {
     socket.emit("chat_message", {
-        roomId,
-        text: message,
-        username: userData?.username,
-        userId: userData?._id,
-        avatar: userData?.avatar,
-        timestamp: new Date().toISOString(),
+        roomId: data.roomId,
+        userId: data.userId,
+        username: data.username,
+        avatar: data.avatar,
+        message: data.message,
+        ...data,
     });
 };
 
-export const sendChatGift = (roomId, giftData, userData) => {
-    if (!roomId || !giftData) return;
+// ===========================================
+// GIFT HELPERS
+// ===========================================
 
-    socket.emit("chat_gift", {
-        roomId,
-        ...giftData,
-        fromUserId: userData?._id,
-        fromUsername: userData?.username,
-        fromAvatar: userData?.avatar,
-        timestamp: new Date().toISOString(),
+/**
+ * Send gift to streamer
+ */
+export const sendGift = (data) => {
+    socket.emit("gift_sent", {
+        roomId: data.roomId,
+        fromUserId: data.fromUserId,
+        fromUsername: data.fromUsername,
+        fromAvatar: data.fromAvatar,
+        toUserId: data.toUserId || data.streamerId,
+        giftId: data.giftId,
+        giftName: data.giftName,
+        giftIcon: data.giftIcon,
+        coins: data.coins || data.amount,
+        ...data,
     });
 };
 
+// ===========================================
+// MULTI-GUEST HELPERS
+// ===========================================
 
+/**
+ * Request to join as guest
+ */
+export const requestSeat = (data) => {
+    socket.emit("request_seat", data);
+};
 
+/**
+ * Approve guest request (host only)
+ */
+export const approveSeat = (data) => {
+    socket.emit("approve_seat", data);
+};
 
+/**
+ * Reject guest request (host only)
+ */
+export const rejectSeat = (data) => {
+    socket.emit("reject_seat", data);
+};
 
-
-// ============================================
-// NOTIFICATIONS
-// ============================================
-export const subscribeToNotifications = (userId) => {
-    if (!userId) return;
-    socket.emit("subscribe_notifications", { userId });
+/**
+ * Guest is ready to stream
+ */
+export const guestReady = (data) => {
+    socket.emit("guest_ready", data);
 };
 
 
 
-// ============================================
-// SOCKET STATUS
-// ============================================
-export const getConnectionStatus = () => ({
-    connected: socket.connected,
-    id: socket.id,
-});
+// ===========================================
+// UTILITY EXPORTS
+// ===========================================
 
+export const getSocketId = () => socket.id;
 export const isConnected = () => socket.connected;
 
-// Universe helper: altijd dezelfde instance terug
-export const getSocket = () => socket;
+// Reconnect manually if needed
+export const reconnect = () => {
+    if (!socket.connected) {
+        socket.connect();
+    }
+};
 
-// ============================================
-// DEFAULT EXPORT
-// ============================================
+// Disconnect (for cleanup)
+export const disconnect = () => {
+    socket.disconnect();
+};
+
+// Export socket instance as default
 export default socket;

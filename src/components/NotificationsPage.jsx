@@ -213,9 +213,12 @@ export default function NotificationsPage() {
                     );
                     // 2) Fallback user profile
                     try {
-                        const res = await api.get(
-                            `/users/${userId}`
+                        const res = await fetch(`${API_BASE_URL}/notifications/unread-count`,
                         );
+                        if (res.ok) {
+                            const data = await res.json();
+                            setUnreadCount(data.unreadCount || 0);  // ✅ Changed from notifications array
+                        }
                         const list =
                             res.data?.notifications || [];
                         setNotifications(
@@ -486,8 +489,8 @@ export default function NotificationsPage() {
                         key={f.id}
                         onClick={() => setFilter(f.id)}
                         className={`px-3 py-1.5 rounded-full text-sm transition ${filter === f.id
-                                ? "bg-cyan-500 text-black font-semibold"
-                                : "bg-white/10 text-white/70 hover:bg-white/20"
+                            ? "bg-cyan-500 text-black font-semibold"
+                            : "bg-white/10 text-white/70 hover:bg-white/20"
                             }`}
                     >
                         {f.label}
@@ -522,15 +525,15 @@ export default function NotificationsPage() {
                                     )
                                 }
                                 className={`p-4 rounded-xl border transition-all cursor-pointer ${notification.read
-                                        ? "bg-white/5 border-white/10 hover:bg-white/10"
-                                        : "bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20"
+                                    ? "bg-white/5 border-white/10 hover:bg-white/10"
+                                    : "bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20"
                                     }`}
                             >
                                 <div className="flex items-start gap-3">
                                     <div
                                         className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${notification.read
-                                                ? "bg-white/10"
-                                                : "bg-cyan-500/20"
+                                            ? "bg-white/10"
+                                            : "bg-cyan-500/20"
                                             }`}
                                     >
                                         {NOTIFICATION_ICONS[

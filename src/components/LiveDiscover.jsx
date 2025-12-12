@@ -1,11 +1,6 @@
 // src/components/LiveDiscover.jsx - WORLD STUDIO LIVE EDITION 🌍 (MASTER U.E.)
 
-import React, {
-    useState,
-    useEffect,
-    useRef,
-    useCallback,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import {
@@ -21,8 +16,10 @@ import {
     Clock,
     TrendingUp,
 } from "lucide-react";
+
+// ✅ Use shared instances
 import api from "../api/api";
-import { getSocket } from "../api/socket";
+import socket from "../api/socket";
 
 /* ============================================================
    CONSTANTS
@@ -48,42 +45,33 @@ const SORT_OPTIONS = [
     { id: "trending", label: "Trending", icon: "🔥" },
 ];
 
+const DEFAULT_AVATAR = "/defaults/default-avatar.png";
+
 const getCategoryIconAndLabel = (category) => {
     if (!category) return { icon: "✨", label: "Other" };
-    const found = CATEGORIES.find(
-        (c) => c.id.toLowerCase() === category.toLowerCase()
-    );
+    const found = CATEGORIES.find((c) => c.id.toLowerCase() === category.toLowerCase());
     return found || { icon: "✨", label: category };
 };
 
-// ------------------------------------------------------------
-// Stream Card Component
-// ------------------------------------------------------------
+/* ============================================================
+   STREAM CARD COMPONENT
+   ============================================================ */
 const StreamCard = ({ stream, onClick }) => {
     const viewers = stream.viewers || stream.viewerCount || 0;
     const username =
-        stream.streamerName ||
-        stream.username ||
-        stream.host?.username ||
-        "Anonymous";
+        stream.streamerName || stream.username || stream.host?.username || "Anonymous";
     const avatar =
-        stream.streamerAvatar ||
-        stream.avatar ||
-        stream.host?.avatar ||
-        "/defaults/default-avatar.png";
+        stream.streamerAvatar || stream.avatar || stream.host?.avatar || DEFAULT_AVATAR;
     const title = stream.title || "Untitled Stream";
     const category = stream.category || "Other";
 
-    const { icon: categoryIcon, label: categoryLabel } =
-        getCategoryIconAndLabel(category);
+    const { icon: categoryIcon, label: categoryLabel } = getCategoryIconAndLabel(category);
 
     const getStreamDuration = () => {
         const start = new Date(stream.startedAt || stream.createdAt || Date.now());
         const diff = Date.now() - start.getTime();
         const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor(
-            (diff % (1000 * 60 * 60)) / (1000 * 60)
-        );
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
         if (hours > 0) return `${hours}h ${minutes}m`;
         return `${minutes}m`;
     };
@@ -108,9 +96,11 @@ const StreamCard = ({ stream, onClick }) => {
                         <span className="text-5xl">🎥</span>
                     </div>
                 )}
+
+                {/* Top left badges */}
                 <div className="absolute top-3 left-3 flex items-center gap-2">
                     <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500 text-white text-xs font-bold rounded-full shadow-lg">
-                        <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                        <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
                         LIVE
                     </div>
                     <div className="px-2 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full flex items-center gap-1">
@@ -118,24 +108,30 @@ const StreamCard = ({ stream, onClick }) => {
                         {getStreamDuration()}
                     </div>
                 </div>
+
+                {/* Bottom right - viewers */}
                 <div className="absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-sm rounded-full">
                     <Eye size={14} />
-                    <span className="font-semibold">
-                        {viewers.toLocaleString()}
-                    </span>
+                    <span className="font-semibold">{viewers.toLocaleString()}</span>
                 </div>
+
+                {/* Top right - category */}
                 <div className="absolute top-3 right-3 px-2.5 py-1 bg-black/60 backdrop-blur-sm text-white text-xs rounded-full">
                     {categoryIcon} {categoryLabel}
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex.items-end justify-center pb-4">
+
+                {/* Hover overlay - ✅ FIXED: was "flex.items-end" */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
                     <span className="px-4 py-2 bg-cyan-500 rounded-full text-white font-semibold text-sm flex items-center gap-2">
                         <Play size={14} />
                         Watch Now
                     </span>
                 </div>
             </div>
+
+            {/* Card content - ✅ FIXED: was "transition.mb-2" */}
             <div className="p-4">
-                <h3 className="font-bold text-white truncate group-hover:text-cyan-400 transition.mb-2">
+                <h3 className="font-bold text-white truncate group-hover:text-cyan-400 transition mb-2">
                     {title}
                 </h3>
                 <div className="flex items-center gap-3">
@@ -144,16 +140,12 @@ const StreamCard = ({ stream, onClick }) => {
                         alt={username}
                         className="w-8 h-8 rounded-full object-cover border-2 border-white/20"
                         onError={(e) => {
-                            e.target.src = "/defaults/default-avatar.png";
+                            e.target.src = DEFAULT_AVATAR;
                         }}
                     />
                     <div className="flex-1 min-w-0">
-                        <p className="text-white/80 text-sm font-medium truncate">
-                            {username}
-                        </p>
-                        <p className="text-white/40 text-xs">
-                            {viewers} watching
-                        </p>
+                        <p className="text-white/80 text-sm font-medium truncate">{username}</p>
+                        <p className="text-white/40 text-xs">{viewers} watching</p>
                     </div>
                 </div>
             </div>
@@ -161,25 +153,21 @@ const StreamCard = ({ stream, onClick }) => {
     );
 };
 
-// ------------------------------------------------------------
-// Featured Stream Component
-// ------------------------------------------------------------
+/* ============================================================
+   FEATURED STREAM COMPONENT
+   ============================================================ */
 const FeaturedStream = ({ stream, onClick }) => {
     if (!stream) return null;
+
     const viewers = stream.viewers || 0;
     const username =
-        stream.streamerName ||
-        stream.username ||
-        stream.host?.username ||
-        "Anonymous";
+        stream.streamerName || stream.username || stream.host?.username || "Anonymous";
     const avatar =
-        stream.streamerAvatar ||
-        stream.avatar ||
-        stream.host?.avatar ||
-        "/defaults/default-avatar.png";
+        stream.streamerAvatar || stream.avatar || stream.host?.avatar || DEFAULT_AVATAR;
 
-    const { icon: categoryIcon, label: categoryLabel } =
-        getCategoryIconAndLabel(stream.category || "Live");
+    const { icon: categoryIcon, label: categoryLabel } = getCategoryIconAndLabel(
+        stream.category || "Live"
+    );
 
     return (
         <div
@@ -198,11 +186,13 @@ const FeaturedStream = ({ stream, onClick }) => {
                         <span className="text-8xl">🎥</span>
                     </div>
                 )}
+
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+
                 <div className="absolute inset-0 p-6 md:p-8 flex flex-col justify-end">
                     <div className="flex items-center gap-3 mb-3">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 text-white text-sm font-bold rounded-full">
-                            <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                            <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
                             FEATURED
                         </div>
                         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 backdrop-blur-sm text-white text-sm rounded-full">
@@ -210,27 +200,28 @@ const FeaturedStream = ({ stream, onClick }) => {
                             {viewers.toLocaleString()} watching
                         </div>
                     </div>
+
                     <h2 className="text-2xl md:text-3xl font-bold text-white mb-3 max-w-2xl">
                         {stream.title || "Untitled Stream"}
                     </h2>
+
                     <div className="flex items-center gap-3">
                         <img
                             src={avatar}
                             alt={username}
                             className="w-10 h-10 rounded-full border-2 border-white/30"
                             onError={(e) => {
-                                e.target.src = "/defaults/default-avatar.png";
+                                e.target.src = DEFAULT_AVATAR;
                             }}
                         />
                         <div>
-                            <p className="text-white font-semibold">
-                                {username}
-                            </p>
+                            <p className="text-white font-semibold">{username}</p>
                             <p className="text-white/60 text-sm">
                                 {categoryIcon} {categoryLabel}
                             </p>
                         </div>
-                        <button className="ml-auto px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 rounded-full text-white font-semibold transition flex.items-center gap-2">
+                        {/* ✅ FIXED: was "flex.items-center" */}
+                        <button className="ml-auto px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 rounded-full text-white font-semibold transition flex items-center gap-2">
                             <Play size={16} />
                             Watch Now
                         </button>
@@ -241,9 +232,9 @@ const FeaturedStream = ({ stream, onClick }) => {
     );
 };
 
-// ------------------------------------------------------------
-// Stats Bar Component
-// ------------------------------------------------------------
+/* ============================================================
+   STATS BAR COMPONENT
+   ============================================================ */
 const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
     <div className="flex items-center gap-4 mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
         <div className="flex items-center gap-2">
@@ -264,9 +255,7 @@ const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
         <div className="h-4 w-px bg-white/20" />
         <div className="flex items-center gap-2">
             <Users size={16} className="text-cyan-400" />
-            <span className="text-white font-semibold">
-                {totalViewers.toLocaleString()}
-            </span>
+            <span className="text-white font-semibold">{totalViewers.toLocaleString()}</span>
             <span className="text-white/60 text-sm">Watching</span>
         </div>
     </div>
@@ -277,7 +266,7 @@ const StatsBar = ({ totalStreams, totalViewers, isConnected }) => (
    ============================================================ */
 export default function LiveDiscover() {
     const navigate = useNavigate();
-    const socketRef = useRef(null);
+
 
     const [streams, setStreams] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -287,61 +276,51 @@ export default function LiveDiscover() {
     const [sortBy, setSortBy] = useState("viewers");
     const [currentUser, setCurrentUser] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [isConnected, setIsConnected] = useState(true);
+    const [isConnected, setIsConnected] = useState(socket.connected);
     const [showFilters, setShowFilters] = useState(false);
+
     const hasFetched = useRef(false);
 
-    // Socket init
-    useEffect(() => {
-        socketRef.current = getSocket();
-        return () => {
-            // singleton: niet disconnecten
-        };
-    }, []);
-
-    // Load user
+    /* ========================================================
+       LOAD USER
+       ======================================================== */
     useEffect(() => {
         const storedUser = localStorage.getItem("ws_currentUser");
         if (storedUser) {
             try {
                 setCurrentUser(JSON.parse(storedUser));
             } catch (e) {
-                // ignore
+                console.error("Failed to parse user:", e);
             }
         }
     }, []);
 
-    // Fetch streams
+    /* ========================================================
+       FETCH STREAMS
+       ======================================================== */
     const fetchStreams = useCallback(async (showToast = false) => {
         try {
             setError(null);
 
-            // ✅ belangrijk: geen /api hier, api.js heeft baseURL = .../api
+
+
             const res = await api.get("/live?isLive=true");
-            const allStreams = Array.isArray(res.data)
-                ? res.data
-                : res.data?.streams || [];
+            const allStreams = Array.isArray(res.data) ? res.data : res.data?.streams || [];
 
             const verifiedStreams = allStreams.filter((stream) => {
                 if (!stream.isLive) return false;
 
-                const streamDate = new Date(
-                    stream.startedAt || stream.createdAt || Date.now()
-                );
-                const hoursSinceStart =
-                    (Date.now() - streamDate.getTime()) / (1000 * 60 * 60);
+                const streamDate = new Date(stream.startedAt || stream.createdAt || Date.now());
+                const hoursSinceStart = (Date.now() - streamDate.getTime()) / (1000 * 60 * 60);
 
-                // Auto-clean oude zombie streams
+                // Auto-clean old zombie streams
                 if (hoursSinceStart > 12) {
                     api.post(`/live/${stream._id}/end`).catch(() => { });
                     return false;
                 }
 
-                const lastActivity = stream.updatedAt
-                    ? new Date(stream.updatedAt)
-                    : streamDate;
-                const hoursSinceActivity =
-                    (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60);
+                const lastActivity = stream.updatedAt ? new Date(stream.updatedAt) : streamDate;
+                const hoursSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60);
 
                 if (hoursSinceActivity > 2 && hoursSinceStart > 2) {
                     api.post(`/live/${stream._id}/end`).catch(() => { });
@@ -352,6 +331,7 @@ export default function LiveDiscover() {
             });
 
             setStreams(verifiedStreams);
+
             if (showToast) {
                 toast.success(`Found ${verifiedStreams.length} live streams`);
             }
@@ -371,17 +351,18 @@ export default function LiveDiscover() {
         }
     }, [fetchStreams]);
 
-    // Socket connection status
+    /* ========================================================
+       SOCKET CONNECTION STATUS
+       ======================================================== */
     useEffect(() => {
-        const socket = socketRef.current;
-        if (!socket) return;
+
 
         const handleConnect = () => setIsConnected(true);
         const handleDisconnect = () => setIsConnected(false);
 
         socket.on("connect", handleConnect);
         socket.on("disconnect", handleDisconnect);
-        setIsConnected(socket.connected);
+
 
         return () => {
             socket.off("connect", handleConnect);
@@ -389,16 +370,18 @@ export default function LiveDiscover() {
         };
     }, []);
 
-    // Socket live events
+    /* ========================================================
+       SOCKET LIVE EVENTS
+       ======================================================== */
     useEffect(() => {
-        const socket = socketRef.current;
-        if (!socket) return;
+
 
         const handleStreamStarted = (data) => {
             toast.success(
                 `🔴 ${data.streamerName || data.username || "Someone"} went live!`,
                 { duration: 5000, icon: "📺" }
             );
+
             setStreams((prev) => {
                 const exists = prev.some(
                     (s) =>
@@ -407,6 +390,7 @@ export default function LiveDiscover() {
                         s.streamId === data.streamId
                 );
                 if (exists) return prev;
+
                 return [
                     {
                         ...data,
@@ -430,18 +414,14 @@ export default function LiveDiscover() {
         const handleViewerUpdate = (data) => {
             setStreams((prev) =>
                 prev.map((s) =>
-                    s._id === data.streamId ||
-                        s._id === data._id ||
-                        s.streamId === data.streamId
-                        ? {
-                            ...s,
-                            viewers: data.viewers || data.count || s.viewers,
-                        }
+                    s._id === data.streamId || s._id === data._id || s.streamId === data.streamId
+                        ? { ...s, viewers: data.viewers || data.count || s.viewers }
                         : s
                 )
             );
         };
 
+        // Register all event variants
         socket.on("stream_started", handleStreamStarted);
         socket.on("new_stream", handleStreamStarted);
         socket.on("live_started", handleStreamStarted);
@@ -468,29 +448,53 @@ export default function LiveDiscover() {
 
             socket.off("viewer_update", handleViewerUpdate);
             socket.off("viewer_count", handleViewerUpdate);
+
             socket.emit("leave_discover");
         };
     }, []);
 
-    // Periodic refresh
+    /* ========================================================
+       PERIODIC REFRESH
+       ======================================================== */
     useEffect(() => {
         const interval = setInterval(() => fetchStreams(), 30000);
         return () => clearInterval(interval);
     }, [fetchStreams]);
 
+    /* ========================================================
+       HANDLERS
+       ======================================================== */
     const handleRefresh = async () => {
         setIsRefreshing(true);
         await fetchStreams(true);
     };
 
+    const handleJoinStream = (stream) => {
+        navigate(`/live/${stream._id || stream.streamId || stream.roomId}`);
+    };
+
+    const handleStartStream = () => {
+        if (!currentUser) {
+            toast.error("Please login to start streaming");
+            navigate("/login");
+            return;
+        }
+        navigate("/go-live");
+    };
+
+    /* ========================================================
+       FILTERING & SORTING
+       ======================================================== */
     const filteredStreams = streams
         .filter((stream) => {
             const categoryValue = stream.category || "Other";
             if (
                 selectedCategory !== "All" &&
                 categoryValue.toLowerCase() !== selectedCategory.toLowerCase()
-            )
+            ) {
                 return false;
+            }
+
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 const title = (stream.title || "").toLowerCase();
@@ -500,9 +504,11 @@ export default function LiveDiscover() {
                     stream.host?.username ||
                     ""
                 ).toLowerCase();
-                if (!title.includes(query) && !username.includes(query))
+                if (!title.includes(query) && !username.includes(query)) {
                     return false;
+                }
             }
+
             return true;
         })
         .sort((a, b) => {
@@ -517,13 +523,11 @@ export default function LiveDiscover() {
                 case "trending": {
                     const aScore =
                         (a.viewers || 0) * 2 -
-                        (Date.now() -
-                            new Date(a.startedAt || a.createdAt || Date.now()).getTime()) /
+                        (Date.now() - new Date(a.startedAt || a.createdAt || Date.now()).getTime()) /
                         3600000;
                     const bScore =
                         (b.viewers || 0) * 2 -
-                        (Date.now() -
-                            new Date(b.startedAt || b.createdAt || Date.now()).getTime()) /
+                        (Date.now() - new Date(b.startedAt || b.createdAt || Date.now()).getTime()) /
                         3600000;
                     return bScore - aScore;
                 }
@@ -534,49 +538,38 @@ export default function LiveDiscover() {
 
     const featuredStream =
         filteredStreams.length > 1
-            ? [...filteredStreams].sort(
-                (a, b) => (b.viewers || 0) - (a.viewers || 0)
-            )[0]
+            ? [...filteredStreams].sort((a, b) => (b.viewers || 0) - (a.viewers || 0))[0]
             : null;
 
     const otherStreams = featuredStream
         ? filteredStreams.filter((s) => s._id !== featuredStream._id)
         : filteredStreams;
 
-    const totalViewers = streams.reduce(
-        (sum, s) => sum + (s.viewers || 0),
-        0
-    );
+    const totalViewers = streams.reduce((sum, s) => sum + (s.viewers || 0), 0);
 
-    const handleJoinStream = (stream) =>
-        navigate(`/live/${stream._id || stream.streamId || stream.roomId}`);
-
-    const handleStartStream = () => {
-        if (!currentUser) {
-            toast.error("Please login to start streaming");
-            navigate("/login");
-            return;
-        }
-        navigate("/go-live");
-    };
-
+    /* ========================================================
+       LOADING STATE
+       ======================================================== */
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4"></div>
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4" />
                     <p className="text-white/70">Discovering streams...</p>
                 </div>
             </div>
         );
     }
 
+    /* ========================================================
+       ERROR STATE - ✅ FIXED: was "text-red-400.mb-4"
+       ======================================================== */
     if (error) {
         return (
             <div className="flex items-center justify-center py-20">
                 <div className="text-center p-8 bg-white/5 rounded-2xl border border-white/10">
                     <WifiOff className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                    <p className="text-red-400.mb-4">{error}</p>
+                    <p className="text-red-400 mb-4">{error}</p>
                     <button
                         onClick={() => {
                             setLoading(true);
@@ -591,19 +584,23 @@ export default function LiveDiscover() {
         );
     }
 
+    /* ========================================================
+       RENDER
+       ======================================================== */
     return (
         <div className="max-w-7xl mx-auto p-4 md:p-6 text-white">
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-3xl font-bold flex items-center gap-3">
                         <span className="text-4xl">🌍</span>
                         Live Discovery
                     </h1>
-                    <p className="text-white/60 mt-1">
-                        Watch live streams from creators worldwide
-                    </p>
+                    <p className="text-white/60 mt-1">Watch live streams from creators worldwide</p>
                 </div>
+
                 <div className="flex items-center gap-3">
+                    {/* Search */}
                     <div className="relative flex-1 md:w-72">
                         <Search
                             className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"
@@ -613,9 +610,7 @@ export default function LiveDiscover() {
                             type="text"
                             placeholder="Search streams..."
                             value={searchQuery}
-                            onChange={(e) =>
-                                setSearchQuery(e.target.value)
-                            }
+                            onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:border-cyan-400 outline-none transition"
                         />
                         {searchQuery && (
@@ -627,48 +622,49 @@ export default function LiveDiscover() {
                             </button>
                         )}
                     </div>
+
+                    {/* Filter toggle */}
                     <button
                         onClick={() => setShowFilters((prev) => !prev)}
                         className={`p-2.5 rounded-xl border transition ${showFilters
-                            ? "bg-cyan-500 border-cyan-500"
-                            : "bg-white/10 border-white/20 hover:bg-white/20"
+                                ? "bg-cyan-500 border-cyan-500"
+                                : "bg-white/10 border-white/20 hover:bg-white/20"
                             }`}
                     >
                         <Filter size={20} />
                     </button>
+
+                    {/* Refresh button - ✅ FIXED: was "transition.disabled:opacity-50" */}
                     <button
                         onClick={handleRefresh}
                         disabled={isRefreshing}
-                        className="p-2.5 bg-white/10 border border-white/20 rounded-xl hover:bg-white/20 transition.disabled:opacity-50"
+                        className="p-2.5 bg-white/10 border border-white/20 rounded-xl hover:bg-white/20 transition disabled:opacity-50"
                     >
-                        <RefreshCw
-                            size={20}
-                            className={isRefreshing ? "animate-spin" : ""}
-                        />
+                        <RefreshCw size={20} className={isRefreshing ? "animate-spin" : ""} />
                     </button>
                 </div>
             </div>
 
+            {/* Stats Bar */}
             <StatsBar
                 totalStreams={streams.length}
                 totalViewers={totalViewers}
                 isConnected={isConnected}
             />
 
+            {/* Expanded Filters */}
             {showFilters && (
                 <div className="mb-6 p-4 bg-white/5 rounded-xl border border-white/10 animate-fadeIn">
                     <div className="mb-4">
-                        <p className="text-white/60 text-sm mb-2">
-                            Sort by
-                        </p>
+                        <p className="text-white/60 text-sm mb-2">Sort by</p>
                         <div className="flex flex-wrap gap-2">
                             {SORT_OPTIONS.map((option) => (
                                 <button
                                     key={option.id}
                                     onClick={() => setSortBy(option.id)}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${sortBy === option.id
-                                        ? "bg-cyan-500 text-white"
-                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                            ? "bg-cyan-500 text-white"
+                                            : "bg-white/10 text-white/70 hover:bg-white/20"
                                         }`}
                                 >
                                     <span>{option.icon}</span>
@@ -678,19 +674,15 @@ export default function LiveDiscover() {
                         </div>
                     </div>
                     <div>
-                        <p className="text-white/60 text-sm mb-2">
-                            Categories
-                        </p>
+                        <p className="text-white/60 text-sm mb-2">Categories</p>
                         <div className="flex flex-wrap gap-2">
                             {CATEGORIES.map((category) => (
                                 <button
                                     key={category.id}
-                                    onClick={() =>
-                                        setSelectedCategory(category.id)
-                                    }
+                                    onClick={() => setSelectedCategory(category.id)}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${selectedCategory === category.id
-                                        ? "bg-cyan-500 text-white"
-                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                            ? "bg-cyan-500 text-white"
+                                            : "bg-white/10 text-white/70 hover:bg-white/20"
                                         }`}
                                 >
                                     <span>{category.icon}</span>
@@ -702,17 +694,16 @@ export default function LiveDiscover() {
                 </div>
             )}
 
+            {/* Quick Category Tabs - ✅ FIXED: was "flex.gap-2" */}
             {!showFilters && (
-                <div className="flex.gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
                     {CATEGORIES.slice(0, 8).map((category) => (
                         <button
                             key={category.id}
-                            onClick={() =>
-                                setSelectedCategory(category.id)
-                            }
+                            onClick={() => setSelectedCategory(category.id)}
                             className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition ${selectedCategory === category.id
-                                ? "bg-cyan-500 text-white"
-                                : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    ? "bg-cyan-500 text-white"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
                                 }`}
                         >
                             <span>{category.icon}</span>
@@ -722,18 +713,15 @@ export default function LiveDiscover() {
                 </div>
             )}
 
+            {/* No Streams - ✅ FIXED: was "flex.items-center" */}
             {filteredStreams.length === 0 ? (
                 <div className="text-center py-20">
-                    <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex.items-center justify-center">
+                    <div className="w-24 h-24 mx-auto mb-6 bg-white/5 rounded-full flex items-center justify-center">
                         <Radio size={40} className="text-white/30" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2">
-                        No Live Streams
-                    </h3>
+                    <h3 className="text-xl font-semibold mb-2">No Live Streams</h3>
                     <p className="text-white/60 mb-6">
-                        {searchQuery
-                            ? `No streams matching "${searchQuery}"`
-                            : "Be the first to go live!"}
+                        {searchQuery ? `No streams matching "${searchQuery}"` : "Be the first to go live!"}
                     </p>
                     <button
                         onClick={handleStartStream}
@@ -744,17 +732,18 @@ export default function LiveDiscover() {
                 </div>
             ) : (
                 <>
+                    {/* Featured Stream */}
                     {featuredStream && filteredStreams.length > 1 && (
-                        <FeaturedStream
-                            stream={featuredStream}
-                            onClick={handleJoinStream}
-                        />
+                        <FeaturedStream stream={featuredStream} onClick={handleJoinStream} />
                     )}
+
+                    {/* Stream Count */}
                     <p className="text-white/60 mb-4 flex items-center gap-2">
                         <TrendingUp size={16} />
-                        {filteredStreams.length} stream
-                        {filteredStreams.length !== 1 ? "s" : ""} live
+                        {filteredStreams.length} stream{filteredStreams.length !== 1 ? "s" : ""} live
                     </p>
+
+                    {/* Stream Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
                         {(featuredStream && filteredStreams.length > 1
                             ? otherStreams
@@ -770,16 +759,13 @@ export default function LiveDiscover() {
                 </>
             )}
 
+            {/* CTA Banner */}
             <div className="text-center py-12 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-blue-500/10 rounded-2xl border border-white/10">
                 <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center">
                     <Radio size={32} />
                 </div>
-                <h2 className="text-2xl font-bold mb-2">
-                    Ready to Go Live?
-                </h2>
-                <p className="text-white/60 mb-6">
-                    Share your talent and earn rewards
-                </p>
+                <h2 className="text-2xl font-bold mb-2">Ready to Go Live?</h2>
+                <p className="text-white/60 mb-6">Share your talent and earn rewards</p>
                 <button
                     onClick={handleStartStream}
                     className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-xl hover:scale-105 transition-all"

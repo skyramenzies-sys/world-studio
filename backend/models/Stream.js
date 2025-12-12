@@ -2,6 +2,8 @@
 // World-Studio.live - Stream Model (MASTER / UNIVERSE EDITION) 🌍🎥
 
 const mongoose = require("mongoose");
+const crypto = require("crypto"); // ✅ For secure random generation
+const bcrypt = require("bcryptjs"); // ✅ For password hashing
 
 // ===========================================
 // SUB-SCHEMAS
@@ -144,12 +146,12 @@ const StreamSchema = new mongoose.Schema(
             type: String,
             default: "",
         },
-        // 🔥 Gebruik zowel thumbnail als thumbnailUrl
+
         thumbnail: {
             type: String,
             default: "",
         },
-        // 🔥 Compatibel met Live.js (PUBLIC_STREAM_FIELDS gebruikt thumbnailUrl)
+
         thumbnailUrl: {
             type: String,
             default: "",
@@ -202,13 +204,13 @@ const StreamSchema = new mongoose.Schema(
         ],
 
         // Viewer Stats
-        // 🔥 Canonical viewer count
+
         viewers: {
             type: Number,
             default: 0,
             min: 0,
         },
-        // 🔥 Compatibel met oudere/andere routes die viewersCount gebruiken
+
         viewersCount: {
             type: Number,
             default: 0,
@@ -294,6 +296,7 @@ const StreamSchema = new mongoose.Schema(
             enum: ["public", "followers", "subscribers", "private"],
             default: "public",
         },
+        // ✅ Password is hashed in pre-save middleware
         password: String,
         ageRestricted: {
             type: Boolean,
@@ -384,7 +387,7 @@ const StreamSchema = new mongoose.Schema(
 // INDEXES
 // ===========================================
 StreamSchema.index({ isLive: 1, viewers: -1 });
-// 🔥 Extra index voor routes die sorteren op viewersCount
+
 StreamSchema.index({ isLive: 1, viewersCount: -1 });
 StreamSchema.index({ streamerId: 1, isLive: 1 });
 StreamSchema.index({ category: 1, isLive: 1 });
@@ -407,7 +410,7 @@ StreamSchema.index({
 
 /**
  * Host virtual (for .populate("host"))
- * Fix voor StrictPopulateError op `host`
+ 
  */
 StreamSchema.virtual("host", {
     ref: "User",
@@ -451,40 +454,44 @@ StreamSchema.virtual("seatsAvailable").get(function () {
 
 // Is multi-guest
 StreamSchema.virtual("isMultiGuest").get(function () {
-    return ["multi", "multi-guest", "interview", "podcast"].includes(
-        this.type
-    );
+    return ["multi", "multi-guest", "interview", "podcast"].includes(this.type);
 });
 
 // ===========================================
 // PRE-SAVE MIDDLEWARE
 // ===========================================
-StreamSchema.pre("save", function (next) {
+StreamSchema.pre("save", async function (next) {
+    // ✅ SECURITY FIX: Hash password if modified
+    if (this.isModified("password") && this.password) {
+        try {
+            this.password = await bcrypt.hash(this.password, 10);
+        } catch (err) {
+            console.error("Failed to hash stream password:", err);
+            return next(err);
+        }
+    }
+
     // Update peak viewers
     if (this.viewers > this.peakViewers) {
         this.peakViewers = this.viewers;
     }
 
-    // 🔥 Houd viewersCount altijd gelijk aan viewers
+    // Keep viewersCount in sync with viewers
     this.viewersCount = this.viewers;
 
     // Calculate duration on end
     if (this.endedAt && this.startedAt && !this.duration) {
-        this.duration = Math.floor(
-            (this.endedAt - this.startedAt) / 1000
-        );
+        this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
     }
 
-    // Generate roomId if not set
+    // ✅ SECURITY FIX: Generate cryptographically secure roomId
     if (!this.roomId && this.isNew) {
-        this.roomId = `stream-${this._id}-${Date.now()}`;
+        this.roomId = `stream-${this._id}-${crypto.randomBytes(8).toString("hex")}`;
     }
 
-    // Generate stream key if not set
+    // ✅ SECURITY FIX: Generate cryptographically secure stream key
     if (!this.streamKey && this.isNew) {
-        this.streamKey = `sk_${this._id}_${Math.random()
-            .toString(36)
-            .substring(2, 15)}`;
+        this.streamKey = `sk_${this._id}_${crypto.randomBytes(16).toString("hex")}`;
     }
 
     next();
@@ -524,7 +531,7 @@ StreamSchema.statics.getLiveStreams = async function (options = {}) {
         .skip(skip)
         .limit(limit)
         .populate("streamerId", "username avatar isVerified")
-        .select("-viewerList -bannedUsers -blockedWords")
+        .select("-viewerList -bannedUsers -blockedWords -password")
         .lean();
 };
 
@@ -534,7 +541,8 @@ StreamSchema.statics.getLiveStreams = async function (options = {}) {
 StreamSchema.statics.getByRoomId = async function (roomId) {
     return this.findOne({ roomId, isLive: true })
         .populate("streamerId", "username avatar isVerified")
-        .populate("seats.userId", "username avatar");
+        .populate("seats.userId", "username avatar")
+        .select("-password");
 };
 
 /**
@@ -544,7 +552,7 @@ StreamSchema.statics.getUserActiveStream = async function (userId) {
     return this.findOne({
         streamerId: userId,
         isLive: true,
-    });
+    }).select("-password");
 };
 
 /**
@@ -555,7 +563,7 @@ StreamSchema.statics.updateViewers = async function (streamId, count) {
     if (!stream) return null;
 
     stream.viewers = count;
-    // 🔥 Houd viewersCount in sync met viewers
+
     stream.viewersCount = count;
 
     if (count > stream.peakViewers) {
@@ -584,7 +592,7 @@ StreamSchema.statics.addGift = async function (streamId, gift) {
             },
         },
         { new: true }
-    );
+    ).select("-password");
 };
 
 /**
@@ -597,9 +605,7 @@ StreamSchema.statics.endStream = async function (streamId) {
     stream.isLive = false;
     stream.status = "ended";
     stream.endedAt = new Date();
-    stream.duration = Math.floor(
-        (stream.endedAt - stream.startedAt) / 1000
-    );
+    stream.duration = Math.floor((stream.endedAt - stream.startedAt) / 1000);
 
     // Calculate avg watch time
     if (stream.viewerList?.length > 0) {
@@ -607,9 +613,7 @@ StreamSchema.statics.endStream = async function (streamId) {
             (sum, v) => sum + (v.watchTime || 0),
             0
         );
-        stream.avgWatchTime = Math.floor(
-            totalWatchTime / stream.viewerList.length
-        );
+        stream.avgWatchTime = Math.floor(totalWatchTime / stream.viewerList.length);
     }
 
     return stream.save();
@@ -643,6 +647,7 @@ StreamSchema.statics.searchStreams = async function (query, limit = 20) {
         .sort({ score: { $meta: "textScore" } })
         .limit(limit)
         .populate("streamerId", "username avatar")
+        .select("-password")
         .lean();
 };
 
@@ -688,6 +693,15 @@ StreamSchema.statics.getDashboardStats = async function () {
     };
 };
 
+/**
+ * ✅ Verify stream password
+ */
+StreamSchema.statics.verifyPassword = async function (streamId, password) {
+    const stream = await this.findById(streamId).select("+password");
+    if (!stream || !stream.password) return true; // No password set
+    return bcrypt.compare(password, stream.password);
+};
+
 // ===========================================
 // INSTANCE METHODS
 // ===========================================
@@ -711,9 +725,7 @@ StreamSchema.methods.end = async function () {
     this.isLive = false;
     this.status = "ended";
     this.endedAt = new Date();
-    this.duration = Math.floor(
-        (this.endedAt - this.startedAt) / 1000
-    );
+    this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
     return this.save();
 };
 
@@ -741,8 +753,7 @@ StreamSchema.methods.addGuest = async function (userId, username, avatar) {
  */
 StreamSchema.methods.removeGuest = async function (userId) {
     const seat = this.seats.find(
-        (s) =>
-            s.userId?.toString() === userId.toString() && !s.leftAt
+        (s) => s.userId?.toString() === userId.toString() && !s.leftAt
     );
 
     if (seat) {
@@ -766,9 +777,7 @@ StreamSchema.methods.banUser = async function (
         username,
         reason,
         bannedAt: new Date(),
-        expiresAt: duration
-            ? new Date(Date.now() + duration * 1000)
-            : null,
+        expiresAt: duration ? new Date(Date.now() + duration * 1000) : null,
     });
     return this.save();
 };
@@ -801,13 +810,12 @@ StreamSchema.methods.addModerator = async function (userId) {
  * Check if user is moderator
  */
 StreamSchema.methods.isModerator = function (userId) {
-    return this.moderators.some(
-        (m) => m.toString() === userId.toString()
-    );
+    return this.moderators.some((m) => m.toString() === userId.toString());
 };
 
 /**
  * Record viewer join
+ * ✅ FIX: Properly counts unique viewers
  */
 StreamSchema.methods.recordViewerJoin = function (userId, username) {
     if (!userId) return this;
@@ -823,7 +831,14 @@ StreamSchema.methods.recordViewerJoin = function (userId, username) {
             joinedAt: new Date(),
             watchTime: 0,
         });
-        this.totalUniqueViewers = this.viewerList.length;
+
+        // ✅ FIX: Count unique userIds, not total entries
+        const uniqueUserIds = new Set(
+            this.viewerList
+                .filter((v) => v.userId)
+                .map((v) => v.userId.toString())
+        );
+        this.totalUniqueViewers = uniqueUserIds.size;
     }
 
     return this;
@@ -842,13 +857,35 @@ StreamSchema.methods.recordViewerLeave = function (userId) {
     if (record) {
         const now = new Date();
         record.leftAt = now;
-        const diff = Math.floor(
-            (now - record.joinedAt) / 1000
-        );
+        const diff = Math.floor((now - record.joinedAt) / 1000);
         record.watchTime = (record.watchTime || 0) + diff;
     }
 
     return this;
+};
+
+/**
+ * ✅ Verify password for this stream instance
+ */
+StreamSchema.methods.verifyPassword = async function (password) {
+    if (!this.password) return true; // No password set
+    return bcrypt.compare(password, this.password);
+};
+
+/**
+ * ✅ Set password (will be hashed on save)
+ */
+StreamSchema.methods.setPassword = async function (password) {
+    this.password = password; // Will be hashed in pre-save
+    return this.save();
+};
+
+/**
+ * ✅ Remove password protection
+ */
+StreamSchema.methods.removePassword = async function () {
+    this.password = undefined;
+    return this.save();
 };
 
 // ===========================================

@@ -1,35 +1,21 @@
 // src/components/LiveViewer.jsx - WORLD STUDIO LIVE EDITION 👁 (U.E.)
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "react-hot-toast";
 
-// Universe Edition: centrale API + socket
+// ✅ Use shared instances
 import api from "../api/api";
-import { getSocket } from "../api/socket";
+import socket from "../api/socket"; // Default export, not getSocket()
+import { RTC_CONFIG } from "../api/WebrtcConfig";
 import LiveGiftPanel from "./LiveGiftPanel";
 
-/* ============================================================
-   WebRTC Configuration
-   ============================================================ */
-const RTC_CONFIG = {
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-    ],
-};
+// Default avatar
+const DEFAULT_AVATAR = "/defaults/default-avatar.png";
 
 /* ============================================================
    MAIN COMPONENT
    ============================================================ */
-/**
- * Props:
- *  - roomId: string (WebRTC room)
- *  - currentUser: ingelogde user (of null)
- *  - streamInfo: optionele initial info uit LivePage
- *  - streamId: Mongo stream-id (optioneel)
- *  - onLeave: callback bij verlaten
- */
+
+
 export default function LiveViewer({
     roomId,
     currentUser,
@@ -41,7 +27,7 @@ export default function LiveViewer({
     const pcRef = useRef(null);
     const broadcasterIdRef = useRef(null);
     const chatEndRef = useRef(null);
-    const socketRef = useRef(null);
+
 
     const [streamInfo, setStreamInfo] = useState(initialStreamInfo || null);
     const [isConnected, setIsConnected] = useState(false);
@@ -54,30 +40,24 @@ export default function LiveViewer({
     const [gifts, setGifts] = useState([]);
     const [duration, setDuration] = useState(0);
 
-    // "Everyone can see each other & follow"
-    const [participants, setParticipants] = useState([]); // {userId, username, avatar, isHost}
+    const [participants, setParticipants] = useState([]);
     const [followingIds, setFollowingIds] = useState([]);
-    const [activeSidebarTab, setActiveSidebarTab] = useState("chat"); // "chat" | "viewers"
+    const [activeSidebarTab, setActiveSidebarTab] = useState("chat");
+    const [showMobileChat, setShowMobileChat] = useState(false);
 
-    /* ========================================================
-       SOCKET INIT
-       ======================================================== */
-    useEffect(() => {
-        const s = getSocket();
-        socketRef.current = s;
-        return () => { };
-    }, []);
+    const effectiveStreamId = streamId || roomId;
+    const selfId = currentUser?._id || currentUser?.id;
 
     /* ========================================================
        CHAT AUTO SCROLL
        ======================================================== */
-    const scrollToBottom = () => {
+    const scrollToBottom = useCallback(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    }, []);
 
     useEffect(() => {
         scrollToBottom();
-    }, [chat]);
+    }, [chat, scrollToBottom]);
 
     /* ========================================================
        DURATION TIMER
@@ -101,9 +81,7 @@ export default function LiveViewer({
         const m = Math.floor((s % 3600) / 60);
         const sec = s % 60;
         if (h > 0) {
-            return `${h}:${m.toString().padStart(2, "0")}:${sec
-                .toString()
-                .padStart(2, "0")}`;
+            return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
         }
         return `${m}:${sec.toString().padStart(2, "0")}`;
     };
@@ -111,28 +89,20 @@ export default function LiveViewer({
     /* ========================================================
        PARTICIPANTS HELPER
        ======================================================== */
-    const addParticipant = (user) => {
+    const addParticipant = useCallback((user) => {
         if (!user || !user.userId) return;
         setParticipants((prev) => {
             if (prev.some((p) => p.userId === user.userId)) return prev;
             return [...prev, user];
         });
-    };
+    }, []);
 
-    // Init host + current user in participants
+    // Init host in participants
     useEffect(() => {
         if (streamInfo) {
-            const hostId =
-                streamInfo.streamerId ||
-                streamInfo.hostId ||
-                streamInfo.host?._id;
-            const hostUsername =
-                streamInfo.streamerName ||
-                streamInfo.hostUsername ||
-                streamInfo.host?.username ||
-                "Host";
-            const hostAvatar =
-                streamInfo.host?.avatar || streamInfo.hostAvatar;
+            const hostId = streamInfo.streamerId || streamInfo.hostId || streamInfo.host?._id;
+            const hostUsername = streamInfo.streamerName || streamInfo.hostUsername || streamInfo.host?.username || "Host";
+            const hostAvatar = streamInfo.host?.avatar || streamInfo.hostAvatar;
 
             if (hostId) {
                 addParticipant({
@@ -143,30 +113,27 @@ export default function LiveViewer({
                 });
             }
         }
-    }, [streamInfo]);
+    }, [streamInfo, addParticipant]);
 
+    // Add current user to participants
     useEffect(() => {
-        if (currentUser) {
-            const id = currentUser._id || currentUser.id;
-            if (!id) return;
+        if (currentUser && selfId) {
             addParticipant({
-                userId: id,
+                userId: selfId,
                 username: currentUser.username || "You",
                 avatar: currentUser.avatar,
                 isHost: false,
             });
         }
-    }, [currentUser]);
+    }, [currentUser, selfId, addParticipant]);
 
     /* ========================================================
-       LOAD STREAM INFO (als niet via props)
+       LOAD STREAM INFO
        ======================================================== */
-    const effectiveStreamId = streamId || roomId;
+
 
     useEffect(() => {
-        if (!roomId) return;
-        // als al vanuit props gekregen, hoeft niet perse
-        if (initialStreamInfo) return;
+        if (!roomId || initialStreamInfo) return;
 
         const fetchInfo = async () => {
             try {
@@ -182,24 +149,46 @@ export default function LiveViewer({
         };
 
         fetchInfo();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [roomId]);
+    }, [roomId, initialStreamInfo]);
 
     /* ========================================================
-       MAIN CONNECTION EFFECT (WebRTC + SOCKET EVENTS)
+       CLEANUP VIDEO HELPER
+       ======================================================== */
+    const cleanupVideo = useCallback(() => {
+        if (videoRef.current?.srcObject instanceof MediaStream) {
+            videoRef.current.srcObject.getTracks().forEach((track) => {
+                track.stop();
+                console.log(`🛑 Stopped viewer ${track.kind} track`);
+            });
+            videoRef.current.srcObject = null;
+        }
+    }, []);
+
+    /* ========================================================
+       CLEANUP PEER CONNECTION
+       ======================================================== */
+    const cleanupPeerConnection = useCallback(() => {
+        if (pcRef.current) {
+            pcRef.current.close();
+            pcRef.current = null;
+            console.log("🔒 Closed viewer peer connection");
+        }
+    }, []);
+
+    /* ========================================================
+       MAIN CONNECTION EFFECT
        ======================================================== */
     useEffect(() => {
         if (!roomId) return;
 
         let active = true;
-        const socket = socketRef.current;
-        if (!socket) return;
+
 
         setIsConnected(false);
         setIsConnecting(true);
         setError("");
 
-        // 1) PeerConnection opzetten
+        // ✅ Use shared RTC_CONFIG from WebrtcConfig.js
         const pc = new RTCPeerConnection(RTC_CONFIG);
         pcRef.current = pc;
 
@@ -216,17 +205,18 @@ export default function LiveViewer({
         };
 
         pc.onconnectionstatechange = () => {
-            console.log("Viewer connection state:", pc.connectionState);
+            console.log("🔌 Viewer connection state:", pc.connectionState);
             if (pc.connectionState === "connected") {
                 setIsConnected(true);
                 setIsConnecting(false);
-            } else if (
-                pc.connectionState === "disconnected" ||
-                pc.connectionState === "failed"
-            ) {
+            } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
                 setIsConnected(false);
                 setError("Connection lost. Stream may have ended.");
             }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            console.log("🧊 Viewer ICE state:", pc.iceConnectionState);
         };
 
         pc.onicecandidate = ({ candidate }) => {
@@ -238,14 +228,14 @@ export default function LiveViewer({
             }
         };
 
-        // 2) Join rooms
+        // Join rooms
         socket.emit("join_stream", {
             streamId: effectiveStreamId,
             roomId,
         });
         socket.emit("watcher", { roomId });
 
-        // 3) SOCKET HANDLERS
+        // Socket handlers
         const handleOffer = async ({ sdp, broadcasterId }) => {
             if (!active) return;
             try {
@@ -301,15 +291,10 @@ export default function LiveViewer({
             const giftObj = { ...gift, timestamp };
             setGifts((prev) => [...prev.slice(-10), giftObj]);
 
-            toast.success(
-                `🎁 ${gift.senderUsername} sent ${gift.item || gift.icon || "a gift"
-                }!`
-            );
+            toast.success(`🎁 ${gift.senderUsername} sent ${gift.item || gift.icon || "a gift"}!`);
 
             setTimeout(() => {
-                setGifts((prev) =>
-                    prev.filter((g) => g.timestamp !== timestamp)
-                );
+                setGifts((prev) => prev.filter((g) => g.timestamp !== timestamp));
             }, 5000);
         };
 
@@ -319,12 +304,13 @@ export default function LiveViewer({
             toast.error("Stream has ended");
         };
 
+        // Register listeners
         socket.on("offer", handleOffer);
         socket.on("candidate", handleCandidate);
         socket.on("viewer_count", handleViewerCount);
         socket.on("chat_message", handleChatMessage);
         socket.on("gift_received", handleGiftReceived);
-        socket.on("gift_sent", handleGiftReceived); // ook lokaal direct tonen
+        socket.on("gift_sent", handleGiftReceived);
         socket.on("stream_ended", handleStreamEnded);
         socket.on("live_ended", handleStreamEnded);
 
@@ -332,15 +318,11 @@ export default function LiveViewer({
         const timeoutId = setTimeout(() => {
             if (active && !isConnected && isConnecting) {
                 setIsConnecting(false);
-                setError(
-                    (prev) =>
-                        prev ||
-                        "Could not connect to stream. It may not be live."
-                );
+                setError((prev) => prev || "Could not connect to stream. It may not be live.");
             }
         }, 15000);
 
-        // CLEANUP
+        // Cleanup
         return () => {
             active = false;
             clearTimeout(timeoutId);
@@ -350,6 +332,7 @@ export default function LiveViewer({
                 roomId,
             });
 
+            // Remove listeners
             socket.off("offer", handleOffer);
             socket.off("candidate", handleCandidate);
             socket.off("viewer_count", handleViewerCount);
@@ -359,22 +342,10 @@ export default function LiveViewer({
             socket.off("stream_ended", handleStreamEnded);
             socket.off("live_ended", handleStreamEnded);
 
-            if (pcRef.current) {
-                pcRef.current.close();
-                pcRef.current = null;
-            }
-
-
-            if (videoRef.current?.srcObject instanceof MediaStream) {
-                videoRef.current.srcObject
-                    .getTracks()
-                    .forEach((t) => t.stop());
-                videoRef.current.srcObject = null;
-
-            }
+            cleanupPeerConnection();
+            cleanupVideo();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [roomId]);
+    }, [roomId, effectiveStreamId, addParticipant, cleanupPeerConnection, cleanupVideo, isConnected, isConnecting]);
 
     /* ========================================================
        CHAT SEND
@@ -382,21 +353,20 @@ export default function LiveViewer({
     const sendMessage = (e) => {
         e.preventDefault();
         const text = chatInput.trim();
-        if (!text || !socketRef.current) return;
-
-        const uid = currentUser?._id || currentUser?.id;
+        if (!text) return;
 
         const message = {
             streamId: effectiveStreamId,
             roomId,
             username: currentUser?.username || "Anonymous",
-            userId: uid,
+            userId: selfId,
+            avatar: currentUser?.avatar,
             isHost: false,
             text,
             timestamp: new Date().toISOString(),
         };
 
-        socketRef.current.emit("chat_message", message);
+        socket.emit("chat_message", message);
         setChatInput("");
     };
 
@@ -408,24 +378,19 @@ export default function LiveViewer({
             toast.error("Log in to follow users");
             return;
         }
-        const myId = currentUser._id || currentUser.id;
-        const targetId = user.userId;
-        if (!targetId || targetId === myId) return;
 
+        const targetId = user.userId;
+        if (!targetId || targetId === selfId) return;
         if (followingIds.includes(targetId)) return;
 
         try {
-            // Aanname: bestaande endpoint
+
             await api.post(`/users/${targetId}/follow`);
-            setFollowingIds((prev) =>
-                prev.includes(targetId) ? prev : [...prev, targetId]
-            );
+            setFollowingIds((prev) => (prev.includes(targetId) ? prev : [...prev, targetId]));
             toast.success(`You now follow ${user.username}`);
         } catch (err) {
             console.error("Follow failed:", err);
-            toast.error(
-                err.response?.data?.message || "Failed to follow user"
-            );
+            toast.error(err.response?.data?.message || "Failed to follow user");
         }
     };
 
@@ -435,22 +400,13 @@ export default function LiveViewer({
        LEAVE STREAM
        ======================================================== */
     const handleLeave = () => {
-        const socket = socketRef.current;
-        socket?.emit("leave_stream", {
+        socket.emit("leave_stream", {
             streamId: effectiveStreamId,
             roomId,
         });
 
-        if (pcRef.current) {
-            pcRef.current.close();
-            pcRef.current = null;
-        }
-
-        if (videoRef.current?.srcObject instanceof MediaStream) {
-            videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
-            videoRef.current.srcObject = null;
-        }
-
+        cleanupPeerConnection();
+        cleanupVideo();
         onLeave?.();
     };
 
@@ -475,6 +431,105 @@ export default function LiveViewer({
     }
 
     /* ========================================================
+       CHAT COMPONENT (reusable for mobile/desktop)
+       ======================================================== */
+    const ChatPanel = ({ isMobile = false }) => (
+        <div className={`flex flex-col ${isMobile ? "h-full" : ""}`}>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {chat.length === 0 ? (
+                    <p className="text-white/40 text-sm text-center py-8">
+                        No messages yet. Say hi! 👋
+                    </p>
+                ) : (
+                    chat.map((msg, i) => (
+                        <div
+                            key={i}
+                            className={`text-sm break-words p-2 rounded-lg ${msg.isHost ? "bg-cyan-500/20" : "bg-white/5"
+                                }`}
+                        >
+                            <span className={`font-semibold ${msg.isHost ? "text-cyan-400" : "text-purple-400"}`}>
+                                {msg.username || msg.user}
+                                {msg.isHost ? " 👑" : ""}:
+                            </span>{" "}
+                            <span className="text-white/80">{msg.text}</span>
+                        </div>
+                    ))
+                )}
+                <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={sendMessage} className="p-3 border-t border-white/10">
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder={currentUser ? "Send a message..." : "Log in to chat"}
+                        disabled={!currentUser}
+                        maxLength={200}
+                        className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white placeholder-white/40 outline-none focus:border-cyan-400 disabled:opacity-50 transition"
+                    />
+                    <button
+                        type="submit"
+                        disabled={!chatInput.trim() || !currentUser}
+                        className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                        Send
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+
+    /* ========================================================
+       VIEWERS PANEL (reusable)
+       ======================================================== */
+    const ViewersPanel = () => (
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {participants.length === 0 ? (
+                <p className="text-white/40 text-sm text-center py-8">No viewers yet</p>
+            ) : (
+                participants.map((user) => {
+                    const self = user.userId === selfId;
+                    const followed = isFollowing(user.userId);
+
+                    return (
+                        <div key={user.userId} className="flex items-center gap-2 bg-white/5 rounded-lg px-2 py-2">
+                            <img
+                                src={user.avatar || DEFAULT_AVATAR}
+                                alt=""
+                                className="w-8 h-8 rounded-full object-cover border border-white/20"
+                                onError={(e) => {
+                                    e.target.src = DEFAULT_AVATAR;
+                                }}
+                            />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold truncate">
+                                    {user.username}
+                                    {user.isHost && " 👑"}
+                                    {self && " (You)"}
+                                </p>
+                            </div>
+                            {!self && currentUser && (
+                                <button
+                                    onClick={() => handleFollow(user)}
+                                    disabled={followed}
+                                    className={`text-xs px-2 py-1 rounded-full border transition ${followed
+                                            ? "border-green-400 text-green-400 cursor-default"
+                                            : "border-cyan-400 text-cyan-400 hover:bg-cyan-400/10"
+                                        }`}
+                                >
+                                    {followed ? "Following" : "Follow"}
+                                </button>
+                            )}
+                        </div>
+                    );
+                })
+            )}
+        </div>
+    );
+
+    /* ========================================================
        RENDER
        ======================================================== */
     return (
@@ -488,26 +543,21 @@ export default function LiveViewer({
                     ← Back
                 </button>
 
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                     {streamInfo ? (
                         <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
                             <span className="font-semibold text-white truncate">
                                 {streamInfo.title || "Live Stream"}
                             </span>
-                            {(streamInfo.host?.username ||
-                                streamInfo.hostUsername) && (
-                                    <span className="text-white/50 hidden md:inline">
-                                        •{" "}
-                                        {streamInfo.host?.username ||
-                                            streamInfo.hostUsername}
-                                    </span>
-                                )}
+                            {(streamInfo.host?.username || streamInfo.hostUsername) && (
+                                <span className="text-white/50 hidden md:inline">
+                                    • {streamInfo.host?.username || streamInfo.hostUsername}
+                                </span>
+                            )}
                         </div>
                     ) : (
-                        <span className="text-white/50">
-                            Room: {roomId?.slice(0, 15)}...
-                        </span>
+                        <span className="text-white/50">Room: {roomId?.slice(0, 15)}...</span>
                     )}
                 </div>
 
@@ -520,18 +570,14 @@ export default function LiveViewer({
 
                 {/* Connection status */}
                 <div
-                    className={`px-3 py-1 rounded-full text-sm ${isConnected
+                    className={`px-3 py-1 rounded-full text-sm hidden sm:block ${isConnected
                             ? "bg-green-500/20 text-green-400"
                             : isConnecting
                                 ? "bg-yellow-500/20 text-yellow-400"
                                 : "bg-red-500/20 text-red-400"
                         }`}
                 >
-                    {isConnected
-                        ? "Connected"
-                        : isConnecting
-                            ? "Connecting..."
-                            : "Offline"}
+                    {isConnected ? "Connected" : isConnecting ? "Connecting..." : "Offline"}
                 </div>
 
                 {/* Viewer count */}
@@ -539,6 +585,14 @@ export default function LiveViewer({
                     <span>👁</span>
                     <span className="font-semibold">{viewers}</span>
                 </div>
+
+                {/* Mobile chat toggle */}
+                <button
+                    onClick={() => setShowMobileChat(!showMobileChat)}
+                    className="lg:hidden px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition"
+                >
+                    💬
+                </button>
 
                 {/* Gift button */}
                 {currentUser && streamInfo && (
@@ -549,13 +603,13 @@ export default function LiveViewer({
                                 : "bg-pink-500/20 text-pink-400 hover:bg-pink-500/30"
                             }`}
                     >
-                        🎁 Gift
+                        🎁 <span className="hidden sm:inline">Gift</span>
                     </button>
                 )}
             </div>
 
             {/* Main content */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-hidden relative">
                 {/* Video area */}
                 <div className="flex-1 relative bg-black">
                     {/* Loading spinner */}
@@ -563,9 +617,7 @@ export default function LiveViewer({
                         <div className="absolute inset-0 flex items-center justify-center z-10">
                             <div className="text-center">
                                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mb-4" />
-                                <p className="text-white/60">
-                                    Connecting to stream...
-                                </p>
+                                <p className="text-white/60">Connecting to stream...</p>
                             </div>
                         </div>
                     )}
@@ -575,8 +627,7 @@ export default function LiveViewer({
                         ref={videoRef}
                         autoPlay
                         playsInline
-                        className={`w-full h-full object-contain ${isConnecting ? "opacity-0" : "opacity-100"
-                            }`}
+                        className={`w-full h-full object-contain ${isConnecting ? "opacity-0" : "opacity-100"}`}
                     />
 
                     {/* Gift animations */}
@@ -584,20 +635,14 @@ export default function LiveViewer({
                         {gifts.slice(-5).map((gift, i) => (
                             <div
                                 key={gift.timestamp || i}
-                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color ||
-                                    "from-purple-500/80 to-pink-500/80"
+                                className={`flex items-center gap-2 bg-gradient-to-r ${gift.color || "from-purple-500/80 to-pink-500/80"
                                     } px-3 py-2 rounded-lg animate-slideIn`}
                             >
-                                <span className="text-2xl animate-bounce">
-                                    {gift.icon || "🎁"}
-                                </span>
+                                <span className="text-2xl animate-bounce">{gift.icon || "🎁"}</span>
                                 <div>
-                                    <p className="text-sm font-semibold text-white">
-                                        {gift.senderUsername}
-                                    </p>
+                                    <p className="text-sm font-semibold text-white">{gift.senderUsername}</p>
                                     <p className="text-xs text-white/80">
-                                        sent {gift.item || "gift"} x
-                                        {gift.amount}
+                                        sent {gift.item || "gift"} x{gift.amount || 1}
                                     </p>
                                 </div>
                             </div>
@@ -618,43 +663,30 @@ export default function LiveViewer({
                             </div>
                             <LiveGiftPanel
                                 streamId={effectiveStreamId}
-                                hostId={
-                                    streamInfo.streamerId ||
-                                    streamInfo.hostId ||
-                                    streamInfo.host?._id
-                                }
+                                hostId={streamInfo.streamerId || streamInfo.hostId || streamInfo.host?._id}
                                 hostUsername={
-                                    streamInfo.streamerName ||
-                                    streamInfo.hostUsername ||
-                                    streamInfo.host?.username
+                                    streamInfo.streamerName || streamInfo.hostUsername || streamInfo.host?.username
                                 }
-                                onGiftSent={() => {
-                                    // UI wordt al via socket-events geüpdatet
-                                    setShowGiftPanel(false);
-                                }}
+                                onGiftSent={() => setShowGiftPanel(false)}
                             />
                         </div>
                     )}
                 </div>
 
-                {/* Chat + Viewers sidebar (desktop) */}
+                {/* Desktop sidebar */}
                 <div className="w-80 hidden lg:flex flex-col bg-white/5 border-l border-white/10">
                     {/* Tabs */}
                     <div className="p-3 border-b border-white/10 flex gap-2">
                         <button
                             onClick={() => setActiveSidebarTab("chat")}
-                            className={`flex-1 py-2 rounded-lg text-sm font-semibold ${activeSidebarTab === "chat"
-                                    ? "bg-white/20"
-                                    : "bg-transparent hover:bg-white/10"
+                            className={`flex-1 py-2 rounded-lg text-sm font-semibold ${activeSidebarTab === "chat" ? "bg-white/20" : "bg-transparent hover:bg-white/10"
                                 }`}
                         >
                             💬 Chat
                         </button>
                         <button
                             onClick={() => setActiveSidebarTab("viewers")}
-                            className={`flex-1 py-2 rounded-lg text-sm font-semibold ${activeSidebarTab === "viewers"
-                                    ? "bg-white/20"
-                                    : "bg-transparent hover:bg-white/10"
+                            className={`flex-1 py-2 rounded-lg text-sm font-semibold ${activeSidebarTab === "viewers" ? "bg-white/20" : "bg-transparent hover:bg-white/10"
                                 }`}
                         >
                             👥 Viewers ({participants.length})
@@ -662,140 +694,41 @@ export default function LiveViewer({
                     </div>
 
                     {/* Content */}
-                    {activeSidebarTab === "chat" ? (
-                        <>
-                            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                                {chat.length === 0 ? (
-                                    <p className="text-white/40 text-sm text-center py-8">
-                                        No messages yet. Say hi! 👋
-                                    </p>
-                                ) : (
-                                    chat.map((msg, i) => (
-                                        <div
-                                            key={i}
-                                            className={`text-sm break-words p-2 rounded-lg ${msg.isHost
-                                                    ? "bg-cyan-500/20"
-                                                    : "bg-white/5"
-                                                }`}
-                                        >
-                                            <span
-                                                className={`font-semibold ${msg.isHost
-                                                        ? "text-cyan-400"
-                                                        : "text-purple-400"
-                                                    }`}
-                                            >
-                                                {msg.username || msg.user}
-                                                {msg.isHost ? " 👑" : ""}:
-                                            </span>{" "}
-                                            <span className="text-white/80">
-                                                {msg.text}
-                                            </span>
-                                        </div>
-                                    ))
-                                )}
-                                <div ref={chatEndRef} />
-                            </div>
-
-                            {/* Chat input */}
-                            <form
-                                onSubmit={sendMessage}
-                                className="p-3 border-t border-white/10"
-                            >
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        value={chatInput}
-                                        onChange={(e) =>
-                                            setChatInput(e.target.value)
-                                        }
-                                        placeholder={
-                                            currentUser
-                                                ? "Send a message..."
-                                                : "Log in to chat"
-                                        }
-                                        disabled={!currentUser}
-                                        maxLength={200}
-                                        className="flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white placeholder-white/40 outline-none focus:border-cyan-400 disabled:opacity-50 transition"
-                                    />
-                                    <button
-                                        type="submit"
-                                        disabled={
-                                            !chatInput.trim() || !currentUser
-                                        }
-                                        className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 rounded-lg font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition"
-                                    >
-                                        Send
-                                    </button>
-                                </div>
-                            </form>
-                        </>
-                    ) : (
-                        // Viewers tab
-                        <div className="flex-1 flex flex-col">
-                            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                                {participants.length === 0 ? (
-                                    <p className="text-white/40 text-sm text-center py-8">
-                                        No viewers yet
-                                    </p>
-                                ) : (
-                                    participants.map((user) => {
-                                        const myId =
-                                            currentUser?._id ||
-                                            currentUser?.id;
-                                        const self = user.userId === myId;
-                                        const followed = isFollowing(
-                                            user.userId
-                                        );
-
-                                        return (
-                                            <div
-                                                key={user.userId}
-                                                className="flex items-center gap-2 bg-white/5 rounded-lg px-2 py-2"
-                                            >
-                                                <img
-                                                    src={
-                                                        user.avatar ||
-                                                        "/defaults/default-avatar.png"
-                                                    }
-                                                    alt=""
-                                                    className="w-8 h-8 rounded-full object-cover border border-white/20"
-                                                    onError={(e) => {
-                                                        e.target.src =
-                                                            "/defaults/default-avatar.png";
-                                                    }}
-                                                />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold truncate">
-                                                        {user.username}
-                                                        {user.isHost &&
-                                                            " 👑"}
-                                                        {self && " (You)"}
-                                                    </p>
-                                                </div>
-                                                {!self && currentUser && (
-                                                    <button
-                                                        onClick={() =>
-                                                            handleFollow(user)
-                                                        }
-                                                        disabled={followed}
-                                                        className={`text-xs px-2 py-1 rounded-full border transition ${followed
-                                                                ? "border-green-400 text-green-400 cursor-default"
-                                                                : "border-cyan-400 text-cyan-400 hover:bg-cyan-400/10"
-                                                            }`}
-                                                    >
-                                                        {followed
-                                                            ? "Following"
-                                                            : "Follow"}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        );
-                                    })
-                                )}
-                            </div>
-                        </div>
-                    )}
+                    {activeSidebarTab === "chat" ? <ChatPanel /> : <ViewersPanel />}
                 </div>
+
+                {/* Mobile chat overlay */}
+                {showMobileChat && (
+                    <div className="absolute inset-0 bg-black/90 z-30 lg:hidden flex flex-col">
+                        <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setActiveSidebarTab("chat")}
+                                    className={`px-4 py-2 rounded-lg text-sm font-semibold ${activeSidebarTab === "chat" ? "bg-white/20" : "bg-transparent"
+                                        }`}
+                                >
+                                    💬 Chat
+                                </button>
+                                <button
+                                    onClick={() => setActiveSidebarTab("viewers")}
+                                    className={`px-4 py-2 rounded-lg text-sm font-semibold ${activeSidebarTab === "viewers" ? "bg-white/20" : "bg-transparent"
+                                        }`}
+                                >
+                                    👥 ({participants.length})
+                                </button>
+                            </div>
+                            <button
+                                onClick={() => setShowMobileChat(false)}
+                                className="px-3 py-2 bg-white/10 rounded-lg"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            {activeSidebarTab === "chat" ? <ChatPanel isMobile /> : <ViewersPanel />}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <style>{`

@@ -94,6 +94,7 @@ const giftsRoutes = require("./routes/gifts.route");
 const uploadRoutes = require("./routes/upload");
 const walletRoutes = require("./routes/wallet");
 const streamCleanupRoutes = require("./routes/streamCleanupRoutes");
+const notificationsRoutes = require("./routes/notifications");
 
 // Optionele LIVE routes (geen crash als file mist)
 let liveRoutes = null;
@@ -132,6 +133,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/gifts", giftsRoutes);
 console.log("🎁 Gifts routes loaded");
 app.use("/api/upload", uploadRoutes);
+app.use("/api/notifications", notificationsRoutes);
 
 // Posts routes
 const postsRoutes = require("./routes/posts");
@@ -142,7 +144,7 @@ app.use("/api/stream-cleanup", streamCleanupRoutes);
 
 if (liveRoutes) {
     app.use("/api/live", liveRoutes);
-app.use("/api/stocks", require("./routes/stocks"));
+    app.use("/api/stocks", require("./routes/stocks"));
 }
 
 if (cryptoRoutes) {

@@ -2,7 +2,7 @@
 // World-Studio.live - Main Application Router
 // UNIVERSUM EDITION 👑🌌
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
     BrowserRouter as Router,
     Routes,
@@ -18,7 +18,12 @@ import { Toaster, toast } from "react-hot-toast";
 // API + SOCKET CONFIG (Universe Editions)
 // ===========================================
 import { API_BASE_URL } from "./api/api";
-import socket, { joinUserRoom } from "./api/socket";
+import socket, { joinUserRoom, leaveUserRoom } from "./api/socket";
+
+// ✅ Make socket globally available for ProfilePage
+if (typeof window !== "undefined") {
+    window.socket = socket;
+}
 
 // ===========================================
 // COMPONENT IMPORTS
@@ -40,7 +45,10 @@ import PostDetail from "./pages/PostDetail";
 
 import "./styles/global.css";
 
-// Kleine helper om browser-safe tokens te lezen
+// ===========================================
+// HELPER FUNCTIONS
+// ===========================================
+
 const getToken = () => {
     if (typeof window === "undefined") return null;
     try {
@@ -63,6 +71,11 @@ const getCurrentUser = () => {
     }
 };
 
+const getUserId = (user) => {
+    if (!user) return null;
+    return user._id || user.id || user.userId || null;
+};
+
 // Backend root voor assets (API_BASE_URL bevat /api)
 const API_ROOT = API_BASE_URL.replace(/\/api\/?$/, "");
 
@@ -79,7 +92,7 @@ const RequireAuth = ({ children }) => {
     return children;
 };
 
-// 👑 ADMIN ROUTE
+
 const RequireAdmin = ({ children }) => {
     const token = getToken();
     const currentUser = getCurrentUser();
@@ -118,33 +131,27 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+    const userId = getUserId(currentUser);
     const isAdmin =
         currentUser?.email === "menziesalm@gmail.com" ||
         currentUser?.role === "admin";
 
+    // Fetch initial notification count
     useEffect(() => {
-        if (!currentUser) return;
-
-        const userId =
-            currentUser._id || currentUser.id || currentUser.userId || null;
-        if (!userId) return;
+        if (!currentUser || !userId) return;
 
         const fetchNotifications = async () => {
             try {
                 const token = getToken();
                 if (!token) return;
 
-                // API_BASE_URL uit api.js bevat al "/api"
-                const res = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                const res = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
 
                 if (res.ok) {
                     const data = await res.json();
-                    const unread = (data.notifications || []).filter(
-                        (n) => !n.read
-                    ).length;
-                    setUnreadCount(unread);
+                    setUnreadCount(data.unreadCount || 0);
                 }
             } catch (err) {
                 console.error("Failed to fetch notifications:", err);
@@ -154,38 +161,76 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
         fetchNotifications();
         const interval = setInterval(fetchNotifications, 30000);
         return () => clearInterval(interval);
-    }, [currentUser]);
+    }, [currentUser, userId]);
 
+    // Socket listeners for real-time updates
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser || !userId) return;
 
-        const userId =
-            currentUser._id || currentUser.id || currentUser.userId || null;
-        if (!userId) return;
-
-        // Socket listeners
-        socket.on("notification", () => {
+        // New notification received
+        const handleNewNotification = (data) => {
             setUnreadCount((prev) => prev + 1);
-        });
 
-        socket.on("followed_user_live", (data) => {
-            toast.success(`🔴 ${data.username} is now live: ${data.title}`, {
-                duration: 5000,
-                icon: "📺",
-            });
-        });
+            if (data?.message) {
+                toast(data.message, {
+                    icon: data.icon || "🔔",
+                    duration: 4000,
+                });
+            }
+        };
+
+        // Someone followed you
+        const handleNewFollower = (data) => {
+            if (data?.username) {
+                toast.success(`${data.username} started following you! 🎉`, {
+                    duration: 4000,
+                });
+            }
+        };
+
+        // Someone you follow went live
+        const handleUserWentLive = (data) => {
+            if (data?.username) {
+                toast.success(`🔴 ${data.username} is now live!`, {
+                    duration: 5000,
+                    icon: "📺",
+                });
+            }
+        };
+
+        // Gift received (only show if it's for this user)
+        const handleGiftReceived = (data) => {
+            const isForMe = data?.toUserId === userId || data?.streamerId === userId;
+            if (isForMe && data?.fromUsername) {
+                toast.success(`🎁 ${data.fromUsername} sent you a ${data.giftName || "gift"}!`, {
+                    duration: 4000,
+                });
+            }
+        };
+
+        // Register event listeners
+        socket.on("new_notification", handleNewNotification);
+        socket.on("new_follower", handleNewFollower);
+        socket.on("user_went_live", handleUserWentLive);
+        socket.on("followed_user_live", handleUserWentLive);
+        socket.on("gift_received", handleGiftReceived);
 
         return () => {
-            socket.off("notification");
-            socket.off("followed_user_live");
+            socket.off("new_notification", handleNewNotification);
+            socket.off("new_follower", handleNewFollower);
+            socket.off("user_went_live", handleUserWentLive);
+            socket.off("followed_user_live", handleUserWentLive);
+            socket.off("gift_received", handleGiftReceived);
         };
-    }, [currentUser]);
+    }, [currentUser, userId]);
 
+    // Hide nav on login/reset pages
     if (
         location.pathname === "/login" ||
         location.pathname === "/reset-password"
-    )
+    ) {
         return null;
+    }
 
     const isActive = (path) => location.pathname === path;
 
@@ -242,9 +287,7 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                         {currentUser && (
                             <Link
                                 to="/wallet"
-                                className={`flex items-center gap-1 bg-yellow-500/20 hover:bg-yellow-500/30 px-3 py-2 rounded-lg transition text-yellow-400 font-semibold text-sm ${isActive("/wallet")
-                                        ? "bg-yellow-500/30"
-                                        : ""
+                                className={`flex items-center gap-1 bg-yellow-500/20 hover:bg-yellow-500/30 px-3 py-2 rounded-lg transition text-yellow-400 font-semibold text-sm ${isActive("/wallet") ? "bg-yellow-500/30" : ""
                                     }`}
                             >
                                 💰{" "}
@@ -257,9 +300,7 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                         {currentUser && (
                             <Link
                                 to="/notifications"
-                                className={`relative bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition ${isActive("/notifications")
-                                        ? "bg-white/20"
-                                        : ""
+                                className={`relative bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition ${isActive("/notifications") ? "bg-white/20" : ""
                                     }`}
                             >
                                 🔔
@@ -274,6 +315,7 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                         <button
                             onClick={() => setDark((v) => !v)}
                             className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg transition"
+                            aria-label="Toggle dark mode"
                         >
                             {dark ? "🌙" : "☀️"}
                         </button>
@@ -318,6 +360,7 @@ const Navigation = ({ currentUser, onLogout, dark, setDark }) => {
                         <button
                             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                             className="md:hidden bg-white/10 hover:bg-white/20 p-2 rounded-lg"
+                            aria-label="Toggle mobile menu"
                         >
                             {mobileMenuOpen ? "✕" : "☰"}
                         </button>
@@ -377,6 +420,7 @@ export default function App() {
         }
     });
 
+    // Load user from localStorage
     useEffect(() => {
         const loadUser = () => {
             const user = getCurrentUser();
@@ -398,20 +442,25 @@ export default function App() {
         }
     }, []);
 
+    // Join user's notification room when logged in
     useEffect(() => {
-        if (!currentUser) return;
-
-        const userId =
-            currentUser._id || currentUser.id || currentUser.userId || null;
+        const userId = getUserId(currentUser);
         if (!userId) return;
 
-        // Universe socket helper
+        // Join user's personal room for notifications
         joinUserRoom(userId);
+        console.log("🔔 Joined notification room for user:", userId);
+
+        // Cleanup on unmount or user change
+        return () => {
+            leaveUserRoom(userId);
+            console.log("🔕 Left notification room for user:", userId);
+        };
     }, [currentUser]);
 
+    // Dark mode handling
     useEffect(() => {
-        if (typeof document === "undefined" || typeof window === "undefined")
-            return;
+        if (typeof document === "undefined" || typeof window === "undefined") return;
 
         if (dark) {
             document.documentElement.setAttribute("data-theme", "dark");
@@ -422,20 +471,30 @@ export default function App() {
         }
     }, [dark]);
 
-    const handleLogout = () => {
+    // Logout handler
+    const handleLogout = useCallback(() => {
+        // Leave user room before logout
+        const userId = getUserId(currentUser);
+        if (userId) {
+            leaveUserRoom(userId);
+        }
+
         if (typeof window !== "undefined") {
             window.localStorage.removeItem("token");
             window.localStorage.removeItem("ws_token");
             window.localStorage.removeItem("ws_currentUser");
+            window.localStorage.removeItem("user");
         }
+
         setCurrentUser(null);
+
         if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("auth-change"));
             window.dispatchEvent(new Event("authChange"));
             toast.success("Logged out!");
             window.location.href = "/login";
         }
-    };
+    }, [currentUser]);
 
     return (
         <Router>

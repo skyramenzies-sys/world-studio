@@ -6,16 +6,15 @@
  *
  * STUN servers: Help peers discover their public IP addresses
  * TURN servers: Relay traffic when direct connection fails (firewall/NAT issues)
- *
- * @see https://world-studio-production.up.railway.app/docs/webrtc
+ * Media constraints: Define video/audio quality settings
  */
 
 // ===========================================
-// API / SOCKET CONFIGURATION (dynamic, in sync with api.js)
+// API / SOCKET CONFIGURATION
 // ===========================================
 import { API_BASE_URL } from "./api";
 
-// Start from API_BASE_URL (root from api.js), fallback to env / window
+// Start from API_BASE_URL, fallback to env / window
 let baseUrl =
     API_BASE_URL ||
     (typeof import.meta !== "undefined" &&
@@ -23,12 +22,12 @@ let baseUrl =
         import.meta.env.VITE_API_URL) ||
     (typeof window !== "undefined" ? window.location.origin : "https://world-studio-production.up.railway.app");
 
-// Strip trailing /api en slashes -> root domain
+// Strip trailing /api and slashes -> root domain
 baseUrl = baseUrl.replace(/\/api\/?$/, "").replace(/\/+$/, "");
 
-export const API_BASE_URL_RTC = baseUrl;   // explicit name voor RTC
+export const API_BASE_URL_RTC = baseUrl;
 export const API_BASE_URL_WEBSOCKET = baseUrl;
-export const SOCKET_URL = baseUrl;         // backwards compatible export
+export const SOCKET_URL = baseUrl;
 
 // ===========================================
 // PRIMARY RTC CONFIGURATION
@@ -39,7 +38,7 @@ export const RTC_CONFIG = {
         // STUN Servers (free, unlimited)
         // ========================================
 
-        // Google's global STUN servers (most reliable)
+
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
         { urls: "stun:stun2.l.google.com:19302" },
@@ -53,7 +52,7 @@ export const RTC_CONFIG = {
         // TURN Servers (for NAT traversal)
         // ========================================
 
-        // OpenRelay (free tier - limited bandwidth)
+        // OpenRelay (free tier)
         {
             urls: "turn:openrelay.metered.ca:80",
             username: "openrelayproject",
@@ -88,23 +87,21 @@ export const RTC_CONFIG = {
         },
     ],
 
-    // ICE candidate pool size (pre-gather candidates for faster connection)
+
     iceCandidatePoolSize: 10,
 
-    // Bundle policy: "max-bundle" recommended
+
     bundlePolicy: "max-bundle",
 
-    // RTCP Mux policy: Multiplex RTP and RTCP on same port
+
     rtcpMuxPolicy: "require",
 
-    // ICE transport policy:
-    // "all" - Use both STUN and TURN
-    // "relay" - Force TURN only (useful for testing)
+
     iceTransportPolicy: "all",
 };
 
 // ===========================================
-// MINIMAL CONFIG (STUN only - for testing)
+// MINIMAL CONFIG (STUN only)
 // ===========================================
 export const RTC_CONFIG_STUN_ONLY = {
     iceServers: [
@@ -117,7 +114,7 @@ export const RTC_CONFIG_STUN_ONLY = {
 };
 
 // ===========================================
-// TURN-ONLY CONFIG (for strict firewalls)
+// TURN-ONLY CONFIG (strict firewalls)
 // ===========================================
 export const RTC_CONFIG_TURN_ONLY = {
     iceServers: [
@@ -135,26 +132,24 @@ export const RTC_CONFIG_TURN_ONLY = {
     iceCandidatePoolSize: 4,
     bundlePolicy: "max-bundle",
     rtcpMuxPolicy: "require",
-    iceTransportPolicy: "relay", // Force TURN
+    iceTransportPolicy: "relay",
 };
 
 // ===========================================
 // MEDIA CONSTRAINTS
 // ===========================================
 
-/**
- * Default media constraints for getUserMedia
- */
+
 export const MEDIA_CONSTRAINTS = {
-    // Video constraints
+
     video: {
         width: { ideal: 1280, max: 1920 },
         height: { ideal: 720, max: 1080 },
         frameRate: { ideal: 30, max: 60 },
-        facingMode: "user", // Front camera on mobile
+        facingMode: "user",
     },
 
-    // Audio constraints
+
     audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -163,19 +158,19 @@ export const MEDIA_CONSTRAINTS = {
     },
 };
 
-// Video-only constraints
+
 export const VIDEO_ONLY_CONSTRAINTS = {
     video: MEDIA_CONSTRAINTS.video,
     audio: false,
 };
 
-// Audio-only constraints (for audio live streams)
+
 export const AUDIO_ONLY_CONSTRAINTS = {
     video: false,
     audio: MEDIA_CONSTRAINTS.audio,
 };
 
-// Screen share constraints
+
 export const SCREEN_SHARE_CONSTRAINTS = {
     video: {
         cursor: "always",
@@ -187,7 +182,7 @@ export const SCREEN_SHARE_CONSTRAINTS = {
     },
 };
 
-// HD Video constraints
+
 export const HD_VIDEO_CONSTRAINTS = {
     video: {
         width: { ideal: 1920, max: 1920 },
@@ -198,7 +193,7 @@ export const HD_VIDEO_CONSTRAINTS = {
     audio: MEDIA_CONSTRAINTS.audio,
 };
 
-// Mobile-optimized constraints
+
 export const MOBILE_CONSTRAINTS = {
     video: {
         width: { ideal: 640, max: 1280 },
@@ -220,20 +215,20 @@ export const MOBILE_CONSTRAINTS = {
 /**
  * SDP modifications for better quality
  * @param {string} sdp - Original SDP
- * @param {number} videoBitrate - Video bitrate in kbps
- * @param {number} audioBitrate - Audio bitrate in kbps
- * @returns {string} Modified SDP
+ * @param {number} videoBitrate - Desired video bitrate in kbps
  */
 export const modifySdpForBitrate = (sdp, videoBitrate = 2500, audioBitrate = 128) => {
+    if (!sdp) return sdp;
+
     let modifiedSdp = sdp;
 
-    // Video bitrate (in kbps)
+    // Video bitrate
     modifiedSdp = modifiedSdp.replace(
         /m=video (.*)\r\n/,
         `m=video $1\r\nb=AS:${videoBitrate}\r\n`
     );
 
-    // Audio bitrate (in kbps)
+    // Audio bitrate
     modifiedSdp = modifiedSdp.replace(
         /m=audio (.*)\r\n/,
         `m=audio $1\r\nb=AS:${audioBitrate}\r\n`
@@ -244,7 +239,7 @@ export const modifySdpForBitrate = (sdp, videoBitrate = 2500, audioBitrate = 128
 
 /**
  * Check if WebRTC is supported
- * @returns {boolean}
+ * @return {boolean}
  */
 export const isWebRTCSupported = () => {
     if (typeof window === "undefined" || typeof navigator === "undefined") return false;
@@ -263,35 +258,32 @@ export const isWebRTCSupported = () => {
 
 /**
  * Check if screen sharing is supported
- * @returns {boolean}
+ * @return {boolean}
  */
 export const isScreenShareSupported = () => {
     if (typeof navigator === "undefined") return false;
-    return !!(
-        navigator.mediaDevices &&
-        navigator.mediaDevices.getDisplayMedia
-    );
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
 };
 
 /**
  * Get available media devices
- * @returns {Promise<{audioInputs: MediaDeviceInfo[], audioOutputs: MediaDeviceInfo[], videoInputs: MediaDeviceInfo[]}>}
+ * @return {Promise<{audioInputs: MediaDeviceInfo[], audioOutputs: MediaDeviceInfo[], videoInputs: MediaDeviceInfo[]}>}
  */
 export const getMediaDevices = async () => {
+    const empty = { audioInputs: [], audioOutputs: [], videoInputs: [] };
+
     if (typeof navigator === "undefined" || !navigator.mediaDevices) {
-        return {
-            audioInputs: [],
-            audioOutputs: [],
-            videoInputs: [],
-        };
+        return empty;
     }
 
     try {
         // Request permission first to get device labels
         try {
-            await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            // ✅ FIX: Stop tracks after getting permission
+            stream.getTracks().forEach(track => track.stop());
         } catch {
-            // Ignore; we'll still attempt enumerateDevices
+            // Ignore - we'll still attempt enumerateDevices
         }
 
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -302,18 +294,14 @@ export const getMediaDevices = async () => {
         };
     } catch (err) {
         console.error("Error getting media devices:", err);
-        return {
-            audioInputs: [],
-            audioOutputs: [],
-            videoInputs: [],
-        };
+        return empty;
     }
 };
 
 /**
  * Test ICE connectivity
  * @param {RTCConfiguration} config - RTC configuration to test
- * @returns {Promise<{stun: boolean, turn: boolean, candidates: string[], timeElapsed: number}>}
+ * @return {Promise<{stun: boolean, turn: boolean, candidates: string[], timeElapsed: number}>}
  */
 export const testIceConnectivity = async (config = RTC_CONFIG) => {
     const fallback = {
@@ -323,30 +311,45 @@ export const testIceConnectivity = async (config = RTC_CONFIG) => {
         timeElapsed: 0,
     };
 
-    if (typeof window === "undefined") {
-        // SSR / non-browser
-        return fallback;
-    }
+    if (typeof window === "undefined") return fallback;
 
     const RTCPeer =
         window.RTCPeerConnection ||
         window.webkitRTCPeerConnection ||
         window.mozRTCPeerConnection;
 
-    if (!RTCPeer) {
-        return fallback;
-    }
+    if (!RTCPeer) return fallback;
 
     return new Promise(resolve => {
-        const pc = new RTCPeer(config);
+        let pc;
+        try {
+            pc = new RTCPeer(config);
+        } catch (err) {
+            console.error("Failed to create RTCPeerConnection:", err);
+            return resolve(fallback);
+        }
+
         const results = { ...fallback };
         const startTime = Date.now();
+        let resolved = false;
+
+        const finish = () => {
+            if (resolved) return;
+            resolved = true;
+            results.timeElapsed = Date.now() - startTime;
+            try {
+                pc.close();
+            } catch {
+                // ignore
+            }
+            resolve(results);
+        };
 
         pc.onicecandidate = event => {
             if (event.candidate) {
                 results.candidates.push(event.candidate.candidate);
 
-                // In moderne browsers bestaat event.candidate.type
+
                 if (event.candidate.type === "srflx") {
                     results.stun = true;
                 }
@@ -358,86 +361,74 @@ export const testIceConnectivity = async (config = RTC_CONFIG) => {
 
         pc.onicegatheringstatechange = () => {
             if (pc.iceGatheringState === "complete") {
-                results.timeElapsed = Date.now() - startTime;
-                pc.close();
-                resolve(results);
+                finish();
             }
         };
 
-        // Create dummy data channel to trigger ICE gathering
+
         try {
             pc.createDataChannel("test");
             pc.createOffer()
                 .then(offer => pc.setLocalDescription(offer))
                 .catch(err => {
                     console.error("ICE test error:", err);
-                    pc.close();
-                    resolve(results);
+                    finish();
                 });
         } catch (err) {
             console.error("ICE test error:", err);
-            pc.close();
-            resolve(results);
+            finish();
         }
 
         // Timeout after 10 seconds
-        setTimeout(() => {
-            results.timeElapsed = Date.now() - startTime;
-            try {
-                pc.close();
-            } catch {
-                // ignore
-            }
-            resolve(results);
-        }, 10000);
+        setTimeout(finish, 10000);
     });
 };
 
 /**
  * Get optimal RTC config based on network conditions
- * @returns {Promise<RTCConfiguration>}
+ * @return {Promise<RTCConfiguration>}
  */
 export const getOptimalRtcConfig = async () => {
     try {
-        // If WebRTC not supported, just return default to avoid crash
+
         if (!isWebRTCSupported()) {
             console.warn("WebRTC not fully supported, using default RTC config");
             return RTC_CONFIG;
         }
 
-        // Test with full config first
+
         const results = await testIceConnectivity(RTC_CONFIG);
 
         console.log("🌐 ICE connectivity test results:", results);
 
-        // If TURN works, use full config
+
         if (results.turn) {
             console.log("✅ Using full RTC config with TURN");
             return RTC_CONFIG;
         }
 
-        // If only STUN works, use STUN-only config
+
         if (results.stun) {
             console.log("⚠️ TURN unavailable, using STUN-only config");
             return RTC_CONFIG_STUN_ONLY;
         }
 
-        // If nothing works, force TURN-only
+
         console.log("❌ Direct connection failed, forcing TURN relay");
         return RTC_CONFIG_TURN_ONLY;
     } catch (err) {
         console.error("Error testing ICE connectivity:", err);
-        return RTC_CONFIG; // Fallback to default
+        return RTC_CONFIG;
     }
 };
 
 /**
  * Get constraints based on device type
- * @returns {MediaStreamConstraints}
+ * @return {MediaStreamConstraints}
  */
 export const getDeviceOptimizedConstraints = () => {
     if (typeof navigator === "undefined") {
-        // Probably SSR or non-browser – just use desktop HD as default
+
         return HD_VIDEO_CONSTRAINTS;
     }
 
@@ -456,7 +447,7 @@ export const getDeviceOptimizedConstraints = () => {
 
 /**
  * Create a new peer connection with optimal settings
- * @returns {Promise<RTCPeerConnection|null>}
+ * @return {Promise<RTCPeerConnection|null>}
  */
 export const createPeerConnection = async () => {
     if (typeof window === "undefined") {
@@ -477,7 +468,7 @@ export const createPeerConnection = async () => {
     const config = await getOptimalRtcConfig();
     const pc = new RTCPeer(config);
 
-    // Add connection state logging
+
     pc.onconnectionstatechange = () => {
         console.log(`🔌 Connection state: ${pc.connectionState}`);
     };
@@ -514,6 +505,97 @@ export const QUALITY_PRESETS = {
         videoBitrate: 4000,
         audioBitrate: 192,
     },
+};
+
+// ===========================================
+// ✅ NEW: Connection quality monitor
+// ===========================================
+
+/**
+ * Monitor connection quality and stats
+ * @param {RTCPeerConnection} pc - The peer connection to monitor
+ * @param {function} onStats - Callback with stats data
+ * @param {number} interval - Polling interval in ms (default 2000)
+ * @returns {function} Stop function
+ */
+export const monitorConnectionQuality = (pc, onStats, interval = 2000) => {
+    if (!pc || typeof onStats !== "function") return () => { };
+
+    let previousStats = null;
+
+    const poll = async () => {
+        try {
+            const stats = await pc.getStats();
+            const report = {
+                timestamp: Date.now(),
+                video: { bytesSent: 0, bytesReceived: 0, packetsLost: 0, jitter: 0, frameRate: 0 },
+                audio: { bytesSent: 0, bytesReceived: 0, packetsLost: 0, jitter: 0 },
+                connection: { rtt: 0, availableBandwidth: 0 },
+            };
+
+            stats.forEach(stat => {
+                if (stat.type === "outbound-rtp" && stat.kind === "video") {
+                    report.video.bytesSent = stat.bytesSent || 0;
+                    report.video.frameRate = stat.framesPerSecond || 0;
+                }
+                if (stat.type === "outbound-rtp" && stat.kind === "audio") {
+                    report.audio.bytesSent = stat.bytesSent || 0;
+                }
+                if (stat.type === "inbound-rtp" && stat.kind === "video") {
+                    report.video.bytesReceived = stat.bytesReceived || 0;
+                    report.video.packetsLost = stat.packetsLost || 0;
+                    report.video.jitter = stat.jitter || 0;
+                }
+                if (stat.type === "inbound-rtp" && stat.kind === "audio") {
+                    report.audio.bytesReceived = stat.bytesReceived || 0;
+                    report.audio.packetsLost = stat.packetsLost || 0;
+                    report.audio.jitter = stat.jitter || 0;
+                }
+                if (stat.type === "candidate-pair" && stat.state === "succeeded") {
+                    report.connection.rtt = stat.currentRoundTripTime * 1000 || 0;
+                    report.connection.availableBandwidth = stat.availableOutgoingBitrate || 0;
+                }
+            });
+
+            // Calculate bitrates if we have previous stats
+            if (previousStats) {
+                const timeDiff = (report.timestamp - previousStats.timestamp) / 1000;
+                if (timeDiff > 0) {
+                    report.video.bitrate = Math.round(
+                        ((report.video.bytesSent - previousStats.video.bytesSent) * 8) / timeDiff / 1000
+                    );
+                    report.audio.bitrate = Math.round(
+                        ((report.audio.bytesSent - previousStats.audio.bytesSent) * 8) / timeDiff / 1000
+                    );
+                }
+            }
+
+            previousStats = report;
+            onStats(report);
+        } catch (err) {
+            console.error("Error getting stats:", err);
+        }
+    };
+
+    const intervalId = setInterval(poll, interval);
+    poll(); // Initial poll
+
+    return () => clearInterval(intervalId);
+};
+
+/**
+ * Get connection quality label based on stats
+ */
+export const getQualityLabel = (stats) => {
+    if (!stats) return "unknown";
+
+    const { rtt } = stats.connection || {};
+    const { packetsLost, jitter } = stats.video || {};
+
+    if (rtt < 100 && packetsLost < 5 && jitter < 0.03) return "excellent";
+    if (rtt < 200 && packetsLost < 20 && jitter < 0.05) return "good";
+    if (rtt < 400 && packetsLost < 50 && jitter < 0.1) return "fair";
+    return "poor";
 };
 
 // ===========================================

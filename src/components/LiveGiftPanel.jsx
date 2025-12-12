@@ -1,13 +1,10 @@
 // src/components/LiveGiftPanel.jsx - WORLD STUDIO LIVE EDITION 🎁 (U.E + GAMBLE)
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { toast } from "react-hot-toast";
 
-
-/* ============================================================
-   WORLD STUDIO LIVE CONFIGURATION (CENTRAL API + SOCKET)
-   ============================================================ */
+// ✅ Use shared instances
 import api from "../api/api";
-import { getSocket } from "../api/socket";
+import socket from "../api/socket";
 
 /* ============================================================
    GIFT DATA
@@ -103,7 +100,9 @@ const GIFTS = [
     },
 ];
 
-// Gift Animation Component
+/* ============================================================
+   GIFT ANIMATION COMPONENT
+   ============================================================ */
 const GiftAnimation = ({ gift, onComplete }) => {
     useEffect(() => {
         const timer = setTimeout(() => onComplete?.(), 3000);
@@ -121,9 +120,7 @@ const GiftAnimation = ({ gift, onComplete }) => {
                 </p>
                 {gift.gambleResult ? (
                     <p
-                        className={`font-bold text-2xl mt-2 ${gift.gambleResult === "win"
-                                ? "text-green-400"
-                                : "text-red-400"
+                        className={`font-bold text-2xl mt-2 ${gift.gambleResult === "win" ? "text-green-400" : "text-red-400"
                             }`}
                     >
                         {gift.gambleResult === "win"
@@ -143,13 +140,7 @@ const GiftAnimation = ({ gift, onComplete }) => {
 /* ============================================================
    MAIN COMPONENT
    ============================================================ */
-export default function LiveGiftPanel({
-    streamId,
-    hostId,
-    hostUsername,
-    onGiftSent,
-}) {
-    const socketRef = useRef(null);
+export default function LiveGiftPanel({ streamId, hostId, hostUsername, onGiftSent }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [balance, setBalance] = useState(0);
     const [selectedCategory, setSelectedCategory] = useState("basic");
@@ -159,15 +150,11 @@ export default function LiveGiftPanel({
     const [showConfirm, setShowConfirm] = useState(false);
     const [giftAnimation, setGiftAnimation] = useState(null);
 
-    // Init socket (singleton via central getSocket)
-    useEffect(() => {
-        socketRef.current = getSocket();
-        return () => {
-            // singleton: niet disconnecten
-        };
-    }, []);
+    const selfId = currentUser?._id || currentUser?.id;
 
-    // Load current user + wallet
+    /* ========================================================
+       LOAD CURRENT USER + WALLET
+       ======================================================== */
     useEffect(() => {
         const stored = localStorage.getItem("ws_currentUser");
         if (stored) {
@@ -176,25 +163,28 @@ export default function LiveGiftPanel({
                 setCurrentUser(user);
                 setBalance(user.wallet?.balance || 0);
             } catch (e) {
-                // ignore
+                console.error("Failed to parse user:", e);
             }
         }
     }, []);
 
-    // Socket events voor gifts (real-time)
+    /* ========================================================
+       SOCKET EVENTS FOR GIFTS (REAL-TIME)
+       ======================================================== */
     useEffect(() => {
-        const socket = socketRef.current;
-        if (!socket) return;
+
 
         const handleGift = (gift) => {
+            // Filter by streamId if provided
+            if (gift.streamId && streamId && gift.streamId !== streamId) return;
+
             const giftData = { ...gift, timestamp: Date.now() };
             setRecentGifts((prev) => [...prev.slice(-4), giftData]);
             setGiftAnimation(giftData);
 
+            // Auto-remove after 5 seconds
             setTimeout(() => {
-                setRecentGifts((prev) =>
-                    prev.filter((g) => g.timestamp !== giftData.timestamp)
-                );
+                setRecentGifts((prev) => prev.filter((g) => g.timestamp !== giftData.timestamp));
             }, 5000);
         };
 
@@ -205,17 +195,21 @@ export default function LiveGiftPanel({
             socket.off("gift_received", handleGift);
             socket.off("gift_sent", handleGift);
         };
-    }, []);
+    }, [streamId]);
 
-    const filteredGifts = GIFTS.filter(
-        (g) => g.category === selectedCategory
+    /* ========================================================
+       HELPERS
+       ======================================================== */
+    const filteredGifts = GIFTS.filter((g) => g.category === selectedCategory);
+
+    const formatPrice = useCallback(
+        (price) => (price >= 1000 ? `${(price / 1000).toFixed(price % 1000 === 0 ? 0 : 1)}K` : price),
+        []
     );
 
-    const formatPrice = (price) =>
-        price >= 1000
-            ? `${(price / 1000).toFixed(price % 1000 === 0 ? 0 : 1)}K`
-            : price;
-
+    /* ========================================================
+       SEND GIFT
+       ======================================================== */
     const sendGift = async (gift) => {
         if (!currentUser) {
             toast.error("Log in to send gifts");
@@ -230,7 +224,7 @@ export default function LiveGiftPanel({
             return;
         }
 
-        // High value confirm (ook voor gamble)
+        // High value confirm (also for gamble)
         if (gift.price >= 1000 && !showConfirm) {
             setSelectedGift(gift);
             setShowConfirm(true);
@@ -249,15 +243,12 @@ export default function LiveGiftPanel({
         if (isGamble) {
             win = Math.random() < (gift.gamble.winChance || 0);
             if (win) {
-                bonus = Math.round(
-                    stake * ((gift.gamble.multiplier || 1) - 1)
-                );
+                bonus = Math.round(stake * ((gift.gamble.multiplier || 1) - 1));
             }
         }
 
         try {
-            // 🎁 API-call: host krijgt stake als gift
-            // LET OP: api.js heeft baseURL = .../api → hier GEEN /api prefix
+            // 🎁 API-call: host gets stake as gift
             await api.post("/gifts", {
                 recipientId: hostId,
                 item: gift.name,
@@ -265,7 +256,7 @@ export default function LiveGiftPanel({
                 streamId,
             });
 
-            // Update local wallet: stake weg, bonus erbij als win
+            // Update local wallet: stake removed, bonus added if win
             const newBalance = balance - stake + bonus;
             setBalance(newBalance);
 
@@ -276,19 +267,16 @@ export default function LiveGiftPanel({
                     balance: newBalance,
                 },
             };
-            localStorage.setItem(
-                "ws_currentUser",
-                JSON.stringify(updatedUser)
-            );
+            localStorage.setItem("ws_currentUser", JSON.stringify(updatedUser));
             setCurrentUser(updatedUser);
 
-            // Socket payload (voor overlay + recent list)
+            // Socket payload (for overlay + recent list)
             const payload = {
                 streamId,
                 roomId: streamId,
                 senderUsername: currentUser.username,
                 senderAvatar: currentUser.avatar,
-                senderId: currentUser._id,
+                senderId: selfId,
                 recipientId: hostId,
                 recipientUsername: hostUsername,
                 item: gift.name,
@@ -304,7 +292,7 @@ export default function LiveGiftPanel({
                 payload.bonus = bonus;
             }
 
-            socketRef.current?.emit("gift_sent", payload);
+            socket.emit("gift_sent", payload);
 
             if (isGamble) {
                 if (win) {
@@ -312,87 +300,70 @@ export default function LiveGiftPanel({
                         `🎲 WIN! You sent ${gift.name} to ${hostUsername} and won +${bonus.toLocaleString()} WS-Coins!`
                     );
                 } else {
-                    toast(
-                        `🎲 No bonus this time… You sent ${gift.name} to ${hostUsername}`,
-                        { icon: "💔" }
-                    );
+                    toast(`🎲 No bonus this time… You sent ${gift.name} to ${hostUsername}`, { icon: "💔" });
                 }
             } else {
-                toast.success(
-                    `${gift.icon} ${gift.name} sent to ${hostUsername}!`
-                );
+                toast.success(`${gift.icon} ${gift.name} sent to ${hostUsername}!`);
             }
 
             onGiftSent?.(gift);
         } catch (err) {
             console.error("Gift error:", err);
-            toast.error(
-                err.response?.data?.message || "Failed to send gift"
-            );
+            toast.error(err.response?.data?.message || "Failed to send gift");
         } finally {
             setSending(false);
             setSelectedGift(null);
         }
     };
 
-
+    /* ========================================================
+       NOT LOGGED IN STATE
+       ======================================================== */
     if (!currentUser) {
         return (
             <div className="p-6 text-center">
                 <p className="text-4xl mb-3">🎁</p>
                 <p className="text-white/50 mb-3">Log in to send gifts</p>
-                <a
-                    href="/login"
-                    className="text-cyan-400 hover:underline text-sm"
-                >
+                <a href="/login" className="text-cyan-400 hover:underline text-sm">
                     Login now →
                 </a>
             </div>
         );
     }
 
+    /* ========================================================
+       RENDER
+       ======================================================== */
     return (
         <div className="relative">
-            {giftAnimation && (
-                <GiftAnimation
-                    gift={giftAnimation}
-                    onComplete={() => setGiftAnimation(null)}
-                />
-            )}
+            {/* Gift Animation Overlay */}
+            {giftAnimation && <GiftAnimation gift={giftAnimation} onComplete={() => setGiftAnimation(null)} />}
 
+            {/* Confirm Modal */}
             {showConfirm && selectedGift && (
                 <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-4">
                     <div className="bg-gray-900 rounded-2xl p-6 max-w-sm w-full border border-white/20">
                         <div className="text-center mb-4">
-                            <span className="text-6xl block">
-                                {selectedGift.icon}
-                            </span>
-                            <h3 className="text-xl font-bold mt-2">
-                                {selectedGift.name}
-                            </h3>
+                            <span className="text-6xl block">{selectedGift.icon}</span>
+                            <h3 className="text-xl font-bold mt-2">{selectedGift.name}</h3>
                             <p className="text-yellow-400 font-bold text-2xl mt-1">
                                 💰 {selectedGift.price.toLocaleString()}
                             </p>
                             {selectedGift.gamble && (
-                                <p className="text-cyan-400 text-xs mt-2">
-                                    {selectedGift.gamble.label}
-                                </p>
+                                <p className="text-cyan-400 text-xs mt-2">{selectedGift.gamble.label}</p>
                             )}
                         </div>
                         <p className="text-white/60 text-center mb-4">
-                            Send this gift to{" "}
-                            <span className="text-cyan-400 font-semibold">
-                                {hostUsername}
-                            </span>
-                            ?
+                            Send this gift to <span className="text-cyan-400 font-semibold">{hostUsername}</span>?
                         </p>
+                        {/* ✅ FIXED: was "hover:bg.white/20" */}
                         <div className="flex gap-3">
                             <button
                                 onClick={() => {
                                     setShowConfirm(false);
                                     setSelectedGift(null);
                                 }}
-                                className="flex-1 py-3 rounded-xl bg-white/10 font-semibold hover:bg.white/20 transition"
+                                className="flex-1 py-3 rounded-xl bg-white/10 font-semibold hover:bg-white/20 transition"
                             >
                                 Cancel
                             </button>
@@ -411,25 +382,21 @@ export default function LiveGiftPanel({
             {/* Balance header */}
             <div className="flex items-center justify-between p-3 bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border-b border-white/10">
                 <span className="text-white/60 text-sm">Your Balance</span>
-                <span className="text-yellow-400 font-bold text-lg">
-                    💰 {balance.toLocaleString()}
-                </span>
+                <span className="text-yellow-400 font-bold text-lg">💰 {balance.toLocaleString()}</span>
             </div>
 
-            {/* Category tabs */}
+            {/* Category tabs - ✅ FIXED: was "flex-1.min-w-[80px]" */}
             <div className="flex border-b border-white/10 overflow-x-auto scrollbar-hide">
                 {GIFT_CATEGORIES.map((cat) => (
                     <button
                         key={cat.id}
                         onClick={() => setSelectedCategory(cat.id)}
-                        className={`flex-1.min-w-[80px] py-2.5 px-3 text-xs font-semibold transition whitespace-nowrap ${selectedCategory === cat.id
+                        className={`flex-1 min-w-[80px] py-2.5 px-3 text-xs font-semibold transition whitespace-nowrap ${selectedCategory === cat.id
                                 ? "text-cyan-400 border-b-2 border-cyan-400 bg-cyan-400/10"
                                 : "text-white/50 hover:text-white/80 hover:bg-white/5"
                             }`}
                     >
-                        <span className="block text-lg mb-0.5">
-                            {cat.icon}
-                        </span>
+                        <span className="block text-lg mb-0.5">{cat.icon}</span>
                         {cat.name}
                     </button>
                 ))}
@@ -452,19 +419,14 @@ export default function LiveGiftPanel({
                                 }`}
                         >
                             <span
-                                className={`text-2xl transition-transform ${canAfford
-                                        ? "group-hover:scale-110"
-                                        : ""
-                                    }`}
+                                className={`text-2xl transition-transform ${canAfford ? "group-hover:scale-110" : ""}`}
                             >
                                 {gift.icon}
                             </span>
                             <span className="text-[10px] text-white/80 truncate w-full text-center mt-1">
                                 {gift.name}
                             </span>
-                            <span className="text-[10px] text-yellow-400 font-bold">
-                                {formatPrice(gift.price)}
-                            </span>
+                            <span className="text-[10px] text-yellow-400 font-bold">{formatPrice(gift.price)}</span>
 
                             {gift.category === "epic" && (
                                 <span className="absolute -top-1 -right-1 text-[8px] bg-purple-500 px-1 rounded animate-pulse">
@@ -486,51 +448,38 @@ export default function LiveGiftPanel({
                 })}
             </div>
 
-            {/* Recent gifts */}
+            {/* Recent gifts - ✅ FIXED: was "font.medium" */}
             {recentGifts.length > 0 && (
                 <div className="p-2 border-t border-white/10 space-y-1 max-h-[100px] overflow-y-auto">
-                    <p className="text-white/40 text-[10px] px-1">
-                        Recent Gifts
-                    </p>
+                    <p className="text-white/40 text-[10px] px-1">Recent Gifts</p>
                     {recentGifts.map((gift, i) => (
                         <div
                             key={gift.timestamp || i}
-                            className={`flex items-center gap-2 bg-gradient-to-r ${gift.color ||
-                                "from-purple-500/20 to-pink-500/20"
+                            className={`flex items-center gap-2 bg-gradient-to-r ${gift.color || "from-purple-500/20 to-pink-500/20"
                                 } rounded-lg px-2 py-1.5 animate-slideIn`}
                         >
                             <span className="text-lg">{gift.icon}</span>
                             <span className="text-xs truncate flex-1">
-                                <span className="text-cyan-400 font-semibold">
-                                    {gift.senderUsername}
-                                </span>
+                                <span className="text-cyan-400 font-semibold">{gift.senderUsername}</span>
                                 <span className="text-white/40"> → </span>
-                                <span className="text-yellow-400 font.medium">
-                                    {gift.item}
-                                </span>
+                                <span className="text-yellow-400 font-medium">{gift.item}</span>
                                 {gift.isGamble && (
                                     <span className="ml-1 text-[9px] text-white/70">
-                                        (
-                                        {gift.gambleResult === "win"
-                                            ? "WIN"
-                                            : "lose"}
-                                        )
+                                        ({gift.gambleResult === "win" ? "WIN" : "lose"})
                                     </span>
                                 )}
                             </span>
-                            <span className="text-yellow-400 text-xs font-bold">
-                                {formatPrice(gift.amount)}
-                            </span>
+                            <span className="text-yellow-400 text-xs font-bold">{formatPrice(gift.amount)}</span>
                         </div>
                     ))}
                 </div>
             )}
 
             <p className="text-white/30 text-[10px] text-center py-2 border-t border-white/10">
-                Tap a gift to send to {hostUsername || "host"} • Gamble gifts
-                use only WS-Coins (no real money)
+                Tap a gift to send to {hostUsername || "host"} • Gamble gifts use only WS-Coins (no real money)
             </p>
 
+            {/* ✅ FIXED: was "0.3s.ease-out" */}
             <style>{`
                 .scrollbar-hide::-webkit-scrollbar { display: none; }
                 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
@@ -542,7 +491,7 @@ export default function LiveGiftPanel({
                     from { opacity: 0; transform: translateX(-10px); }
                     to { opacity: 1; transform: translateX(0); }
                 }
-                .animate-slideIn { animation: slideIn 0.3s.ease-out; }
+                .animate-slideIn { animation: slideIn 0.3s ease-out; }
             `}</style>
         </div>
     );

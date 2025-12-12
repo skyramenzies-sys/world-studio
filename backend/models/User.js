@@ -397,21 +397,20 @@ const UserSchema = new mongoose.Schema(
         // Profile
         displayName: {
             type: String,
-            maxLength: 50,
+
         },
         avatar: {
             type: String,
-            default: "",
+
         },
         avatarPublicId: String,
         coverImage: {
             type: String,
-            default: "",
+
         },
         bio: {
             type: String,
-            default: "",
-            maxLength: 500,
+
         },
         location: String,
         website: String,
@@ -496,12 +495,14 @@ const UserSchema = new mongoose.Schema(
             {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User",
+                default: [],
             },
         ],
         following: [
             {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User",
+                default: [],
             },
         ],
         followersCount: {
